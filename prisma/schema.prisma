@@ -1,0 +1,161 @@
+// Etapa 1 — institutional site + real, database-backed catalog.
+//
+// Future entities (users, user_measurements, favorites, recommendation_rules,
+// orders, payments, fiscal_invoices, audit_logs) intentionally do not exist
+// yet. See docs/ARCHITECTURE.md and docs/adr/ for why, and for the
+// conventions applied below (slug immutability, current_frame_* naming,
+// Cloudinary public_id storage, product_variants from day one).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Brand {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String
+  /// Immutable once published — see docs/adr/0013-slug-immutability-enforcement.md
+  slug         String    @unique
+  logoPublicId String?   @map("logo_public_id")
+  description  String?
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  products Product[]
+
+  @@map("brands")
+}
+
+model Category {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  /// Immutable once published — see docs/adr/0013-slug-immutability-enforcement.md
+  slug      String    @unique
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id         String @id @default(uuid()) @db.Uuid
+  name       String
+  /// Immutable once published — see docs/adr/0013-slug-immutability-enforcement.md
+  slug       String @unique
+  brandId    String @map("brand_id") @db.Uuid
+  categoryId String @map("category_id") @db.Uuid
+
+  /// Descriptive/filter attribute (e.g. round, square, cat-eye). Nullable —
+  /// populated progressively as catalog content is entered.
+  shape     String?
+  basePrice Decimal @map("base_price") @db.Decimal(10, 2)
+
+  // Frame measurements — properties of the physical design, shared across
+  // every color variant. Never confused with the future current_frame_*
+  // fields on user_measurements (Etapa 2, ADR-0012): those describe a
+  // customer's own frame, these describe the catalog item. Nullable
+  // because the proposal states these are provided "cuando esté disponible".
+  lensWidth    Float? @map("lens_width")
+  bridgeWidth  Float? @map("bridge_width")
+  templeLength Float? @map("temple_length")
+  lensHeight   Float? @map("lens_height")
+  frameWidth   Float? @map("frame_width")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  brand    Brand            @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants ProductVariant[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  // A GIN trigram index on `name` (pg_trgm), backing GET /products?q=,
+  // is created via raw SQL in the initial migration — see ADR-0014 for
+  // why this is not declared here through Prisma's postgresqlExtensions
+  // preview feature. docs/DATABASE_DESIGN.md documents the operational
+  // consequence: this index is intentionally unmanaged by schema.prisma.
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String @id @default(uuid()) @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  /// Nullable — a product may exist as a single, undifferentiated variant
+  /// before (or unless) the client's inventory is tracked per color. See
+  /// docs/DATABASE_DESIGN.md "Open question: per-color stock".
+  color    String?
+  material String?
+  sku      String  @unique
+
+  /// CHECK (stock >= 0) is added as raw SQL in the first migration —
+  /// Prisma schema has no declarative CHECK constraint syntax. Plain
+  /// column here; the constraint is a data-integrity guard, not
+  /// inventory-management business logic.
+  stock         Int      @default(0)
+  priceOverride Decimal? @map("price_override") @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  product Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images  ProductImage[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id        String @id @default(uuid()) @db.Uuid
+  variantId String @map("variant_id") @db.Uuid
+
+  /// Cloudinary public_id — never the full delivery URL. See ADR-0010;
+  /// the API/integration layer builds the delivery URL at request time.
+  cloudinaryPublicId String @map("cloudinary_public_id")
+  /// Required, not defaulted to empty — accessibility requirement.
+  /// The admin/seed layer is responsible for supplying real alt text
+  /// (falling back to the product name is an application concern, not
+  /// a schema-level default).
+  alt                String
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId])
+  @@map("product_images")
+}
+
+model Branch {
+  id      String  @id @default(uuid()) @db.Uuid
+  name    String
+  address String
+  phone   String?
+
+  whatsapp      String?
+  /// Free-form per-day opening hours; not normalized into its own table —
+  /// no query currently needs to filter/sort by hours.
+  hours         Json?
+  lat           Float?
+  lng           Float?
+  googleMapsUrl String? @map("google_maps_url")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("branches")
+}

@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 configuration lives here, in CSS, not tailwind.config.js.
+ * Every custom property below becomes a Tailwind utility automatically
+ * by its prefix (--color-* -> bg-primary/text-primary/border-primary,
+ * --font-* -> font-display/font-body, --radius-* -> rounded-*,
+ * --shadow-* -> shadow-*). This is the actual difference from the v3
+ * workflow this project would otherwise default to — no separate config
+ * file, no `@tailwind base/components/utilities` directives, no PostCSS
+ * config (the @tailwindcss/vite plugin handles that). See
+ * docs/FRONTEND_ARCHITECTURE.md "Design tokens" for the reasoning behind
+ * each value below.
+ */
+@theme {
+  --color-primary: #0f5c56;
+  --color-primary-dark: #0b3f3b;
+  --color-accent: #c17a4f;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f6f5;
+  --color-text: #1a2421;
+  --color-text-muted: #5b6b67;
+  --color-border: #e2e6e4;
+  --color-success: #2f7a4f;
+  --color-danger: #b3413a;
+
+  --font-display: ui-serif, Georgia, "Times New Roman", serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --shadow-soft: 0 1px 2px rgba(15, 30, 28, 0.06);
+  --shadow-elevated: 0 4px 16px rgba(15, 30, 28, 0.1);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    font-family: var(--font-body);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+  }
+
+  ::selection {
+    background-color: var(--color-primary);
+    color: var(--color-surface);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

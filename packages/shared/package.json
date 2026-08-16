@@ -1,0 +1,12 @@
+{
+  "name": "@soluciones-opticas/shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Public API contracts shared between apps/api and apps/web. Type-only — no runtime code, no Prisma types.",
+  "types": "./src/index.ts",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

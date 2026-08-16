@@ -1,0 +1,25 @@
+# Local development database only. Not used for staging or production —
+# see docs/ENVIRONMENT.md. Credentials here are dev-only placeholders,
+# matching .env.example; there is nothing sensitive to protect locally.
+services:
+  postgres:
+    image: postgres:16
+    container_name: soluciones-opticas-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: soluciones_opticas
+      POSTGRES_PASSWORD: soluciones_opticas
+      POSTGRES_DB: soluciones_opticas_dev
+    ports:
+      # Host 5433 (not 5432 — already occupied by another local service).
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - soluciones_opticas_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soluciones_opticas -d soluciones_opticas_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  soluciones_opticas_pg_data:
