@@ -6,6 +6,7 @@ import { SectionHeading } from "../components/marketing/SectionHeading";
 import { ContactMethodCard } from "../components/ui/ContactMethodCard";
 import { WhatsAppButton } from "../components/ui/WhatsAppButton";
 import { siteContent } from "../content/site-content";
+import { toTelHref } from "../lib/format-phone";
 
 const PENDING = <span className="text-text-muted">A confirmar</span>;
 
@@ -33,7 +34,7 @@ export function ContactPage() {
             label="Teléfono"
             value={
               siteContent.phone ? (
-                <a href={`tel:${siteContent.phone}`} className="text-primary hover:underline">
+                <a href={toTelHref(siteContent.phone)} className="text-primary hover:underline">
                   {siteContent.phone}
                 </a>
               ) : (

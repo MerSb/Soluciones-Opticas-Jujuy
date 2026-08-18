@@ -72,11 +72,11 @@ describe("routing", () => {
     renderAt("/");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: /anteojos recetados/i }),
+      await screen.findByRole("heading", { level: 1, name: /tu visión,\s*nuestra pasión/i }),
     ).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: /principal/i });
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /productos/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Anteojos" })).toBeInTheDocument();
   });
 
   it("resolves the :slug param on the lazy product-detail route and renders the real product", async () => {

@@ -5,13 +5,20 @@ below blocked implementation — every gap uses honest, neutral placeholder hand
 `apps/web/src/content/site-content.ts` for Home/Institutional, and the Product Catalog section
 below for the catalog), never an invented fact. This list is how to replace each one.
 
+## Resolved in the Hero Refinement step (2026-08-17)
+
+Address, phone, and WhatsApp number were confirmed and are now live in `siteContent` — every
+WhatsApp CTA site-wide (Header, Hero, Contact page, closing CTA) links to a real number, and the
+Hero and Contact page show the real address/phone instead of "A confirmar." One thing this
+sandboxed environment couldn't verify: an actual click-through against a live WhatsApp account —
+worth a real test once deployed, to confirm `5493884844442` (the normalized form of `0388
+484-4442`) opens the right chat.
+
 ## Blocking a real, working feature right now
 
-| Item                | Where it's used                 | Current state                                                                                                                                                                                                                                                                         |
-| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **WhatsApp number** | Hero, closing CTA, Contact page | Not set (`siteContent.whatsappNumber = null`). The button renders in a clearly disabled "Número de WhatsApp a confirmar" state — real, not a placeholder link, so nothing sends a customer to a wrong number. Set the real number and every WhatsApp CTA site-wide activates at once. |
-| **Phone number**    | Contact page                    | Shows "A confirmar."                                                                                                                                                                                                                                                                  |
-| **Email address**   | Contact page                    | Shows "A confirmar."                                                                                                                                                                                                                                                                  |
+| Item              | Where it's used | Current state        |
+| ----------------- | --------------- | -------------------- |
+| **Email address** | Contact page    | Shows "A confirmar." |
 
 ## Branch data (currently fictional dev-seed data)
 
@@ -55,18 +62,27 @@ year, headcount, or specific history). Real content wanted for:
 
 ## Visual identity
 
-- **Logo:** none exists yet — the header/footer currently show the business name as styled text
-  (serif wordmark), not a logo mark. A real logo can replace or sit alongside this.
+- **Logo:** none exists as a usable file yet — the header/footer still show the business name as
+  styled text (serif wordmark), not a logo mark. A real logo was actually shown once, in the Hero
+  Refinement step's own kickoff conversation (a round cyan/white badge with a black line-art
+  glasses mark and the business name/contact info) — but that was an inline chat image, not a file
+  on disk this environment could read or save into the repo. If that's the real logo, please
+  provide it as an actual image file (SVG preferred, or a high-resolution PNG) so it can be added
+  properly, both as the site's logo mark and potentially as a base for a refined Hero visual.
 - **Preferred colors:** the current palette (near-black background, white typography, bright cyan
   `#22d3ee` accent — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)) was specified directly
   as the site's visual direction. Not a placeholder awaiting client input — noted here only for
   completeness.
 - **Photography:** none used yet, deliberately — no stock photos, no images copied from other
-  optical retailers' sites. The Hero currently uses an abstract two-circle motif (pure CSS, evokes
-  lenses) instead of a photo. Real storefront/staff/product photography would be a direct
-  upgrade whenever available — swapping it in only touches `components/marketing/Hero.tsx`.
+  optical retailers' sites. The Hero currently uses a larger, hand-drawn line-art glasses
+  illustration (`components/marketing/hero/HeroFrameIllustration.tsx`, extending the same style
+  `ProductImagePlaceholder` already uses elsewhere) as a **temporary development asset** — real
+  storefront/product photography, or the actual logo mentioned above, would be a direct upgrade
+  whenever available. Swapping it in only touches that one file.
 - **Social media links:** none provided — not rendered anywhere yet (`siteContent.socialLinks` is
-  an empty array).
+  an empty array). The Hero Refinement step's brief mentioned TikTok is used, but didn't include an
+  actual URL — nothing was invented, so no TikTok link appears in the header yet. Provide the real
+  URL (and any other social links) to add them.
 
 ## Product catalog (currently fictional dev-seed data)
 

@@ -23,7 +23,8 @@ const ICON = (
 // it back if a real second context needs it, not speculatively.
 export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
   const { whatsappNumber } = siteContent;
-  const baseClassName = "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium";
+  const baseClassName =
+    "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-[transform,box-shadow,background-color] duration-200";
 
   if (!whatsappNumber) {
     return (
@@ -43,7 +44,7 @@ export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
       href={buildWhatsAppUrl(whatsappNumber, message)}
       target="_blank"
       rel="noopener noreferrer"
-      className={`${baseClassName} bg-primary text-surface hover:bg-primary-dark`}
+      className={`${baseClassName} bg-primary text-surface hover:-translate-y-px hover:bg-primary-dark hover:shadow-elevated focus-visible:shadow-elevated`}
     >
       {ICON}
       {children}

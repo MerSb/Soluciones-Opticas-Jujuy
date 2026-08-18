@@ -78,9 +78,77 @@
     *::before,
     *::after {
       animation-duration: 0.01ms !important;
+      /* animation-delay isn't covered by collapsing duration — a
+         staggered entrance (Hero's 150ms-1050ms delays) would otherwise
+         still wait out its full delay before its now-instant animation
+         fires, so content would appear late instead of "immediately or
+         nearly immediately" (a real gap this Hero Refinement step's
+         live reduced-motion check caught: the address/phone line,
+         delayed 750ms, was still invisible at the 200ms mark). */
+      animation-delay: 0ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+/*
+ * Hero entrance-sequence keyframes, primarily for
+ * components/marketing/hero/* (also reused by Header's mobile nav panel
+ * for its own small fade-in — generic enough not to warrant a second,
+ * near-identical keyframe). Each component applies one of these via a
+ * Tailwind `[animation:...]` arbitrary value with its own delay, so the
+ * stagger timeline lives next to the JSX it times, not as nine numbered
+ * utility classes here.
+ *
+ * Reduced motion needs no special-casing for any of these: the
+ * `prefers-reduced-motion` block above already forces every animation's
+ * duration to ~0 sitewide, so a reduced-motion user sees the same "both"
+ * end state almost immediately instead of the animated entrance — that
+ * existing mechanism is why these are plain CSS keyframes and not
+ * JS-timed. Only the pointer/scroll parallax in useHeroParallax.ts needs
+ * an explicit matchMedia check, since it mutates transform directly via
+ * JS rather than through an animation/transition this block can catch.
+ */
+@keyframes hero-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hero-slide-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(50px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Paired with an SVG path's pathLength={1} — dash math stays in the
+   component, this keyframe just animates the offset to 0 once. */
+@keyframes hero-arc-reveal {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
   }
 }

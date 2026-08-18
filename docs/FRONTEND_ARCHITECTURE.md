@@ -1,11 +1,12 @@
 # Frontend Architecture — Etapa 1
 
 Status: approved. Source: [`apps/web`](../apps/web). All Etapa 1 pages are now real and
-API-backed: Home, About, Brands, Branches, Contact, and — as of this step — the Product Catalog
-(`/products`, `/products/:slug`). Authentication, favorites, measurements, recommendations,
-admin, and checkout remain out of scope, per `ARCHITECTURE.md`'s phased scope. See
-[ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and [API.md](API.md) for the
-backend this consumes, including a "Known limitations" section this step surfaced.
+API-backed: Home, About, Brands, Branches, Contact, and the Product Catalog (`/products`,
+`/products/:slug`). The Home Hero and Header received a further refinement pass (motion, real
+contact data — see "Hero & Header refinement" below). Authentication, favorites, measurements,
+recommendations, admin, and checkout remain out of scope, per `ARCHITECTURE.md`'s phased scope.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and [API.md](API.md) for the
+backend this consumes, including a "Known limitations" section a previous step surfaced.
 
 ## Stack
 
@@ -29,7 +30,9 @@ apps/web/src/
     layout/      Header, Footer, Layout (skip-link + Header + <Outlet/> + Footer)
     ui/          Container, StatusMessage, SeoHead, ResponsiveImage, WhatsAppButton,
                  ContactMethodCard, Breadcrumbs
-    marketing/   Hero, SectionHeading, CTASection
+    marketing/   Hero (orchestrator), SectionHeading, CTASection
+      hero/      HeroContent, HeroVisual, HeroOpticalArc, HeroFrameIllustration,
+                 HeroBenefits, useHeroParallax
     brands/      BrandCard, BrandGrid
     branches/    BranchCard
     catalog/     SearchInput, SortSelect, FilterFields, FilterSidebar, FilterDrawer,
@@ -44,8 +47,9 @@ apps/web/src/
   services/
     api-client.ts   centralized fetch: base URL, JSON parsing, error shape
     queries/        health.ts, brands.ts, branches.ts, categories.ts, products.ts
-  lib/           env.ts (VITE_API_BASE_URL), whatsapp.ts, maps.ts, catalog-url-state.ts
-                 (URL <-> filters), product-sort.ts, color-swatches.ts, format-price.ts
+  lib/           env.ts (VITE_API_BASE_URL), whatsapp.ts, maps.ts, format-phone.ts,
+                 catalog-url-state.ts (URL <-> filters), product-sort.ts, color-swatches.ts,
+                 format-price.ts
   styles/global.css   Tailwind import + @theme tokens + base styles
 ```
 
@@ -132,18 +136,31 @@ opens/closes a real panel, and navigating closes it.
 ## Institutional content strategy
 
 `content/site-content.ts` is the single typed source for anything client-specific that isn't
-database-backed — business name, WhatsApp/phone/email, social links, About-page copy, and the
-Home page's "why choose us" strengths. No CMS, no database model for institutional text — a typed
-config module is the right amount of machinery for content that changes rarely and has one
-maintainer.
+database-backed — business name, address, WhatsApp/phone/email, social links, About-page copy, the
+Home page's "why choose us" strengths, and (as of the Hero Refinement step) the Hero's compact
+`heroBenefits` strip. No CMS, no database model for institutional text — a typed config module is
+the right amount of machinery for content that changes rarely and has one maintainer.
+
+`address`, `phone`, and `whatsappNumber` are now confirmed real values (Hero Refinement step,
+2026-08-17) — `whatsappNumber` is stored pre-normalized to the digits `buildWhatsAppUrl` expects
+(`5493884844442`: AR country code `54` + the `9` mobile-number prefix this project's own
+`whatsapp.test.ts` already assumed + the national number), rather than teaching
+`buildWhatsAppUrl` a second, AR-specific normalization path — see the code comment in
+`site-content.ts` for the exact derivation and the one thing this couldn't verify in this sandbox:
+an actual click-through against a live WhatsApp account.
 
 Every field the client hasn't provided yet is `null` (or neutral placeholder prose for About),
 **never an invented value** — no fabricated years-in-business, customer counts, certifications,
-or guarantees anywhere in the app. Components consuming a `null` field degrade honestly rather
-than silently, e.g. `WhatsAppButton` renders a clearly non-interactive "número a confirmar" state
-instead of linking to a made-up number — a wrong number is worse than an honest gap. Full list of
-what's still needed and exactly where each item plugs in:
-[`CLIENT_CONTENT_CHECKLIST.md`](CLIENT_CONTENT_CHECKLIST.md).
+or guarantees anywhere in the app. This extends to `heroBenefits`: the Hero's visual reference used
+phrases like "Marcas originales" and "Garantía," which read as unconfirmed factual claims (a
+certification, a stated warranty) rather than approved copy, so they were replaced with the
+neutral wording the brief itself offered as a safe alternative ("Variedad de estilos", "Encontrá tu
+marco", etc.) — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)'s sibling reasoning and the
+Hero Refinement step's final report for the full list of claims deliberately not used. Components
+consuming a `null` field degrade honestly rather than silently, e.g. `WhatsAppButton` renders a
+clearly non-interactive "número a confirmar" state instead of linking to a made-up number — a
+wrong number is worse than an honest gap. Full list of what's still needed and exactly where each
+item plugs in: [`CLIENT_CONTENT_CHECKLIST.md`](CLIENT_CONTENT_CHECKLIST.md).
 
 Brand and branch data, by contrast, **is** real API data (`GET /api/brands`, `GET /api/branches`)
 — the mechanism is real and tested, even though the rows currently in the dev database are
@@ -152,6 +169,123 @@ para pruebas locales," branch addresses say "(desarrollo — dirección ficticia
 "this is fake" UI banner was needed on top of that — the data already discloses its own status,
 and the display code is correctly written to render whatever's actually in the database, fictional
 or real.
+
+## Hero & Header refinement
+
+`components/marketing/Hero.tsx` is a thin orchestrator around
+`components/marketing/hero/{HeroContent,HeroVisual,HeroBenefits}.tsx` — the split exists because
+the Hero has three genuinely independent concerns (copy/CTAs, the illustrated visual + its motion,
+the bottom benefit strip), not because every `<div>` needs its own file.
+
+### Entrance sequence
+
+A staggered set of one-time CSS keyframe animations (`hero-fade-up`, `hero-fade-in`,
+`hero-slide-from-right`, `hero-arc-reveal`, all defined once in `styles/global.css`), each applied
+via a Tailwind `[animation:...]` arbitrary value with its own `animation-delay` (150ms through
+1050ms) directly on the JSX it times — no timeline-orchestration library, no `useState`/`useEffect`
+sequencing in Hero itself. Reduced motion needs no special-casing per-component: the sitewide
+`prefers-reduced-motion` block already forces every animation's `animation-duration` near-zero —
+**and, after this step, `animation-delay` too** (see "Bugs found and fixed live" below), so a
+reduced-motion user sees the same end state almost immediately instead of watching the staggered
+entrance play out.
+
+### Pointer + scroll motion (`useHeroParallax`)
+
+One hook (`components/marketing/hero/useHeroParallax.ts`) drives both the pointer-tilt effect and
+the scroll-depth effect, sharing a single capability check and a single `requestAnimationFrame`
+scheduling flag rather than duplicating both across two hooks. It's inert — no listeners attached
+at all — unless the device has a fine pointer (`(pointer: fine)`, excludes touch-only) **and**
+`prefers-reduced-motion` isn't set; either condition failing means `--hero-scroll` stays at its CSS
+default and the pointer layer's `transform` is simply never written, so nothing moves without a
+separate "disabled" code path.
+
+Mutates the DOM directly (`element.style.transform`, `element.style.setProperty("--hero-scroll",
+...)`) rather than React state — a mousemove-triggered re-render for something this cosmetic would
+be wasted work. `HeroVisual` nests three wrapper `div`s for this reason: a CSS `animation` and a
+JS-driven inline `transform` on the _same_ element conflict (the animation's fill-mode wins for as
+long as it's "filling"), so the entrance animation (CSS-owned), the scroll-depth transform
+(CSS `calc()`-owned, reading the shared `--hero-scroll` var), and the pointer-tilt transform
+(JS-owned) each get their own element instead of fighting over one `transform` property.
+
+### Visual asset
+
+`HeroFrameIllustration` and `HeroOpticalArc` are hand-rolled inline SVGs, not a photo — no client
+photography exists yet (see `CLIENT_CONTENT_CHECKLIST.md`) and none was fabricated or hotlinked
+from another optical retailer's site. They extend the same line-art language already established
+by `ProductImagePlaceholder` to a larger, more detailed Hero-scale composition.
+**Temporary development asset — replace before production**, ideally with the client's actual logo
+(a round cyan/white badge with a line-art glasses mark, shown once in this step's own kickoff
+conversation but not saved to disk anywhere this environment could read it as a file) once it's
+provided as an actual image asset.
+
+### Benefit panel
+
+`HeroBenefits` renders `siteContent.heroBenefits` as a proper `<dl>`: each direct child is a `div`
+containing exactly one `dt` then one `dd` — the one nesting pattern HTML (and axe's
+definition-list/dlitem rules) actually allow for grouping description-list pairs. Positioned to
+overlap the Hero's bottom edge only at `lg:` (`-mt-16`), pulling up into the Hero's `min-h-[88vh]`
+padding area for the "elevated panel" look from the visual reference; left as normal stacked flow
+below `lg:`, where the tighter vertical space made an overlap risk clipping into real content
+instead of reading as intentional.
+
+### Header
+
+Nav gained "Inicio" (`/`, `end` match so it doesn't stay active on every route) and renamed
+"Productos" to "Anteojos" — matching `ProductsPage`'s own `<h1>`, which already read "Anteojos".
+Active-route and hover both get a `::after`-pseudo-element underline that scales from 0 rather than
+a layout-affecting border, so hover/active never shifts surrounding text. The WhatsApp CTA
+(`Escribinos`) reuses `WhatsAppButton` as-is rather than adding an icon-only variant next to it —
+the brief listed "WhatsApp icon/action" and a "CTA button: Escribinos" as if they were two separate
+elements, but `WhatsAppButton` already renders both the icon and the label together, so a second,
+icon-only WhatsApp link right next to it would just point at the same destination twice.
+
+No TikTok link: the brief said TikTok "is used" but didn't supply a URL, and
+`siteContent.socialLinks` has none configured — inventing one wasn't an option, so it's simply not
+rendered (see `CLIENT_CONTENT_CHECKLIST.md`).
+
+The Header wasn't made a transparent/absolute overlay on the Hero specifically. Header is a single
+shared component rendered on every route, most of which don't have a gradient Hero directly below
+it — a route-conditional Header style would add real coupling for a purely cosmetic nuance. Instead
+both Header and Hero share the same `bg-surface` near-black base and the same subtle
+`border-color: rgb(255 255 255 / 12%)` language, which reads as one continuous dark surface without
+needing position tricks.
+
+### Confirmed contact data
+
+Real address, phone, and WhatsApp number now live in `siteContent` (see "Institutional content
+strategy" above for the WhatsApp-normalization reasoning). The Hero's address/phone line reuses
+`lib/maps.ts`'s existing `buildMapsUrl` (structurally typed, so passing `{ googleMapsUrl: null,
+address }` works without a new maps-URL builder) and the new `lib/format-phone.ts` (`toTelHref`) —
+`ContactPage`'s `tel:` link was updated to use the same helper, so the phone number's `tel:` href
+is derived consistently in both places instead of one of them hand-stripping characters inline.
+
+### Bugs found and fixed live
+
+- **Reduced motion delayed content instead of removing the delay.** The sitewide
+  `prefers-reduced-motion` block (from the Frontend Foundation step) collapsed `animation-duration`
+  to near-zero but left `animation-delay` untouched — a staggered entrance still waited out its full
+  delay (up to 1050ms) before its now-instant animation fired. Caught live: with `reducedMotion:
+"reduce"` emulated, a screenshot taken 200ms after load was missing the address/phone line
+  (750ms delay) and the benefit panel (900ms delay) entirely. Fixed by adding `animation-delay:
+0ms !important` to that same block — a genuine gap in existing sitewide CSS, not something new to
+  this step's own keyframes.
+- **`<dl>` structure failed axe's definition-list/dlitem rules.** The first `HeroBenefits` version
+  nested `dt`/`dd` two levels deep (`dl > div > (span, div > (dt, dd))`) instead of the one grouping
+  pattern the spec (and axe) actually recognizes (`dl > div > (dt, dd)`). A Lighthouse accessibility
+  pass caught it (`accessibility` score 90, both rules flagged); fixed by moving the icon inside the
+  `dt` itself instead of a sibling `span`, restoring a 100 accessibility score.
+- **Header wrapped to two lines at exactly 768px (tablet portrait).** Adding both "Inicio" and the
+  WhatsApp CTA to the header's `md:` (768px+) breakpoint pushed total width past what fits alongside
+  the logo and 6-item nav at that width — confirmed live via a Playwright screenshot showing the
+  logo wrapping to two lines. Fixed by moving the CTA to `lg:` (1024px+) and tightening the nav's
+  gap at `md:` (`gap-5 lg:gap-8`); tablet portrait now shows the full nav without the CTA (WhatsApp
+  stays reachable via the Hero's own CTA), and the CTA reappears once there's room for it.
+- **Lighthouse against the Vite dev server read as broken (48 performance, 14.8s LCP).** Not a real
+  regression — the dev server ships unbundled/unminified modules plus the HMR client, which
+  Lighthouse penalizes heavily regardless of what the code actually does. Re-run against `vite
+preview` serving the real production build: 99 performance, 100 accessibility, 2.0s LCP, 0 CLS,
+  60ms TBT. Worth remembering for any future performance check on this project — always measure the
+  build, not the dev server.
 
 ## Product Catalog architecture
 
@@ -431,10 +565,10 @@ project doesn't have (test functions are imported explicitly from `"vitest"`, `t
 off); worth calling out because its absence silently leaked DOM state between tests until this
 step's manual-verification pass caught it as a real test failure, not a hypothetical one.
 
-54 tests across 12 files. From earlier steps: routing/404/nav (3), the API client (3),
+61 tests across 14 files. From earlier steps: routing/404/nav (3), the API client (3),
 `buildWhatsAppUrl` (3), `buildMapsUrl` (2), `BrandsPage`/`BranchesPage` loading+success+error+empty
-states (5), and `ContactPage`'s WhatsApp-pending, phone/email-pending, and fill-and-submit flows
-(3). Added with the Product Catalog UI step:
+states (5), and `ContactPage`'s form fill-and-submit flow (1, plus 2 updated this step). From the
+Product Catalog UI step:
 
 - `catalog-url-state.test.ts` — parsing/serializing filters to and from `URLSearchParams`,
   including the defensive-parsing cases (negative page, non-numeric price, unknown sort value all
@@ -452,10 +586,31 @@ states (5), and `ContactPage`'s WhatsApp-pending, phone/email-pending, and fill-
 - `product-detail-page.test.tsx` — real product render, variant switching updating price/gallery,
   measurements table, WhatsApp CTA, 404 not-found state, and the empty-variants defensive guard.
 
+Added with the Hero Refinement step:
+
+- `hero.test.tsx` — 4 tests: the primary WhatsApp CTA renders as a real `<a>` (not the disabled
+  fallback `<span>`) with the confirmed `wa.me` link, the secondary "Ver anteojos" CTA points at
+  `/products`, the headline/address/phone render with the confirmed real values, and — the one
+  reduced-motion case worth automating (per this step's own "don't test animation implementation
+  details" guidance, everything else about the entrance/parallax is style, not contract) — with
+  `matchMedia` mocked so the device otherwise qualifies for parallax (`pointer: fine`) but
+  `prefers-reduced-motion` is set, a simulated pointermove + scroll never mutates the visual
+  layer's `transform` or the section's `--hero-scroll` custom property at all.
+- `header.test.tsx` — 3 tests: the current route's nav link carries `aria-current="page"` and
+  "Inicio" does _not_ (the regression case for adding `end` to a `/` NavLink — without it, `/`
+  matches every route as a prefix and stays permanently "active"), and the header's WhatsApp CTA
+  renders with the confirmed number.
+- `contact-page.test.tsx` and `router.test.tsx` updated in place (not new files) — `ContactPage`'s
+  two tests that asserted a "pending" WhatsApp/phone state now assert the real confirmed values
+  instead (email is the only field still shown pending); `router.test.tsx`'s Home-route test
+  updated to match the new "Tu visión, nuestra pasión" headline and the "Anteojos" nav label.
+
 All network calls mocked — no external calls, same principle as the backend suite. `test/setup.ts`
 carries three environment-gap stubs `jsdom` doesn't provide: `scrollIntoView`, `matchMedia`, and a
 minimal `<dialog>` `showModal`/`close` polyfill (see the Product Catalog architecture section
-above for why each was needed).
+above for why each was needed) — `hero.test.tsx` overrides the global `matchMedia` stub locally
+for its one reduced-motion case rather than changing the shared default, since every other test
+still wants the existing "no motion capability" default `useHeroParallax` already treats as inert.
 
 ## Manual verification
 
@@ -500,3 +655,23 @@ confirmed absent — both are detailed in the "Bugs found and fixed live" subsec
 Catalog architecture above: the StrictMode scroll-on-mount bug (fixed via a value-comparison ref
 instead of a flip-once flag) and the drawer's focus-restoration race (fixed via a deferred
 `setTimeout` focus call).
+
+**Hero Refinement step:** all four required viewports (390×844, 768×1024, 1280×900, 1440×900)
+checked for horizontal overflow, console errors, and page errors — all clean, confirmed via a
+Playwright pass across all four before and after every fix this step made. Keyboard-only tab order
+through the full route walked (skip-link → logo → Inicio → Anteojos → Marcas → Nosotros →
+Sucursales → Contacto → header's Escribinos → Hero's Escribinos por WhatsApp → Ver anteojos →
+address link), confirmed correct. `prefers-reduced-motion` emulated via Playwright's
+`reducedMotion: "reduce"` context option — confirmed the full Hero, address/phone line, and benefit
+panel all render within ~200ms of load (after the animation-delay fix described below; before it,
+the address/phone line and benefit panel were still invisible at that mark). Pointer parallax
+confirmed live on a fine-pointer desktop context: moving the mouse measurably changed the visual
+layer's `transform` (e.g. `translate3d(4.83px, -3.11px, 0) rotate(0.81deg)`), well within the
+±6px/±4px/±1deg caps. Mobile hamburger menu opened/closed correctly with the new "Inicio" item and
+the WhatsApp CTA appended, `aria-expanded` toggling correctly. A basic Lighthouse
+performance+accessibility pass was run against the actual production build (`vite preview`, not the
+dev server — see below): **99 performance, 100 accessibility, 2.0s LCP, 0 CLS, 60ms TBT**. Three
+real issues were found and fixed during this live pass (not just confirmed absent) — full detail in
+the "Bugs found and fixed live" subsection under "Hero & Header refinement" above: the
+`animation-delay` gap in the sitewide reduced-motion rule, the `<dl>`/`dt`/`dd` nesting that failed
+axe's definition-list rules, and the header wrapping to two lines at exactly 768px.
