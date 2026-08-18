@@ -26,7 +26,7 @@ function renderHours(hours: unknown) {
 
 export function BranchCard({ branch }: { branch: BranchSummary }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-6 shadow-soft">
+    <div className="rounded-lg border border-border bg-surface-muted p-6 shadow-soft">
       <h3 className="font-display text-lg text-text">{branch.name}</h3>
       <p className="mt-2 text-sm text-text-muted">{branch.address}</p>
       {renderHours(branch.hours)}

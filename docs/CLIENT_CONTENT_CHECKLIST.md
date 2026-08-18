@@ -1,9 +1,9 @@
-# Client Content Checklist — Home & Institutional Pages
+# Client Content Checklist
 
 What's still needed from Soluciones Ópticas before this content is production-ready. Nothing
 below blocked implementation — every gap uses honest, neutral placeholder handling (see
-`apps/web/src/content/site-content.ts`), never an invented fact. This list is how to replace each
-one.
+`apps/web/src/content/site-content.ts` for Home/Institutional, and the Product Catalog section
+below for the catalog), never an invented fact. This list is how to replace each one.
 
 ## Blocking a real, working feature right now
 
@@ -57,16 +57,45 @@ year, headcount, or specific history). Real content wanted for:
 
 - **Logo:** none exists yet — the header/footer currently show the business name as styled text
   (serif wordmark), not a logo mark. A real logo can replace or sit alongside this.
-- **Preferred colors:** none specified — the current palette (deep teal `#0f5c56` primary, warm
-  copper `#c17a4f` accent) was chosen to read as trustworthy/clinical/premium for an optical
-  business, not copied from a brief. Happy to adjust if there's an existing brand color
-  preference.
+- **Preferred colors:** the current palette (near-black background, white typography, bright cyan
+  `#22d3ee` accent — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)) was specified directly
+  as the site's visual direction. Not a placeholder awaiting client input — noted here only for
+  completeness.
 - **Photography:** none used yet, deliberately — no stock photos, no images copied from other
   optical retailers' sites. The Hero currently uses an abstract two-circle motif (pure CSS, evokes
   lenses) instead of a photo. Real storefront/staff/product photography would be a direct
   upgrade whenever available — swapping it in only touches `components/marketing/Hero.tsx`.
 - **Social media links:** none provided — not rendered anywhere yet (`siteContent.socialLinks` is
   an empty array).
+
+## Product catalog (currently fictional dev-seed data)
+
+`/products` and `/products/:slug` already work end-to-end against the real API — the catalog
+mechanism (search, filters, sort, pagination, variant selection, measurements) is done and tested.
+What's in the database **right now is fictional development data**. Needed per real product:
+
+- Name, brand, category
+- Real photography per product (per color/variant, ideally) — Cloudinary upload/delivery isn't
+  wired up yet regardless (see `ProductImagePlaceholder`, [ADR-0010](adr/0010-cloudinary-public-id.md)),
+  so photos become usable once that integration step happens
+- Real prices
+- Frame measurements (lens width, bridge width, temple length, lens height, frame width) — shown
+  in a plain, non-clinical measurements table, not framed as a prescription/fitting tool
+- Shape (e.g. "aviador," "redondo") — currently free text, since there's no confirmed fixed list
+- Material — currently free text, same reason
+- Color(s) per product — currently free text; a curated set of Spanish color names already maps to
+  swatches for display (`lib/color-swatches.ts` — Negro, Blanco, Dorado, Plateado, Carey, Habano,
+  Marrón, Azul, Celeste, Rojo, Verde, Rosa, Violeta, Gris, Transparente); any color name outside
+  that list still displays correctly as text, just without a swatch
+- Full brand list and category list beyond the current fictional dev entries
+
+**Open business question, still unanswered — needed before an availability/stock feature can be
+designed:** does Soluciones Ópticas track stock per color/variant, or is color purely descriptive
+with stock tracked at the product level (or not tracked online at all)? The listing API has no
+stock field today and `ProductCard` deliberately shows no availability information as a result
+(see `FRONTEND_ARCHITECTURE.md`'s Product Catalog architecture section and `API.md`'s Known
+limitations). This isn't something to guess at — the answer changes both the database shape and
+the UI.
 
 ## Not blocking anything, informational only
 

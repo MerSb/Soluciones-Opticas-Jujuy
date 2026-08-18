@@ -10,7 +10,7 @@ export function BranchesPreviewSection() {
   if (isLoading || isError || !branches || branches.length === 0) return null;
 
   return (
-    <section className="bg-surface-muted py-16">
+    <section className="py-16">
       <Container>
         <SectionHeading eyebrow="Sucursales" title="Encontrá tu sucursal" />
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">

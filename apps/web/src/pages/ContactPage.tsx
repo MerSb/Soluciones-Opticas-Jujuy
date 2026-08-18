@@ -104,7 +104,7 @@ function ContactForm() {
             type="text"
             required
             autoComplete="name"
-            className="mt-1 block w-full rounded-md border border-border bg-surface px-3 py-2 text-text focus-visible:border-primary"
+            className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
         </div>
 
@@ -118,7 +118,7 @@ function ContactForm() {
             type="email"
             required
             autoComplete="email"
-            className="mt-1 block w-full rounded-md border border-border bg-surface px-3 py-2 text-text focus-visible:border-primary"
+            className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
         </div>
 
@@ -131,7 +131,7 @@ function ContactForm() {
             name="message"
             rows={4}
             required
-            className="mt-1 block w-full rounded-md border border-border bg-surface px-3 py-2 text-text focus-visible:border-primary"
+            className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
         </div>
 

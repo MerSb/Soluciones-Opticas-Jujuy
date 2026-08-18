@@ -9,20 +9,26 @@
  * workflow this project would otherwise default to — no separate config
  * file, no `@tailwind base/components/utilities` directives, no PostCSS
  * config (the @tailwindcss/vite plugin handles that). See
- * docs/FRONTEND_ARCHITECTURE.md "Design tokens" for the reasoning behind
- * each value below.
+ * docs/FRONTEND_ARCHITECTURE.md "Design tokens" and ADR-0016 for the
+ * reasoning behind each value below.
+ *
+ * Black/white/cyan is the now-approved sitewide identity (ADR-0016),
+ * not a catalog-only palette — because every page is built from these
+ * same semantic tokens, this file is the only place that changed to
+ * apply it everywhere. No component JSX needed touching for the
+ * palette itself.
  */
 @theme {
-  --color-primary: #0f5c56;
-  --color-primary-dark: #0b3f3b;
-  --color-accent: #c17a4f;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f5f6f5;
-  --color-text: #1a2421;
-  --color-text-muted: #5b6b67;
-  --color-border: #e2e6e4;
-  --color-success: #2f7a4f;
-  --color-danger: #b3413a;
+  --color-primary: #22d3ee;
+  --color-primary-dark: #06b6d4;
+  --color-accent: #67e8f9;
+  --color-surface: #0a0a0b;
+  --color-surface-muted: #18191b;
+  --color-text: #f5f5f5;
+  --color-text-muted: #9ca3af;
+  --color-border: rgb(255 255 255 / 12%);
+  --color-success: #34d399;
+  --color-danger: #f87171;
 
   --font-display: ui-serif, Georgia, "Times New Roman", serif;
   --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -31,8 +37,14 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
 
-  --shadow-soft: 0 1px 2px rgba(15, 30, 28, 0.06);
-  --shadow-elevated: 0 4px 16px rgba(15, 30, 28, 0.1);
+  /*
+   * Drop shadows read as invisible on a near-black background — a card
+   * needs a lighter fill and/or a visible border to feel "raised" here,
+   * not a shadow. Kept as a subtle cyan-tinted glow for interactive
+   * hover states only, not general elevation.
+   */
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-elevated: 0 0 24px rgb(34 211 238 / 12%);
 }
 
 @layer base {

@@ -287,3 +287,54 @@ shape assertion that listing rows don't leak `variants`/`images` arrays.
 Validated with Zod at startup (`src/lib/env.ts`) — a missing/malformed var fails fast with a
 clear message before the server starts listening, not on the first request that happens to need
 it.
+
+## Known limitations
+
+Found while building the Product Catalog UI (`apps/web`) against this contract — real gaps, not
+implemented around silently. Each was handled on the frontend without inventing data or an
+inefficient workaround; a proper fix is a future, approved backend change, not applied here.
+
+### No listing-level availability signal
+
+**Limitation:** `GET /api/products` (`ProductListItem`) has no stock/availability field — only
+`GET /api/products/:slug`'s per-variant `inStock` does. The catalog grid can't show "Disponible" /
+"Sin stock" on a product card without either fetching every product's detail just to populate a
+grid (defeats the point of a lean listing DTO) or fabricating a static label.
+
+**User impact:** none today — the frontend simply doesn't show availability on cards, only on the
+detail page, where the data genuinely exists. A shopper sees availability one click later than
+they might ideally.
+
+**Minimal API change:** add a computed `inStock: boolean` to `ProductListItem` — "true if any
+variant has `stock > 0`" — set in `products.service.ts`'s `attachListingExtras`, which already
+batches variant data per page (the same query that already produces `colors`), so this is
+additional projection on an existing query, not a new one.
+
+**Backwards compatibility:** fully additive — new field, nothing removed or renamed, no existing
+consumer affected.
+
+**Tests required:** a listing case with a mixed-stock product (some variants in stock, some not)
+asserting the aggregate is `true`; a case with every variant out of stock asserting `false`.
+
+### No facets endpoint for shape/material/color
+
+**Limitation:** `GET /api/products` accepts `shape`/`material`/`color` as arbitrary strings, but
+there's no endpoint exposing which _distinct_ values actually exist in the catalog (unlike
+`brand`/`category`, which have real summary endpoints with product counts). A proper faceted
+filter UI (a dropdown or checkbox list of real values, ideally with counts) needs that list from
+somewhere.
+
+**User impact:** these three filters are free-text inputs on the frontend, not dropdowns — a
+shopper has to know or guess a value ("aviador", "Metal") rather than pick from a list. Still
+fully functional (the API already validates/filters correctly on whatever's typed), just less
+discoverable.
+
+**Minimal API change:** a `GET /api/products/facets` endpoint (optionally accepting the
+currently-applied filters, so facet counts stay consistent with an in-progress search) returning
+distinct `shape`/`material`/`color` values with counts — the same shape as `BrandSummary`/
+`CategorySummary`'s `productCount`, extended to these three columns.
+
+**Backwards compatibility:** fully additive — a new endpoint, no change to any existing one.
+
+**Tests required:** facet values reflect only non-deleted products; counts update correctly when
+combined with an existing filter (e.g., color facets scoped to the currently-selected brand).

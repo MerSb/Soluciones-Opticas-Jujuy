@@ -4,15 +4,8 @@ import { buildWhatsAppUrl } from "../../lib/whatsapp";
 
 interface WhatsAppButtonProps {
   message?: string;
-  /** "primary" (default) for use on light backgrounds; "inverted" for use on the primary-colored CTA band. */
-  variant?: "primary" | "inverted";
   children: ReactNode;
 }
-
-const VARIANT_CLASSNAMES: Record<NonNullable<WhatsAppButtonProps["variant"]>, string> = {
-  primary: "bg-primary text-surface hover:bg-primary-dark",
-  inverted: "bg-surface text-primary hover:bg-surface-muted",
-};
 
 const ICON = (
   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="currentColor">
@@ -23,7 +16,12 @@ const ICON = (
 // The only place that reads siteContent.whatsappNumber directly. If it's
 // not configured yet, render a clearly non-functional state instead of
 // fabricating a number — a wrong number is worse than no number.
-export function WhatsAppButton({ message, variant = "primary", children }: WhatsAppButtonProps) {
+//
+// No variant prop — the one alternate style this ever had ("inverted",
+// for use on a solid-cyan background) lost its only consumer when
+// CTASection moved off a full-bleed primary background (ADR-0016). Add
+// it back if a real second context needs it, not speculatively.
+export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
   const { whatsappNumber } = siteContent;
   const baseClassName = "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium";
 
@@ -45,7 +43,7 @@ export function WhatsAppButton({ message, variant = "primary", children }: Whats
       href={buildWhatsAppUrl(whatsappNumber, message)}
       target="_blank"
       rel="noopener noreferrer"
-      className={`${baseClassName} ${VARIANT_CLASSNAMES[variant]}`}
+      className={`${baseClassName} bg-primary text-surface hover:bg-primary-dark`}
     >
       {ICON}
       {children}

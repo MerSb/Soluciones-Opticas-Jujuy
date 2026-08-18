@@ -6,10 +6,10 @@ import type { BrandSummary } from "@soluciones-opticas/shared";
 // that needs to branch on `brand.logoPublicId`.
 export function BrandCard({ brand }: { brand: BrandSummary }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-surface p-6 text-center shadow-soft">
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-surface-muted p-6 text-center shadow-soft">
       <div
         aria-hidden="true"
-        className="flex h-16 w-16 items-center justify-center rounded-full bg-surface-muted font-display text-2xl text-primary"
+        className="flex h-16 w-16 items-center justify-center rounded-full bg-surface font-display text-2xl text-primary"
       >
         {brand.name.charAt(0)}
       </div>

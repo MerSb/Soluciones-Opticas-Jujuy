@@ -10,7 +10,7 @@ export function BrandsPreviewSection() {
   if (isLoading || isError || !brands || brands.length === 0) return null;
 
   return (
-    <section className="bg-surface-muted py-16">
+    <section className="py-16">
       <Container>
         <SectionHeading eyebrow="Marcas" title="Marcas que trabajamos" />
         <div className="mt-8">
