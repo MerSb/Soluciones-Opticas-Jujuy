@@ -14,6 +14,13 @@ sandboxed environment couldn't verify: an actual click-through against a live Wh
 worth a real test once deployed, to confirm `5493884844442` (the normalized form of `0388
 484-4442`) opens the right chat.
 
+## Resolved in the Premium Visual Experience step (2026-08-18)
+
+Ten brand names were confirmed and are now live (`siteContent.confirmedBrands`) — shown
+typographically on Home's brand rail: ELEVE, Pierre Cardin, Bulk, Carolina Emanuel, Mistral Lentes,
+Valdez, Ruana, Unicity, Baku, Fioralba Lentes. Names only — no logos, descriptions, or products are
+attached to them yet; see "Assets needed" below for what would unlock more.
+
 ## Blocking a real, working feature right now
 
 | Item              | Where it's used | Current state        |
@@ -40,14 +47,21 @@ preview). Needed per real branch:
 
 ## Brand data (currently fictional dev-seed data)
 
-Same situation: `GET /api/brands` works and is tested; the three brands showing right now
-(Andina Eyewear, Lumen Óptica, Cielo Frames) are fictional placeholders for development, each
-already labeled "Marca de desarrollo — datos ficticios" in their description field. Needed:
+`GET /api/brands` works and is tested; the three brands showing right now (Andina Eyewear, Lumen
+Óptica, Cielo Frames) are fictional placeholders for development, each already labeled "Marca de
+desarrollo — datos ficticios" in their description field. **Not the same thing** as the ten
+confirmed brand names noted above — those are real but currently exist only as institutional
+content (a name, nothing else); this database table is a real, tested mechanism but still holds
+fictional rows. The two get reconciled once real per-brand data (products, at minimum) exists for
+the confirmed names — renaming the fictional DB rows to real names _without_ real products behind
+them would misattribute fake products to a real brand, so that hasn't been done. Needed to make
+that real:
 
-- Real brand list
-- Logos (optional — cards fall back to a clean monogram when there's no logo; Cloudinary image
-  upload/delivery isn't wired up yet regardless, so logos become usable once that integration
-  step happens)
+- Which of the ten confirmed brands (or others) Soluciones Ópticas actually stocks products from,
+  and the real products/prices for each
+- Logos, if official assets can be legally supplied (see "Assets needed" below) — optional; cards
+  fall back to a clean monogram without one, and `BrandRail` (Home) shows names typographically by
+  design regardless
 
 ## About page
 
@@ -62,27 +76,34 @@ year, headcount, or specific history). Real content wanted for:
 
 ## Visual identity
 
-- **Logo:** none exists as a usable file yet — the header/footer still show the business name as
-  styled text (serif wordmark), not a logo mark. A real logo was actually shown once, in the Hero
-  Refinement step's own kickoff conversation (a round cyan/white badge with a black line-art
-  glasses mark and the business name/contact info) — but that was an inline chat image, not a file
-  on disk this environment could read or save into the repo. If that's the real logo, please
-  provide it as an actual image file (SVG preferred, or a high-resolution PNG) so it can be added
-  properly, both as the site's logo mark and potentially as a base for a refined Hero visual.
-- **Preferred colors:** the current palette (near-black background, white typography, bright cyan
-  `#22d3ee` accent — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)) was specified directly
-  as the site's visual direction. Not a placeholder awaiting client input — noted here only for
-  completeness.
-- **Photography:** none used yet, deliberately — no stock photos, no images copied from other
-  optical retailers' sites. The Hero currently uses a larger, hand-drawn line-art glasses
-  illustration (`components/marketing/hero/HeroFrameIllustration.tsx`, extending the same style
-  `ProductImagePlaceholder` already uses elsewhere) as a **temporary development asset** — real
-  storefront/product photography, or the actual logo mentioned above, would be a direct upgrade
-  whenever available. Swapping it in only touches that one file.
-- **Social media links:** none provided — not rendered anywhere yet (`siteContent.socialLinks` is
-  an empty array). The Hero Refinement step's brief mentioned TikTok is used, but didn't include an
-  actual URL — nothing was invented, so no TikTok link appears in the header yet. Provide the real
-  URL (and any other social links) to add them.
+- **Preferred colors:** the current palette (near-black/white-and-cyan in dark mode, a calibrated
+  darker cyan/teal on white in light mode — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)
+  and [ADR-0017](adr/0017-typography-and-theme-system.md)) was specified directly as the site's
+  visual direction. Not a placeholder awaiting client input — noted here only for completeness.
+- **Typography:** Manrope Variable, self-hosted — a deliberate choice, not a placeholder (see
+  ADR-0017). No client input needed here either.
+
+## Assets needed
+
+None of the following block anything from working — every gap has an honest placeholder (a
+hand-drawn SVG illustration for the Hero, a monogram for brand cards, typographic names for the
+brand rail). Each one is a direct upgrade whenever it exists. Full technical spec for each in
+`apps/web/src/assets/*/README.md`; this is the plain-language version of the same list.
+
+| Asset                    | Spec                                                                                                | Where it plugs in                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Logo**                 | SVG preferred; transparent PNG acceptable                                                           | Header/footer (currently the business name as styled text)                                                        |
+| **Hero product photo**   | High-resolution (1800px+), transparent background preferred, 3/4 angle                              | Replaces the current hand-drawn glasses illustration — one-line switch, see `apps/web/src/assets/hero/README.md`  |
+| **Product photography**  | Front view at minimum; 3/4 and side views where available, consistent background across the catalog | Product cards and detail-page gallery (not the active delivery path yet regardless — see "Product catalog" below) |
+| **Brand logos**          | Only if legally supplied by Soluciones Ópticas — never sourced independently                        | Brand cards on `/brands`; the confirmed-names rail on Home stays typographic either way, by design                |
+| **Store exterior photo** | —                                                                                                   | Not currently used anywhere on the site; would be a natural addition to About/Branches once available             |
+| **Store interior photo** | —                                                                                                   | Same as above                                                                                                     |
+| **Social media**         | TikTok URL (mentioned as in use, not yet provided); Instagram URL if applicable                     | Header/footer social links (`siteContent.socialLinks`, currently empty)                                           |
+
+A real logo was actually shown once, inline in a client message during an earlier step (a round
+cyan/white badge with a black line-art glasses mark and the business name/contact info) — but that
+was a chat image, not a file on disk this environment could read or save into the repo. If that's
+the real logo, providing it as an actual file covers the first row above directly.
 
 ## Product catalog (currently fictional dev-seed data)
 

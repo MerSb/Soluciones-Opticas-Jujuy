@@ -27,6 +27,19 @@ export interface SiteContent {
   strengths: { title: string; description: string }[];
   /** Compact 4-item strip for the Hero's bottom benefit panel — short, icon-friendly copy, deliberately distinct from `strengths` (used later on the same Home page by WhyChooseUsSection) and deliberately neutral: no unconfirmed claims like "Marcas originales"/"Calidad óptica"/"Garantía" (see Hero refinement step's report). */
   heroBenefits: { title: string; description: string }[];
+  /**
+   * Confirmed brand NAMES only (Premium Visual Experience step) —
+   * institutional/marketing content, not the same thing as the
+   * database-backed `GET /api/brands` list BrandsPage/BrandCard read.
+   * Deliberately kept separate: the DB brands table today holds
+   * fictional dev-seed brands (Andina Eyewear, etc.) tied to fictional
+   * dev-seed products/prices — renaming those rows to these real names
+   * would misattribute fake products/prices to a real confirmed brand,
+   * which is worse than generic placeholder names. No logos,
+   * descriptions, or per-brand pages exist for these yet — see
+   * BrandRail.tsx and CLIENT_CONTENT_CHECKLIST.md.
+   */
+  confirmedBrands: string[];
 }
 
 export const siteContent: SiteContent = {
@@ -108,5 +121,21 @@ export const siteContent: SiteContent = {
       title: "Consultanos",
       description: "Por WhatsApp o en cualquier sucursal.",
     },
+  ],
+
+  // Confirmed by the client in the Premium Visual Experience step
+  // (2026-08-18). Names only — no logos scraped from the internet, no
+  // invented descriptions/history, per that step's explicit instruction.
+  confirmedBrands: [
+    "ELEVE",
+    "Pierre Cardin",
+    "Bulk",
+    "Carolina Emanuel",
+    "Mistral Lentes",
+    "Valdez",
+    "Ruana",
+    "Unicity",
+    "Baku",
+    "Fioralba Lentes",
   ],
 };

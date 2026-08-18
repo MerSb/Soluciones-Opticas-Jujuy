@@ -2,7 +2,8 @@ import { SeoHead } from "../components/ui/SeoHead";
 import { Hero } from "../components/marketing/Hero";
 import { CTASection } from "../components/marketing/CTASection";
 import { CategoryDiscoverySection } from "./home/CategoryDiscoverySection";
-import { BrandsPreviewSection } from "./home/BrandsPreviewSection";
+import { PromotionsSection } from "./home/PromotionsSection";
+import { BrandRail } from "./home/BrandRail";
 import { WhyChooseUsSection } from "./home/WhyChooseUsSection";
 import { BranchesPreviewSection } from "./home/BranchesPreviewSection";
 import { useHealthQuery } from "../services/queries/health";
@@ -17,7 +18,15 @@ export function HomePage() {
       />
       <Hero />
       <CategoryDiscoverySection />
-      <BrandsPreviewSection />
+      <PromotionsSection />
+      {/* Real confirmed brand NAMES (BrandRail, institutional content),
+          not the database-backed brand preview this replaced — see
+          site-content.ts's confirmedBrands comment for why those are
+          deliberately different things right now. The DB-backed
+          BrandsPage (/brands, full grid with real product counts)
+          still exists and still works; it just isn't previewed here
+          anymore in favor of the real names. */}
+      <BrandRail />
       <WhyChooseUsSection />
       <BranchesPreviewSection />
       <CTASection />

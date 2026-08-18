@@ -2,17 +2,22 @@
 
 Status: approved. Source: [`apps/web`](../apps/web). All Etapa 1 pages are now real and
 API-backed: Home, About, Brands, Branches, Contact, and the Product Catalog (`/products`,
-`/products/:slug`). The Home Hero and Header received a further refinement pass (motion, real
-contact data — see "Hero & Header refinement" below). Authentication, favorites, measurements,
-recommendations, admin, and checkout remain out of scope, per `ARCHITECTURE.md`'s phased scope.
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and [API.md](API.md) for the
-backend this consumes, including a "Known limitations" section a previous step surfaced.
+`/products/:slug`). The Home Hero and Header received two further refinement passes: motion + real
+contact data (see "Hero & Header refinement" below), then a Premium Visual Experience pass adding
+real typography, a light/dark/system theme, real confirmed brands, and a real Promociones catalog
+category (see "Typography", "Theming", and "Promotions & confirmed brands" below). Authentication,
+favorites, measurements, recommendations, admin, and checkout remain out of scope, per
+`ARCHITECTURE.md`'s
+phased scope. See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and
+[API.md](API.md) for the backend this consumes, including a "Known limitations" section a previous
+step surfaced.
 
 ## Stack
 
 React 19.2, TypeScript, Vite 7.3 (`@vitejs/plugin-react` 5.2 — the last line that supports Vite
 7; the newest plugin major requires Vite 8), Tailwind CSS 4.3, React Router 7.18 (library mode —
-`createBrowserRouter`/`RouterProvider`, not the SSR/framework mode), TanStack Query 5.
+`createBrowserRouter`/`RouterProvider`, not the SSR/framework mode), TanStack Query 5, Manrope
+Variable (`@fontsource-variable/manrope`, self-hosted — see "Typography" below).
 
 **Vite 7, not 8:** Vite 8 shipped very recently and replaced esbuild/Rollup with a new
 Rolldown-based bundler internally — a real architecture change, not a patch. For a foundational
@@ -23,34 +28,41 @@ time to prove itself, not as a default upgrade.
 ## Folder structure
 
 ```
-apps/web/src/
-  app/           router.tsx (browser router), routes.tsx (route data), providers.tsx (QueryClient)
-  content/       site-content.ts — typed institutional content, see below
-  components/
-    layout/      Header, Footer, Layout (skip-link + Header + <Outlet/> + Footer)
-    ui/          Container, StatusMessage, SeoHead, ResponsiveImage, WhatsAppButton,
-                 ContactMethodCard, Breadcrumbs
-    marketing/   Hero (orchestrator), SectionHeading, CTASection
-      hero/      HeroContent, HeroVisual, HeroOpticalArc, HeroFrameIllustration,
-                 HeroBenefits, useHeroParallax
-    brands/      BrandCard, BrandGrid
-    branches/    BranchCard
-    catalog/     SearchInput, SortSelect, FilterFields, FilterSidebar, FilterDrawer,
-                 ActiveFilterChips, Pagination
-    products/    ProductCard, ProductCardSkeleton, ProductImagePlaceholder, ProductGallery,
-                 VariantSelector, MeasurementsTable, ColorSwatchList
-    ErrorBoundary.tsx
-  pages/
-    home/        HomePage's section components (category/brand/branch previews, why-choose-us)
-    *.tsx        one real page per route (Home, About, Brands, Branches, Contact, Products,
-                 ProductDetail, 404) — every Etapa 1 page is real now
-  services/
-    api-client.ts   centralized fetch: base URL, JSON parsing, error shape
-    queries/        health.ts, brands.ts, branches.ts, categories.ts, products.ts
-  lib/           env.ts (VITE_API_BASE_URL), whatsapp.ts, maps.ts, format-phone.ts,
-                 catalog-url-state.ts (URL <-> filters), product-sort.ts, color-swatches.ts,
-                 format-price.ts
-  styles/global.css   Tailwind import + @theme tokens + base styles
+apps/web/
+  public/        robots.txt, favicon.svg (placeholder — see CLIENT_CONTENT_CHECKLIST.md)
+  src/
+    app/           router.tsx (browser router), routes.tsx (route data),
+                   providers.tsx (Theme + QueryClient), theme.tsx (ThemeProvider/useTheme)
+    content/       site-content.ts — typed institutional content, see below
+    assets/        client-provided images once they exist — hero/, brand/, products/,
+                   each with its own README spec; empty today, see CLIENT_CONTENT_CHECKLIST.md
+    components/
+      layout/      Header, Footer, Layout, ThemeSwitcher
+      ui/          Container, StatusMessage, SeoHead, ResponsiveImage, WhatsAppButton,
+                   ContactMethodCard, Breadcrumbs
+      marketing/   Hero (orchestrator), SectionHeading, CTASection
+        hero/      HeroContent, HeroVisual, HeroOpticalArc, HeroFrameIllustration,
+                   HeroBenefits, useHeroParallax
+      brands/      BrandCard, BrandGrid
+      branches/    BranchCard
+      catalog/     SearchInput, SortSelect, FilterFields, FilterSidebar, FilterDrawer,
+                   ActiveFilterChips, Pagination
+      products/    ProductCard, ProductCardSkeleton, ProductImagePlaceholder, ProductGallery,
+                   VariantSelector, MeasurementsTable, ColorSwatchList
+      ErrorBoundary.tsx
+    pages/
+      home/        HomePage's section components (category/promotions/brand-rail/branch
+                   previews, why-choose-us)
+      *.tsx        one real page per route (Home, About, Brands, Branches, Contact, Products,
+                   ProductDetail, 404) — every Etapa 1 page is real now
+    services/
+      api-client.ts   centralized fetch: base URL, JSON parsing, error shape
+      queries/        health.ts, brands.ts, branches.ts, categories.ts, products.ts
+    lib/           env.ts (VITE_API_BASE_URL), whatsapp.ts, maps.ts, format-phone.ts,
+                   catalog-url-state.ts (URL <-> filters), product-sort.ts, color-swatches.ts,
+                   format-price.ts
+    styles/global.css   Tailwind import + Manrope import + @theme tokens (light default,
+                   dark override) + base styles + keyframes
 ```
 
 Still no `features/` directory. `components/catalog/` and `components/products/` split by
@@ -93,21 +105,74 @@ utility class automatically by its prefix — `--color-primary` → `bg-primary`
 `border-primary`, `--font-display` → `font-display`, `--radius-md` → `rounded-md`, `--shadow-soft`
 → `shadow-soft`.
 
-**Palette changed in the Product Catalog UI step — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)
-for the full reasoning.** The site is dark/cyan now, sitewide, not light/teal:
+**Now theme-aware, light and dark — see [ADR-0017](adr/0017-typography-and-theme-system.md) for
+the full reasoning.** `@theme` declares each token's _light_ value (light is the CSS default, not
+a special case); the same token names are redefined for dark under a
+`prefers-color-scheme`/`[data-theme]` guard in a plain `@layer base` block further down
+`global.css`. Every Tailwind utility (`bg-surface`, `text-primary`, ...) compiles to
+`var(--color-surface)` etc., so this redefinition repaints the whole site with no per-component
+dark-mode class anywhere — the same mechanism [ADR-0016](adr/0016-dark-cyan-visual-identity.md)
+established when the palette first went dark-only; ADR-0017 is what made it dual-theme.
 
-| Token                                 | Value                    | Reasoning                                                                                                                                                                                                                                      |
-| ------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--color-primary`                     | `#22d3ee` (bright cyan)  | The client-directed identity: high-contrast, technological, precise — used for CTAs, links, and focus states                                                                                                                                   |
-| `--color-primary-dark`                | `#06b6d4`                | Hover/active state for primary-colored elements                                                                                                                                                                                                |
-| `--color-accent`                      | `#67e8f9` (lighter cyan) | Stays in the cyan family rather than introducing a second hue — "minimal but visually strong" reads as one accent used well, not two competing ones                                                                                            |
-| `--color-surface`                     | `#0a0a0b` (near-black)   | The page/body background — the darkest tone, not the lightest (inverted from the old palette)                                                                                                                                                  |
-| `--color-surface-muted`               | `#18191b`                | **Cards and raised elements**, not alternating sections — a step _lighter_ than `surface`, the standard dark-UI elevation pattern. Getting this backwards (using `surface` for cards) was a real bug caught and fixed this step — see ADR-0016 |
-| `--color-text` / `--color-text-muted` | `#f5f5f5` / `#9ca3af`    | Near-white body text, muted gray for secondary info — both verified at high contrast against `surface`                                                                                                                                         |
-| `--color-border`                      | `rgb(255 255 255 / 12%)` | Translucent white — reads as "white borders" per the brief without being a harsh full-white line against black                                                                                                                                 |
-| `--font-display` / `--font-body`      | unchanged                | Serif/sans pairing preserved — the brief specified a color direction, not a typography change; a premium serif still works on a dark ground                                                                                                    |
-| `--radius-sm/md/lg`                   | unchanged                | Already modest, already fit "not overly rounded"                                                                                                                                                                                               |
-| `--shadow-soft` / `--shadow-elevated` | Re-scoped                | A drop shadow is nearly invisible on near-black — elevation now comes from the surface/surface-muted contrast plus a visible border; `--shadow-elevated` is a subtle cyan glow reserved for hover states, not general card elevation           |
+| Token                                 | Light                                  | Dark                         | Reasoning                                                                                                                                                                                                                        |
+| ------------------------------------- | -------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-primary`                     | `#0e7490`                              | `#22d3ee` (bright cyan)      | Same brand hue, **not** the same hex — the bright cyan that works on near-black fails WCAG AA text contrast on a light background, so light mode uses a darker, more saturated shade of the same cyan. See ADR-0017              |
+| `--color-primary-dark`                | `#155e75`                              | `#06b6d4`                    | Hover/active state for primary-colored elements, in either theme                                                                                                                                                                 |
+| `--color-accent`                      | `#0e9fc4`                              | `#67e8f9` (lighter cyan)     | Decorative only (low-opacity SVG strokes, never text) — kept more latitude than `--color-primary` since text-contrast rules don't apply the same way                                                                             |
+| `--color-surface`                     | `#f7f8fa`                              | `#0a0a0b` (near-black)       | The page/body background                                                                                                                                                                                                         |
+| `--color-surface-muted`               | `#ffffff`                              | `#18191b`                    | **Cards and raised elements** — always a step _lighter_ than `surface` in either theme (white-on-light-gray in light mode, charcoal-on-near-black in dark), the token relationship that matters, not an absolute lightness value |
+| `--color-surface-sunken`              | `#edeff2`                              | same as `surface`            | New this step — light mode's third "receded" layer (form inputs, mainly); dark mode's two-layer system already covers this role via `surface` itself                                                                             |
+| `--color-text` / `--color-text-muted` | `#14161a` / `#5b6270`                  | `#f5f5f5` / `#9ca3af`        | Both pairs independently contrast-checked against their theme's `surface`/`surface-muted` (see "Accessibility" below)                                                                                                            |
+| `--color-success` / `--color-danger`  | `#047857` / `#b91c1c`                  | `#34d399` / `#f87171`        | Light values are one shade darker than an initial attempt that measured 3.54:1 against `surface` (fails 4.5:1) — caught by an automated axe-core pass, not eyeballed                                                             |
+| `--color-border`                      | `rgb(15 17 20 / 12%)`                  | `rgb(255 255 255 / 12%)`     | Translucent dark/white respectively — a visible hairline without a harsh full-contrast line                                                                                                                                      |
+| `--font-display` / `--font-body`      | Manrope Variable (both)                | same                         | Self-hosted (`@fontsource-variable/manrope`), replacing the previous serif/sans pairing — see "Typography" below                                                                                                                 |
+| `--text-hero`                         | `clamp(2.75rem, 1rem + 5.5vw, 7.5rem)` | same                         | Fluid Hero headline size — see "Typography" below                                                                                                                                                                                |
+| `--radius-sm/md/lg`                   | unchanged                              | unchanged                    | Already modest, already fit "not overly rounded"                                                                                                                                                                                 |
+| `--shadow-soft` / `--shadow-elevated` | real, visible drop shadows             | cyan-tinted glow, hover-only | Opposite elevation techniques per theme: a shadow is the standard cue on light backgrounds, nearly invisible on near-black                                                                                                       |
+
+## Typography
+
+Manrope Variable, self-hosted, as the **sole** family (`--font-display` and `--font-body` both
+point at it) — Inter Variable was evaluated for dense catalog/pricing UI as the brief asked, but a
+second variable font's payload/complexity wasn't judged to clear the bar against this catalog's
+actual pricing UI (one price per card, not a dense table) and the step's explicit performance
+budget. Full reasoning, including why `font-extrabold` (800) is used for the Hero rather than a
+literal 900 (Manrope Variable's registered weight axis tops out at 800), in
+[ADR-0017](adr/0017-typography-and-theme-system.md).
+
+Weight scale applied at the high-visibility points the brief named explicitly (Hero headline,
+section titles, nav, primary/secondary buttons, product names, prices) — not blanket-applied to
+every small in-context control (pagination, filter-chip close buttons, sort selects), since
+hierarchy depends on _some_ things staying restrained:
+
+| Context        | Weight                 | Where                                      |
+| -------------- | ---------------------- | ------------------------------------------ |
+| Hero headline  | 800 (`font-extrabold`) | `HeroContent.tsx`, sized via `text-hero`   |
+| Section titles | 700 (`font-bold`)      | `SectionHeading.tsx`                       |
+| Navigation     | 600 (`font-semibold`)  | `Header.tsx`                               |
+| Buttons        | 600 (`font-semibold`)  | `WhatsAppButton.tsx`, Hero's secondary CTA |
+| Product names  | 600 (`font-semibold`)  | `ProductCard.tsx`, `ProductDetailPage.tsx` |
+| Prices         | 700 (`font-bold`)      | `ProductCard.tsx`, `ProductDetailPage.tsx` |
+| Body           | 400 (default)          | everywhere else                            |
+
+## Theming
+
+Three-state preference — `system` (default) / `light` / `dark` — via `app/theme.tsx`'s
+`ThemeProvider`/`useTheme()`, persisted to `localStorage`, switched via the always-visible
+`ThemeSwitcher` in the Header (a compact `role="group"` of three `aria-pressed` buttons — not a
+native `<select>`, not a strict `role="radiogroup"`). "System" writes no `data-theme` attribute at
+all — CSS's own `prefers-color-scheme` handles it entirely; an explicit choice stamps
+`data-theme="light"`/`"dark"` on `<html>`.
+
+**No flash:** a blocking, synchronous `<script>` — the first thing in `index.html`'s `<head>` —
+reads the same `localStorage` key and stamps `data-theme` before any paint, but only when an
+explicit choice exists (System needs no script; the CSS media query alone is flash-proof).
+`ThemeProvider` re-applies the same attribute via `useLayoutEffect` once React mounts, as the
+correctness guarantee to hold regardless of the inline script. Verified live: `data-theme` is
+already correct at `DOMContentLoaded`, before React has loaded at all.
+
+Full reasoning — including why light isn't just dark values inverted, and why the brand cyan isn't
+byte-identical across themes — in [ADR-0017](adr/0017-typography-and-theme-system.md).
 
 **Deliberately not done:** no display webfont download, no light/dark theme toggle (the site
 commits to one dark identity, not two), no elaborate theme engine beyond the token set above.
@@ -116,13 +181,23 @@ commits to one dark identity, not two), no elaborate theme engine beyond the tok
 
 Skip-to-content link (first tab stop, visually hidden until focused — Tailwind's
 `sr-only`/`focus:not-sr-only`, no custom CSS); semantic landmarks (`<header>`, `<nav
-aria-label="Principal">`, `<main id="main-content">`, `<footer>`); `NavLink` sets
-`aria-current="page"` on the active route automatically; the mobile menu toggle is a real
+aria-label="Principal">`, `<main id="main-content">`, `<footer>`); the mobile menu toggle is a real
 `<button aria-expanded aria-controls="mobile-nav">` with its accessible name switching between
 "Abrir menú"/"Cerrar menú" (verified live — see "Manual verification" below); global
 `:focus-visible` outline in the primary color; `prefers-reduced-motion` respected globally.
 `StatusMessage` uses native `role="status"`/`role="alert"` — no ARIA added where the native role
 already says what's needed.
+
+Header's nav sets `aria-current="page"` itself now, computed manually rather than via `<NavLink>`
+— a real bug in the Premium Visual Experience step (see that section's "Bugs found and fixed live")
+meant `<NavLink>`'s own `isActive` ignored the query string in a link's `to`, so "Anteojos"
+(`/products`) and "Promociones" (`/products?category=promociones`) both showed active on _any_
+`/products` URL, including the plain, unfiltered one.
+
+**Both themes checked with axe-core, not just eyeballed** — a live automated pass across Home,
+`/products`, a product detail page, `/brands`, `/branches`, and `/contact`, in both light and dark,
+caught one real WCAG AA contrast failure (`--color-success` in light mode, 3.54:1 against a 4.5:1
+requirement — see the Design tokens table above) before this step's report was written, not after.
 
 ## Responsive strategy
 
@@ -286,6 +361,82 @@ is derived consistently in both places instead of one of them hand-stripping cha
 preview` serving the real production build: 99 performance, 100 accessibility, 2.0s LCP, 0 CLS,
   60ms TBT. Worth remembering for any future performance check on this project — always measure the
   build, not the dev server.
+
+## Promotions & confirmed brands
+
+### Promociones
+
+A real catalog category (`prisma/seed.ts`), not a React-only marketing collection — the `Category`
+model already had no fixed enum of allowed types, so this needed a seed-data row, not a schema or
+API contract change (checked and reported before implementing, per that step's own instruction).
+Deliberately seeded with **zero** products: no real promotion has been confirmed, and attaching
+this dev-seed's existing fictional products to it would fabricate a "for sale" claim nobody
+approved.
+
+The Header's "Promociones" nav item is a plain link to `/products?category=promociones` — the
+existing catalog's own URL state, not a second catalog implementation. `PromotionsSection.tsx`
+(Home) queries that same category via the existing `useProductsQuery` hook and renders nothing at
+all when it's empty (`pages/home/PromotionsSection.tsx`) — real, data-driven, hidden until real
+promotional products exist, never a fake offer or an invented discount percentage.
+`CategoryDiscoverySection` (Home's category tiles) now filters out zero-product categories
+generally, not just Promociones specifically — a tile leading to an empty catalog view read as
+broken regardless of which category it was.
+
+### Confirmed brands
+
+`siteContent.confirmedBrands` (`content/site-content.ts`) holds ten real, client-confirmed brand
+**names only** — no logos, descriptions, prices, or products, and none scraped from the internet.
+Deliberately **not** merged into the database-backed brands table: that table's rows today are
+fictional dev-seed brands (Andina Eyewear, etc.) tied to fictional dev-seed products/prices —
+renaming those rows to real confirmed names would misattribute fake products to a real brand, which
+is worse than an obviously-fictional placeholder name. `BrandRail.tsx` replaced the old
+database-backed `BrandsPreviewSection` on Home for this reason: showing real confirmed names next
+to (or instead of) placeholder database ones on the same marketing page would read as two competing,
+partially-fictional brand stories. The database-backed `/brands` page (`BrandsPage.tsx`, full grid
+with real product counts) is untouched and still works — it just isn't previewed on Home anymore.
+
+`BrandRail` is a slow, pausable, reduced-motion-aware marquee (`brand-marquee` keyframe,
+`global.css`) — the real, accessible content is the _first_ copy of the brand-name list (not
+`aria-hidden`, normally readable/tabbable); a second, `aria-hidden` duplicate exists purely so the
+CSS animation can loop seamlessly (sliding exactly `-50%` lines the duplicate up where the original
+started). Under `prefers-reduced-motion`, the duplicate is hidden outright (`motion-reduce:hidden`)
+and the track sits still, rather than relying only on the animation's duration collapsing to
+near-zero.
+
+### Bugs found and fixed live (Premium Visual Experience step)
+
+- **Light mode's `--color-success` failed WCAG AA contrast.** An automated axe-core pass (not
+  manual eyeballing) across both themes on six pages caught `#059669` measuring 3.54:1 against
+  `--color-surface` in light mode (`ProductDetailPage`'s "Disponible" availability text) — below
+  the 4.5:1 requirement. Fixed by moving to `#047857`, verified at ~5.16:1; `--color-danger` moved
+  a full step darker too (its first value passed but at a razor-thin ~4.55:1).
+- **Header's nav active-state bug — see "Accessibility" above for the full description.** Both
+  "Anteojos" and "Promociones" showed active on any `/products` URL, including the plain,
+  unfiltered catalog. Fixed by computing active state manually (`isNavItemActive`,
+  `Header.tsx`) instead of relying on `<NavLink>`'s own `isActive`, which never accounted for the
+  query string in a link's own `to` prop.
+- **Header wrapped again at 768px** once "Promociones" and the `ThemeSwitcher` were added to the
+  nav — the same class of bug as the Hero Refinement step's 768px wrap, re-triggered by the extra
+  width these additions needed. Fixed by moving the whole desktop nav to the `lg:` breakpoint
+  (1024px+) instead of `md:` — tablet portrait now gets the hamburger menu, the same pattern
+  phones already used, rather than a squeezed inline nav.
+- **`robots.txt` didn't exist** (`apps/web` had no `public/` directory at all) — Lighthouse's SEO
+  audit caught it (`robots.txt is not valid`, since the SPA fallback route served `index.html`'s
+  HTML for that path instead of a real text file). Fixed with a minimal
+  `apps/web/public/robots.txt` (`Allow: /`).
+- **No favicon** — Lighthouse's Best Practices audit caught a 404 console error for
+  `favicon.ico`. Fixed with `apps/web/public/favicon.svg`, referenced via a `<link rel="icon">` in
+  `index.html`; explicitly a placeholder reusing the site's existing glasses-icon visual language
+  (the same one `ProductImagePlaceholder` uses), not a real logo — none exists yet.
+- **A Lighthouse dark-mode run read as a severe performance regression (73 vs. light's 99, 1.6s
+  TBT) on first measurement.** Investigated rather than reported at face value: a re-run of the
+  identical dark-mode configuration scored 99 with 10ms TBT — this machine is a shared desktop
+  environment (VS Code, a real browser session, and other processes competing for CPU), and
+  Lighthouse's simulated-throttling methodology is sensitive to ambient CPU contention during trace
+  collection, independent of anything theme-related (dark and light differ only in CSS custom
+  property values — zero JS/render-path difference between them). Reported the consistent number,
+  not the outlier, and noted the methodology caveat in the final report rather than silently
+  discarding the anomaly.
 
 ## Product Catalog architecture
 
@@ -565,7 +716,7 @@ project doesn't have (test functions are imported explicitly from `"vitest"`, `t
 off); worth calling out because its absence silently leaked DOM state between tests until this
 step's manual-verification pass caught it as a real test failure, not a hypothetical one.
 
-61 tests across 14 files. From earlier steps: routing/404/nav (3), the API client (3),
+75 tests across 17 files. From earlier steps: routing/404/nav (3), the API client (3),
 `buildWhatsAppUrl` (3), `buildMapsUrl` (2), `BrandsPage`/`BranchesPage` loading+success+error+empty
 states (5), and `ContactPage`'s form fill-and-submit flow (1, plus 2 updated this step). From the
 Product Catalog UI step:
@@ -604,6 +755,27 @@ Added with the Hero Refinement step:
   two tests that asserted a "pending" WhatsApp/phone state now assert the real confirmed values
   instead (email is the only field still shown pending); `router.test.tsx`'s Home-route test
   updated to match the new "Tu visión, nuestra pasión" headline and the "Anteojos" nav label.
+
+Added with the Premium Visual Experience step:
+
+- `theme.test.tsx` — 6 tests: `ThemeProvider` defaults to `system` and resolves it from
+  `prefers-color-scheme` (writing no `data-theme` attribute, per ADR-0017); an explicit choice
+  persists to `localStorage` and stamps `data-theme`; a previously-stored explicit preference is
+  read back correctly on mount; an unrecognized stored value falls back to `system` rather than
+  crashing; `ThemeSwitcher` exposes its three options with correct `aria-pressed` state and updates
+  it on click.
+- `brand-rail.test.tsx` — 3 tests: every confirmed brand name from `siteContent.confirmedBrands`
+  renders as real content; nothing beyond that confirmed list is rendered (checked from what's
+  actually in the DOM outward, not from the expected list inward, so it would catch a stray
+  hardcoded extra name); the marquee's duplicate loop-track is `aria-hidden`.
+- `promotions-section.test.tsx` — 2 tests: renders nothing when the Promociones category has no
+  products (an empty `container`, not a skeleton or an error); renders real products with a
+  "Promoción" badge and no invented discount percentage when they exist.
+- `header.test.tsx` grew from 3 to 6 tests — added: the Promociones nav link resolves through the
+  catalog's own URL state (`/products?category=promociones`), plus two regression tests for the
+  nav active-state bug described in "Bugs found and fixed live" above (Promociones does _not_ show
+  active on the plain, unfiltered catalog; it _does_ show active specifically when the catalog is
+  filtered to it).
 
 All network calls mocked — no external calls, same principle as the backend suite. `test/setup.ts`
 carries three environment-gap stubs `jsdom` doesn't provide: `scrollIntoView`, `matchMedia`, and a
@@ -675,3 +847,34 @@ real issues were found and fixed during this live pass (not just confirmed absen
 the "Bugs found and fixed live" subsection under "Hero & Header refinement" above: the
 `animation-delay` gap in the sitewide reduced-motion rule, the `<dl>`/`dt`/`dd` nesting that failed
 axe's definition-list rules, and the header wrapping to two lines at exactly 768px.
+
+**Premium Visual Experience step:** both themes checked at all four required viewports
+(390×844, 768×1024, 1280×900, 1440×900) across all seven pages (Home, catalog, product detail,
+brands, branches, contact, 404) — 56 combinations, a full Playwright pass, all clean (zero
+horizontal overflow, zero console/page errors). An automated axe-core accessibility pass ran
+against both themes across six pages, catching the one real contrast failure documented in "Bugs
+found and fixed live" above. Theme switching verified end to end: keyboard activation (`Tab` to a
+`ThemeSwitcher` button, `Enter`), touch (`tap()` on a mobile viewport context), persistence across
+a reload (confirmed `data-theme` is already correct at `DOMContentLoaded`, before React loads at
+all — the no-flash guarantee actually holding, not just implemented), and `prefers-reduced-motion`
+emulated together with an explicit dark selection (the Hero's full entrance sequence, address/phone
+line, and benefit panel all render within ~200ms, same as the Hero Refinement step's own check).
+Pointer parallax re-verified against the rebuilt `useHeroParallax` (rotateX/rotateY/translate with
+easing): a single mouse move produced a real, partial (eased, not snapped) transform on the visual
+layer. The open mobile menu and the 404 page were both run through axe-core too, in both themes —
+clean.
+
+Lighthouse ran against the production build (`vite preview`) for **both themes properly emulated**
+— not just the default — via a small Puppeteer+Lighthouse script calling
+`page.emulateMediaFeatures([{name: "prefers-color-scheme", value: ...}])` before the audit, since
+neither the Lighthouse CLI nor a bare CDP-port connection reliably carries a Playwright context's
+`colorScheme` emulation into a Lighthouse-controlled tab (both were tried first and confirmed, via
+Lighthouse's own final-screenshot audit output, to still be auditing light mode regardless of what
+was requested). Results, after two real fixes this pass caught (see "Bugs found and fixed live"
+above — missing `robots.txt`, missing favicon): **light 99 performance / 100 accessibility / 100
+best practices / 100 SEO, 2.0s LCP, 0 CLS; dark 99 / 100 / 100 / 100, 2.0s LCP, 0 CLS.** One dark-mode
+run initially scored 73 performance with 1.6s TBT — investigated rather than reported, and traced to
+ambient CPU contention on this shared desktop environment during trace collection (a re-run of the
+identical configuration scored 99/10ms TBT); light and dark are CSS-token-only differences with zero
+JS/render-path divergence, so a real per-theme performance gap was never plausible in the first
+place, and the numbers above are the consistent, reproduced result.

@@ -1,4 +1,16 @@
 @import "tailwindcss";
+/* Self-hosted, not Google Fonts CDN — no runtime request to a third
+   party, and each @font-face's `unicode-range` (cyrillic/greek/
+   vietnamese/latin/latin-ext) means the browser only ever fetches the
+   subset files a page's actual text needs; a live network check for
+   this step confirmed only the single base `latin` woff2 downloads for
+   this site's Spanish text (every character used, including
+   ñ/á/é/í/ó/ú/ü, falls inside that subset's Unicode range — latin-ext
+   never gets requested). One variable file per subset covers the whole
+   200–800 weight
+   range, so there's no "unused static weight" waste to worry about
+   either — the usual reason to hand-pick a subset import. */
+@import "@fontsource-variable/manrope";
 
 /*
  * Tailwind v4 configuration lives here, in CSS, not tailwind.config.js.
@@ -9,49 +21,132 @@
  * workflow this project would otherwise default to — no separate config
  * file, no `@tailwind base/components/utilities` directives, no PostCSS
  * config (the @tailwindcss/vite plugin handles that). See
- * docs/FRONTEND_ARCHITECTURE.md "Design tokens" and ADR-0016 for the
- * reasoning behind each value below.
+ * docs/FRONTEND_ARCHITECTURE.md "Design tokens" and ADR-0016/ADR-0017
+ * for the reasoning behind each value below.
  *
- * Black/white/cyan is the now-approved sitewide identity (ADR-0016),
- * not a catalog-only palette — because every page is built from these
- * same semantic tokens, this file is the only place that changed to
- * apply it everywhere. No component JSX needed touching for the
- * palette itself.
+ * `@theme` declares the token *names* Tailwind generates utilities
+ * from, with their LIGHT-mode values (light is the CSS default here,
+ * not a special case) — dark-mode values for the same names are
+ * redefined further down in plain `@layer base` rules, under a
+ * `prefers-color-scheme`/`[data-theme]` guard. Tailwind utilities like
+ * `bg-surface` compile to `var(--color-surface)`, so redefining the
+ * custom property's value later in the cascade repaints every utility
+ * using it — no per-component dark-mode class needed anywhere.
  */
 @theme {
-  --color-primary: #22d3ee;
-  --color-primary-dark: #06b6d4;
-  --color-accent: #67e8f9;
-  --color-surface: #0a0a0b;
-  --color-surface-muted: #18191b;
-  --color-text: #f5f5f5;
-  --color-text-muted: #9ca3af;
-  --color-border: rgb(255 255 255 / 12%);
-  --color-success: #34d399;
-  --color-danger: #f87171;
+  /* Same brand cyan family in both themes, but not the identical hex —
+     #22d3ee (bright cyan) has strong contrast on near-black but fails
+     WCAG AA text contrast on a light background (a light-mode Hero
+     price/link/eyebrow in that exact hex would read under 3:1 against
+     white). Light mode uses a darker, more saturated shade of the same
+     hue — same brand identity, calibrated for the background it
+     actually sits on, verified against WCAG AA below (see ADR-0017). */
+  --color-primary: #0e7490;
+  --color-primary-dark: #155e75;
+  --color-accent: #0e9fc4;
 
-  --font-display: ui-serif, Georgia, "Times New Roman", serif;
-  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-surface: #f7f8fa;
+  --color-surface-muted: #ffffff;
+  --color-surface-sunken: #edeff2;
+  --color-text: #14161a;
+  --color-text-muted: #5b6270;
+  --color-border: rgb(15 17 20 / 12%);
+  /* An automated axe-core pass during this step's live check caught
+     the first attempt here (#059669, "emerald-600") failing WCAG AA at
+     3.54:1 against this background — #047857 measures ~5.16:1.
+     --color-danger's first value passed but by a hairline (~4.55:1,
+     rounding-sensitive), so it moved a full step darker too rather than
+     leave a razor-thin margin. */
+  --color-success: #047857;
+  --color-danger: #b91c1c;
+
+  --font-display:
+    "Manrope Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body:
+    "Manrope Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Fluid Hero headline: ~44px at narrow mobile widths up to the
+     brief's 80–120px desktop target, one clamp() instead of a
+     breakpoint ladder that could break at an untested intermediate
+     width (§2's explicit concern). See HeroContent.tsx for the
+     per-viewport math this was tuned against. */
+  --text-hero: clamp(2.75rem, 1rem + 5.5vw, 7.5rem);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
 
-  /*
-   * Drop shadows read as invisible on a near-black background — a card
-   * needs a lighter fill and/or a visible border to feel "raised" here,
-   * not a shadow. Kept as a subtle cyan-tinted glow for interactive
-   * hover states only, not general elevation.
-   */
-  --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow-elevated: 0 0 24px rgb(34 211 238 / 12%);
+  /* Light mode: a real, visible drop shadow is the standard elevation
+     cue (the opposite of dark mode, where it's nearly invisible — see
+     the dark override below). */
+  --shadow-soft: 0 1px 2px rgb(15 17 20 / 6%), 0 1px 3px rgb(15 17 20 / 8%);
+  --shadow-elevated: 0 8px 24px rgb(15 17 20 / 10%), 0 0 0 1px rgb(14 116 144 / 8%);
 }
 
 @layer base {
+  /*
+   * Dark-mode token overrides — same custom property names, redefined
+   * only for OS-dark-without-an-explicit-choice, and again for an
+   * explicit dark selection (which must win even on a light-OS
+   * device). No third block for light: light lives in the `@theme`
+   * defaults above, so an explicit "light" choice needs no override at
+   * all — `:not([data-theme="dark"])` in the first guard already
+   * covers it.
+   */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --color-primary: #22d3ee;
+      --color-primary-dark: #06b6d4;
+      --color-accent: #67e8f9;
+
+      --color-surface: #0a0a0b;
+      --color-surface-muted: #18191b;
+      --color-surface-sunken: #0a0a0b;
+      --color-text: #f5f5f5;
+      --color-text-muted: #9ca3af;
+      --color-border: rgb(255 255 255 / 12%);
+      --color-success: #34d399;
+      --color-danger: #f87171;
+
+      /* Drop shadows read as invisible on near-black — elevation comes
+         from the surface/surface-muted contrast plus a visible border
+         instead; kept as a subtle cyan glow for hover states only. */
+      --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);
+      --shadow-elevated: 0 0 24px rgb(34 211 238 / 12%);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --color-primary: #22d3ee;
+    --color-primary-dark: #06b6d4;
+    --color-accent: #67e8f9;
+
+    --color-surface: #0a0a0b;
+    --color-surface-muted: #18191b;
+    --color-surface-sunken: #0a0a0b;
+    --color-text: #f5f5f5;
+    --color-text-muted: #9ca3af;
+    --color-border: rgb(255 255 255 / 12%);
+    --color-success: #34d399;
+    --color-danger: #f87171;
+
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-elevated: 0 0 24px rgb(34 211 238 / 12%);
+  }
+
   body {
     background-color: var(--color-surface);
     color: var(--color-text);
     font-family: var(--font-body);
+    /* The one sitewide color transition — smooths the theme toggle's
+       page-level flip without a blanket `* { transition: all }` (every
+       interactive element that already has its own `transition-colors`
+       for hover/focus gets the same smoothing for free, since a
+       transition doesn't care whether a color change was triggered by
+       :hover or by a theme swap). */
+    transition:
+      background-color 200ms ease,
+      color 200ms ease;
   }
 
   h1,
@@ -131,14 +226,18 @@
   }
 }
 
+/* Matches the Premium Visual Experience step's spec exactly (§6) — this
+   entrance is shared by the current SVG fallback and whatever replaces
+   it later, since HeroVisual owns the wrapper this animates, not the
+   asset inside it. */
 @keyframes hero-slide-from-right {
   from {
     opacity: 0;
-    transform: translateX(50px) scale(0.96);
+    transform: translateX(60px) scale(0.92) rotate(2deg);
   }
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0) scale(1) rotate(0deg);
   }
 }
 
@@ -150,5 +249,54 @@
   }
   to {
     stroke-dashoffset: 0;
+  }
+}
+
+/* A soft diagonal highlight passing once across the Hero visual after
+   entrance (§8) — not a loop, not a flash. Percent keyframes hold full
+   opacity only in the middle of the sweep so it fades in/out at the
+   edges instead of popping. */
+@keyframes lens-reflection-sweep {
+  0% {
+    transform: translateX(-70%) skewX(-18deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.5;
+  }
+  85% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateX(170%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+/* Primary CTA shine (§12) — a narrow highlight crossing the button once
+   per hover, not continuously. Triggered by adding/removing a class on
+   :hover in the component, not `animation-iteration-count: infinite`. */
+@keyframes cta-shine {
+  from {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  to {
+    transform: translateX(220%) skewX(-20deg);
+  }
+}
+
+/* Home's confirmed-brands rail (§18) — the track holds the real brand
+   list twice back to back, and sliding exactly -50% loops seamlessly
+   (the second copy lines up perfectly where the first started). Slow
+   by design ("movement must be slow"); BrandRail.tsx pauses it on
+   hover/focus and hides the (aria-hidden) duplicate half entirely under
+   reduced motion via Tailwind's `motion-reduce:` variant, rather than
+   relying only on this animation's duration collapsing. */
+@keyframes brand-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
   }
 }

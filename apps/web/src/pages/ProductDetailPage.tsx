@@ -108,9 +108,13 @@ export function ProductDetailPage() {
 
           <div>
             <p className="text-sm uppercase tracking-wide text-text-muted">{product.brand.name}</p>
-            <h1 className="mt-1 font-display text-2xl text-text sm:text-3xl">{product.name}</h1>
+            <h1 className="mt-1 font-display text-2xl font-semibold text-text sm:text-3xl">
+              {product.name}
+            </h1>
 
-            <p className="mt-4 text-2xl text-primary">{formatPrice(selectedVariant.price)}</p>
+            <p className="mt-4 text-2xl font-bold text-primary">
+              {formatPrice(selectedVariant.price)}
+            </p>
 
             <p className="mt-2 flex items-center gap-2 text-sm">
               <span

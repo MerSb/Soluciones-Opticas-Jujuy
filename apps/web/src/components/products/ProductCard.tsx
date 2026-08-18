@@ -17,17 +17,19 @@ export function ProductCard({ product }: { product: ProductListItem }) {
   return (
     <Link
       to={`/products/${product.slug}`}
-      className="group block overflow-hidden rounded-lg border border-border bg-surface-muted transition-colors hover:border-primary focus-visible:border-primary"
+      className="group block overflow-hidden rounded-lg border border-border bg-surface-muted shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary hover:shadow-elevated focus-visible:border-primary"
     >
       {/* Always the placeholder for now — see the module comment above.
           `product.image` (a Cloudinary public_id) is deliberately unused
           here until URL-building exists; that's the one line that
-          changes when it does. */}
-      <ProductImagePlaceholder className="aspect-[4/3] w-full" />
+          changes when it does. Card-level microinteraction (§15): a
+          subtle 1.02 scale on hover, matching every other product/brand
+          image treatment sitewide. */}
+      <ProductImagePlaceholder className="aspect-[4/3] w-full transition-transform duration-300 group-hover:scale-[1.02]" />
       <div className="p-4">
         <p className="text-xs uppercase tracking-wide text-text-muted">{product.brand.name}</p>
-        <h3 className="mt-1 font-display text-base text-text">{product.name}</h3>
-        <p className="mt-2 text-lg text-primary">{formatPrice(product.price)}</p>
+        <h3 className="mt-1 font-display text-base font-semibold text-text">{product.name}</h3>
+        <p className="mt-2 text-lg font-bold text-primary">{formatPrice(product.price)}</p>
         {sizeSummary && <p className="mt-1 text-xs text-text-muted">{sizeSummary}</p>}
         <ColorSwatchList colors={product.colors} />
       </div>

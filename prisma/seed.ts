@@ -62,6 +62,23 @@ async function main() {
     }),
   ]);
 
+  // Real catalog category, not a React-only marketing collection (§16
+  // of the Premium Visual Experience step) — Category already has no
+  // fixed enum of allowed types, so this needed a seed-data row, not a
+  // schema change (reported before implementing, per that step's own
+  // instruction). Deliberately assigned to zero products here: no real
+  // promotion has been confirmed, and attaching this dev-seed's
+  // fictional products to it would fabricate a "for sale" claim nobody
+  // approved. The Home promotions section and the /products?category=
+  // promociones nav item both already handle an empty result correctly
+  // — this row exists so that URL resolves to a real category today,
+  // ready for real promotional products whenever they exist.
+  await prisma.category.upsert({
+    where: { slug: "promociones" },
+    update: {},
+    create: { name: "Promociones", slug: "promociones" },
+  });
+
   await Promise.all([
     prisma.branch.upsert({
       where: { id: "00000000-0000-0000-0000-000000000001" },
@@ -290,7 +307,7 @@ async function main() {
     },
   });
 
-  console.log("Seed complete: 3 brands, 3 categories, 2 branches, 4 products.");
+  console.log("Seed complete: 3 brands, 4 categories, 2 branches, 4 products.");
 }
 
 main()

@@ -2,6 +2,17 @@ import type { RefObject } from "react";
 import { HeroOpticalArc } from "./HeroOpticalArc";
 import { HeroFrameIllustration } from "./HeroFrameIllustration";
 
+// §5: the visual architecture supports a real product photo without
+// rewriting Hero — drop a transparent-background WebP/AVIF/PNG into
+// apps/web/src/assets/hero/ (see that folder's README for the source
+// spec: 1800px+, 3/4 angle, transparent background), import it, and set
+// `src` here. Until then this stays null and HeroVisual renders the
+// hand-drawn SVG fallback instead — §29 is explicit that the fallback
+// should NOT keep growing more elaborate in place of a real asset, so
+// this is intentionally a one-line switch, not a feature to build out
+// further.
+const HERO_PRODUCT_IMAGE: { src: string; alt: string } | null = null;
+
 // Small decorative "technical" marks (§12) — a plus sign and a
 // coordinate-style tick, aria-hidden, non-interactive. Entrance-only
 // (no continuous drift): a permanent slow drift risked reading as
@@ -47,8 +58,49 @@ export function HeroVisual({ visualRef }: { visualRef: RefObject<HTMLDivElement 
             data-testid="hero-visual-layer"
             className="relative will-change-transform"
           >
+            {/*
+             * Layered depth, back to front (§10 — "background, ambient
+             * glow, technical decoration, optical arc, product, lens
+             * reflection, foreground accents"): the ambient glow and
+             * ground shadow are plain radial-gradient divs (cheap,
+             * responsive, no image asset), the arc and technical marks
+             * sit above them, the product illustration sits above that,
+             * and the reflection sweep + corner marks sit on top as
+             * foreground accents.
+             */}
+            <div className="absolute inset-0 -z-10 [background:radial-gradient(closest-side,rgb(34_211_238/0.22),transparent_75%)] blur-2xl" />
+            <div className="absolute inset-x-1/4 top-[15%] -z-10 aspect-square [background:radial-gradient(closest-side,rgb(255_255_255/0.18),transparent_70%)] blur-xl" />
+
             <HeroOpticalArc className="absolute inset-0 h-full w-full [transform:translateY(calc(var(--hero-scroll,0)*-0.06px))]" />
-            <HeroFrameIllustration className="relative h-auto w-full" />
+
+            <div className="relative">
+              {HERO_PRODUCT_IMAGE ? (
+                <img
+                  src={HERO_PRODUCT_IMAGE.src}
+                  alt={HERO_PRODUCT_IMAGE.alt}
+                  className="relative h-auto w-full [filter:drop-shadow(0_0_28px_rgb(34_211_238/0.28))]"
+                  width={1800}
+                  height={1050}
+                  loading="eager"
+                  fetchPriority="high"
+                />
+              ) : (
+                <HeroFrameIllustration className="relative h-auto w-full [filter:drop-shadow(0_0_28px_rgb(34_211_238/0.28))]" />
+              )}
+
+              {/* Soft ground shadow — a resting surface beneath the
+                  product, not a generic box shadow. */}
+              <div className="absolute inset-x-[12%] -bottom-3 h-6 [background:radial-gradient(closest-side,rgb(0_0_0/0.28),transparent_75%)]" />
+
+              {/* Lens reflection sweep (§8): a soft diagonal highlight
+                  passing once across the visual after entrance, not a
+                  loop. */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 -skew-x-12 [animation:lens-reflection-sweep_1.3s_ease-out_1.3s_both] [background:linear-gradient(115deg,transparent_35%,rgb(255_255_255/0.35)_50%,rgb(34_211_238/0.25)_58%,transparent_70%)]"
+              />
+            </div>
+
             <TechnicalMark className="right-2 top-4" delayMs={950} />
             <TechnicalMark className="bottom-8 left-0" delayMs={1050} />
           </div>

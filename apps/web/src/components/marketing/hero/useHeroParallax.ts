@@ -1,21 +1,39 @@
 import { useEffect, useRef } from "react";
 
-const MAX_TILT_X_PX = 6;
-const MAX_TILT_Y_PX = 4;
-const MAX_TILT_DEG = 1;
+const MAX_TILT_PX = 8;
+const MAX_ROTATE_X_DEG = 2;
+const MAX_ROTATE_Y_DEG = 3;
 const MAX_SCROLL_PX = 400;
+// Fraction of the remaining distance to target closed per frame — a
+// classic exponential-ease-toward-target lerp, not 1:1 pointer
+// tracking. Lower = smoother/laggier, higher = snappier. 0.12 reads as
+// "gentle, settled" rather than the pointer visibly dragging the visual
+// around (§6's explicit "no abrupt pointer tracking").
+const EASE = 0.12;
+// Below this, current and target are close enough that further frames
+// wouldn't produce a visible difference — stops the rAF loop instead of
+// running it forever once the pointer settles.
+const SETTLE_EPSILON = 0.01;
 
 /**
  * Drives the Hero visual's pointer-tilt and scroll-depth motion via
  * direct DOM mutation, not React state — a mousemove/scroll handler
  * re-rendering on every event would be wasteful for something this
- * cosmetic (§9's explicit requirement). One rAF-throttled loop updates
- * both: a CSS custom property (`--hero-scroll`) on the section root,
- * which descendants read via `calc()` at their own speed (image slower
- * than the arc), and an inline `transform` on the pointer-tilt layer.
- * Kept as one hook rather than two so both share a single
- * capability check and a single rAF scheduling flag instead of
- * duplicating both.
+ * cosmetic (§9/§10's explicit requirement). One rAF loop updates both:
+ * a CSS custom property (`--hero-scroll`) on the section root, which
+ * descendants read via `calc()` at their own speed (image slower than
+ * the arc), and a `perspective`+`rotateX`+`rotateY`+`translate3d`
+ * transform on the pointer-tilt layer. Kept as one hook rather than two
+ * so both share a single capability check and a single rAF loop instead
+ * of duplicating both.
+ *
+ * Pointer motion eases toward its target instead of snapping directly
+ * to the cursor every frame (§6's "use easing/interpolation... no
+ * abrupt pointer tracking") — each frame moves partway from the current
+ * transform toward wherever the pointer currently implies, rather than
+ * jumping straight there. The loop stops once current and target are
+ * close enough to be visually identical, and restarts on the next
+ * pointer/scroll event, instead of running forever at rest.
  *
  * Inactive entirely — no listeners attached at all — unless the device
  * has a precise pointer (`pointer: fine`, desktop-class input, not
@@ -38,36 +56,49 @@ export function useHeroParallax<TSection extends HTMLElement, TVisual extends HT
     const visual = visualRef.current;
     if (!section || !visual) return;
 
-    let pointerX = 0;
-    let pointerY = 0;
-    let scrollY = 0;
+    let targetX = 0;
+    let targetY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    let targetScroll = 0;
+    let currentScroll = 0;
     let rafId: number | null = null;
 
-    function applyFrame() {
-      rafId = null;
-      visual!.style.transform = `translate3d(${pointerX}px, ${pointerY}px, 0) rotate(${
-        (pointerX / MAX_TILT_X_PX) * MAX_TILT_DEG
-      }deg)`;
-      section!.style.setProperty("--hero-scroll", String(scrollY));
+    function tick() {
+      currentX += (targetX - currentX) * EASE;
+      currentY += (targetY - currentY) * EASE;
+      currentScroll += (targetScroll - currentScroll) * EASE;
+
+      const tiltX = (currentX / MAX_TILT_PX) * MAX_ROTATE_Y_DEG;
+      const tiltY = -(currentY / MAX_TILT_PX) * MAX_ROTATE_X_DEG;
+      visual!.style.transform = `perspective(1000px) rotateX(${tiltY}deg) rotateY(${tiltX}deg) translate3d(${currentX}px, ${currentY}px, 0)`;
+      section!.style.setProperty("--hero-scroll", String(currentScroll));
+
+      const settled =
+        Math.abs(targetX - currentX) < SETTLE_EPSILON &&
+        Math.abs(targetY - currentY) < SETTLE_EPSILON &&
+        Math.abs(targetScroll - currentScroll) < SETTLE_EPSILON;
+
+      rafId = settled ? null : requestAnimationFrame(tick);
     }
 
-    function scheduleFrame() {
+    function ensureRunning() {
       if (rafId === null) {
-        rafId = requestAnimationFrame(applyFrame);
+        rafId = requestAnimationFrame(tick);
       }
     }
 
     function handlePointerMove(event: PointerEvent) {
       const nx = (event.clientX / window.innerWidth - 0.5) * 2;
       const ny = (event.clientY / window.innerHeight - 0.5) * 2;
-      pointerX = nx * MAX_TILT_X_PX;
-      pointerY = ny * MAX_TILT_Y_PX;
-      scheduleFrame();
+      targetX = nx * MAX_TILT_PX;
+      targetY = ny * MAX_TILT_PX;
+      ensureRunning();
     }
 
     function handleScroll() {
-      scrollY = Math.min(Math.max(window.scrollY, 0), MAX_SCROLL_PX);
-      scheduleFrame();
+      targetScroll = Math.min(Math.max(window.scrollY, 0), MAX_SCROLL_PX);
+      ensureRunning();
     }
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
