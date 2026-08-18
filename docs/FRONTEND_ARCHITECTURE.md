@@ -1,8 +1,9 @@
-# Frontend Architecture — Etapa 1 Foundation
+# Frontend Architecture — Etapa 1
 
-Status: approved. Source: [`apps/web`](../apps/web). This is foundation only — no catalog UI,
-no real page content. See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and
-[API.md](API.md) for the backend this consumes.
+Status: approved. Source: [`apps/web`](../apps/web). Home + institutional pages (Home, About,
+Brands, Branches, Contact) are real and API-backed where the API has data — the Product Catalog
+UI is still the next step, not this one. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+system-wide picture and [API.md](API.md) for the backend this consumes.
 
 ## Stack
 
@@ -21,21 +22,28 @@ time to prove itself, not as a default upgrade.
 ```
 apps/web/src/
   app/           router.tsx (browser router), routes.tsx (route data), providers.tsx (QueryClient)
+  content/       site-content.ts — typed institutional content, see below
   components/
     layout/      Header, Footer, Layout (skip-link + Header + <Outlet/> + Footer)
-    ui/          Container, StatusMessage, SeoHead, ResponsiveImage
+    ui/          Container, StatusMessage, SeoHead, ResponsiveImage, WhatsAppButton, ContactMethodCard
+    marketing/   Hero, SectionHeading, CTASection
+    brands/      BrandCard, BrandGrid
+    branches/    BranchCard
     ErrorBoundary.tsx
-  pages/         one shell per route — real content arrives with the catalog UI step
+  pages/
+    home/        HomePage's section components (category/brand/branch previews, why-choose-us)
+    *.tsx        one real page per route (Home, About, Brands, Branches, Contact, 404) —
+                 Products/ProductDetail are still shells; that's the next step
   services/
-    api-client.ts        centralized fetch: base URL, JSON parsing, error shape
-    queries/health.ts     the one query this step needs
-  lib/env.ts     VITE_API_BASE_URL validation
+    api-client.ts   centralized fetch: base URL, JSON parsing, error shape
+    queries/        health.ts, brands.ts, branches.ts, categories.ts
+  lib/           env.ts (VITE_API_BASE_URL), whatsapp.ts (buildWhatsAppUrl), maps.ts (buildMapsUrl)
   styles/global.css   Tailwind import + @theme tokens + base styles
 ```
 
-No `features/` directory — nothing exists yet to isolate into one. Add it when the catalog UI
-(the next step) needs a real feature boundary, not before; an empty directory now would be
-exactly the "aesthetics, not need" structure this step's brief explicitly warned against.
+Still no `features/` directory — a `pages/home/` subdirectory covers Home's section components,
+which is enough structure for what exists; a full feature boundary is still deferred to the
+catalog UI step, where it will actually be load-bearing.
 
 ## Routing
 
@@ -43,16 +51,16 @@ exactly the "aesthetics, not need" structure this step's brief explicitly warned
 `app/router.tsx` (the `createBrowserRouter` instance built from it) — so tests build a
 `createMemoryRouter` from the identical tree instead of duplicating route definitions.
 
-| Path              | Page                   | Loading  |
-| ----------------- | ---------------------- | -------- |
-| `/`               | Home                   | eager    |
-| `/products`       | Catalog (shell)        | **lazy** |
-| `/products/:slug` | Product detail (shell) | **lazy** |
-| `/brands`         | Brands (shell)         | eager    |
-| `/about`          | About (shell)          | eager    |
-| `/branches`       | Branches (shell)       | eager    |
-| `/contact`        | Contact (shell)        | eager    |
-| `*`               | 404                    | eager    |
+| Path              | Page                                       | Loading  |
+| ----------------- | ------------------------------------------ | -------- |
+| `/`               | Home                                       | eager    |
+| `/products`       | Catalog (still a shell — next step)        | **lazy** |
+| `/products/:slug` | Product detail (still a shell — next step) | **lazy** |
+| `/brands`         | Brands (real, API-backed)                  | eager    |
+| `/about`          | About (real content)                       | eager    |
+| `/branches`       | Branches (real, API-backed)                | eager    |
+| `/contact`        | Contact (real)                             | eager    |
+| `*`               | 404                                        | eager    |
 
 Only `/products` and `/products/:slug` are code-split. They're the routes that will carry real
 weight once the catalog exists (images, filters, grids); everything else is a small,
@@ -108,6 +116,30 @@ direct control over the exact max-width/padding combination. Header collapses to
 below `md`; verified at a 390×844 mobile viewport that the desktop nav is hidden, the toggle
 opens/closes a real panel, and navigating closes it.
 
+## Institutional content strategy
+
+`content/site-content.ts` is the single typed source for anything client-specific that isn't
+database-backed — business name, WhatsApp/phone/email, social links, About-page copy, and the
+Home page's "why choose us" strengths. No CMS, no database model for institutional text — a typed
+config module is the right amount of machinery for content that changes rarely and has one
+maintainer.
+
+Every field the client hasn't provided yet is `null` (or neutral placeholder prose for About),
+**never an invented value** — no fabricated years-in-business, customer counts, certifications,
+or guarantees anywhere in the app. Components consuming a `null` field degrade honestly rather
+than silently, e.g. `WhatsAppButton` renders a clearly non-interactive "número a confirmar" state
+instead of linking to a made-up number — a wrong number is worse than an honest gap. Full list of
+what's still needed and exactly where each item plugs in:
+[`CLIENT_CONTENT_CHECKLIST.md`](CLIENT_CONTENT_CHECKLIST.md).
+
+Brand and branch data, by contrast, **is** real API data (`GET /api/brands`, `GET /api/branches`)
+— the mechanism is real and tested, even though the rows currently in the dev database are
+fictional seed data (each already self-labeled as such: brand descriptions say "datos ficticios
+para pruebas locales," branch addresses say "(desarrollo — dirección ficticia)"). No separate
+"this is fake" UI banner was needed on top of that — the data already discloses its own status,
+and the display code is correctly written to render whatever's actually in the database, fictional
+or real.
+
 ## API client
 
 `services/api-client.ts` centralizes the base URL (`VITE_API_BASE_URL`), JSON parsing, and error
@@ -119,8 +151,18 @@ shape the backend actually sends (see ADR-0015), not a guessed one.
 
 `app/providers.tsx` sets conservative defaults: `staleTime: 60_000`, `refetchOnWindowFocus:
 false`, `retry: 1` — catalog/reference data doesn't need aggressive polling, and refetching every
-time someone tabs back in would be a surprise, not a feature. Only one query exists at this stage
-(`useHealthQuery`) — catalog query hooks arrive with the catalog UI, not before.
+time someone tabs back in would be a surprise, not a feature. Four queries exist now:
+`useHealthQuery`, `useBrandsQuery`, `useBranchesQuery`, `useCategoriesQuery` — each a thin wrapper
+around `apiGet`, typed against `@soluciones-opticas/shared`. Product-listing/detail query hooks
+still arrive with the catalog UI, not before.
+
+Home's preview sections (category tiles, brand grid, branch cards) reuse these same query hooks —
+TanStack Query's cache means navigating from Home to `/brands` right after seeing the brand
+preview doesn't refetch within `staleTime`. Those preview sections fail **quietly** (return
+`null` on loading/error) rather than showing a `StatusMessage` — they're supplementary, and an
+error banner on the homepage for a nice-to-have widget is worse than just not showing it. The
+dedicated `/brands` and `/branches` pages, where that data **is** the entire point of the page,
+show full loading/error/empty `StatusMessage` feedback instead.
 
 ## Shared API contracts (`packages/shared`)
 
@@ -155,6 +197,17 @@ whichever SSG tool gets picked), it has one call site per page to change, not ze
 `decoding="async"` by default. No Cloudinary URL building (that's the integration layer's job,
 not built yet — public `id`s aren't resolved to delivery URLs here, per ADR-0010).
 
+No photography exists yet, and none was fabricated — no stock photos, nothing hotlinked from
+another optical retailer's site. The Hero uses a small abstract two-circle motif (plain CSS,
+`aria-hidden`, evokes lenses without pretending to be a product photo) as a placeholder for real
+storefront/product photography; brand cards fall back to a CSS monogram (first letter) when
+`logoPublicId` is null, which is every brand right now. Both are contained, one-component swaps
+once real assets exist — see `CLIENT_CONTENT_CHECKLIST.md`.
+
+Google Maps: no API key, no embed, no invented coordinates — `lib/maps.ts` prefers a branch's own
+`googleMapsUrl` when the API provides one, else builds a standard `maps/search` URL from the
+address text already in the database.
+
 ## Environment variables
 
 | Variable            | Where                                                        | Notes                                                                                                                                                                                                                                                                                 |
@@ -165,28 +218,40 @@ not built yet — public `id`s aren't resolved to delivery URLs here, per ADR-00
 
 Vitest + Testing Library (`jsdom` environment), unified into `vite.config.ts` via
 `defineConfig` from `vitest/config` — no separate `vitest.config.ts`, since `apps/web` already has
-a Vite pipeline `apps/api` doesn't. 6 tests, not dozens: home route renders inside the layout with
-an accessible nav, the `:slug` param resolves on the lazy product-detail route, the 404 route
-shows with a working way home, and the API client both parses success and throws `ApiClientError`
-with the backend's actual error shape (plus a malformed-body fallback case). All network calls
-mocked (`vi.stubGlobal("fetch", …)`) — no external calls, same principle as the backend suite.
+a Vite pipeline `apps/api` doesn't. `test/setup.ts` explicitly registers Testing Library's
+`cleanup()` in an `afterEach` — its own auto-cleanup detects a global `afterEach`, which this
+project doesn't have (test functions are imported explicitly from `"vitest"`, `test.globals` is
+off); worth calling out because its absence silently leaked DOM state between tests until this
+step's manual-verification pass caught it as a real test failure, not a hypothetical one.
 
-## Manual verification (this step)
+19 tests, not dozens: routing/404/nav (3, from the foundation step, one heading assertion updated
+to match the real Hero copy), the API client (3), `buildWhatsAppUrl` (3, including a real
+typo/message-encoding case), `buildMapsUrl` (2, including the "never invents a location" fallback
+case), `BrandsPage`/`BranchesPage` loading+success+error+empty states against a mocked `fetch`
+(5), and `ContactPage`'s WhatsApp-pending state, phone/email-pending state, and the accessible
+form's fill-and-submit-shows-honest-disclosure flow (3, via `@testing-library/user-event`). All
+network calls mocked — no external calls, same principle as the backend suite.
 
-Both dev servers started for real; driven with headless Chromium (Playwright, installed
-ephemerally outside the repo for this verification only — not a project dependency) rather than
-relying on `jsdom` tests alone:
+## Manual verification
 
-- Home loads, header/nav/footer render with the intended visual identity (screenshots taken).
-- Keyboard: first `Tab` lands on the skip-to-content link.
-- `/products`, `/brands` navigate correctly via nav clicks.
-- Unknown route shows the branded 404; "Volver al inicio" navigates back to `/`.
-- Mobile viewport (390×844): desktop nav hidden, hamburger opens a real panel
-  (`aria-expanded` toggles `true`), accessible name switches "Abrir menú" → "Cerrar menú",
-  closes on nav click.
-- Home page's dev-only connectivity indicator read **"API: ok"** — a live, successful
-  cross-origin fetch from the browser to `apps/api`, which is itself proof CORS is configured
-  correctly for this origin (a misconfigured allowlist would have failed the fetch, not just
-  logged a warning).
-- Browser console: only Vite HMR connection messages and the standard React DevTools notice —
-  zero errors, zero page errors (`page.on("pageerror")` recorded none).
+Both dev servers started for real each step; driven with headless Chromium (Playwright, installed
+ephemerally outside the repo for verification only — not a project dependency) rather than relying
+on `jsdom` tests alone.
+
+**Frontend foundation step:** Home loaded, header/nav/footer rendered with the intended visual
+identity; keyboard tab landed on the skip-link first; `/products`/`/brands` navigated via nav
+clicks; unknown route showed the branded 404 with a working way home; mobile viewport (390×844)
+hid the desktop nav and the hamburger opened/closed a real, accessible panel; the dev-only
+connectivity indicator read "API: ok" (a genuine cross-origin fetch succeeding, which is itself
+the CORS proof); console had zero errors.
+
+**Home & institutional pages step:** every real page driven end-to-end — Home (hero, category
+tiles from `GET /api/categories`, brand preview from `GET /api/brands`, branch preview from
+`GET /api/branches`, closing CTA), About (all four content sections), Brands (full grid), Branches
+(cards including a working "Ver en el mapa" link built from the real address), Contact (WhatsApp
+correctly rendered in its disabled/pending state — not a link, `aria-disabled="true"` — phone/email
+showing "A confirmar," and the form: filled, submitted, and confirmed it shows the honest
+"todavía no está conectado" disclosure rather than a fake success message). Keyboard tab order
+through the contact form confirmed correct (Nombre → Email → …). Mobile viewport re-verified on
+Home, Branches, and Contact — no horizontal scroll on any of them. Console: zero errors, zero page
+errors, across every page visited.

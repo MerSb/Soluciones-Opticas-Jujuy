@@ -1,5 +1,10 @@
 import { SeoHead } from "../components/ui/SeoHead";
-import { Container } from "../components/ui/Container";
+import { Hero } from "../components/marketing/Hero";
+import { CTASection } from "../components/marketing/CTASection";
+import { CategoryDiscoverySection } from "./home/CategoryDiscoverySection";
+import { BrandsPreviewSection } from "./home/BrandsPreviewSection";
+import { WhyChooseUsSection } from "./home/WhyChooseUsSection";
+import { BranchesPreviewSection } from "./home/BranchesPreviewSection";
 import { useHealthQuery } from "../services/queries/health";
 
 export function HomePage() {
@@ -7,17 +12,16 @@ export function HomePage() {
     <>
       <SeoHead
         title="Inicio"
-        description="Óptica en Jujuy — anteojos recetados, de sol y deportivos."
+        description="Óptica en Jujuy — anteojos recetados, de sol y deportivos. Asesoramiento profesional y atención personalizada."
         canonicalPath="/"
       />
-      <Container className="py-16">
-        <h1 className="font-display text-4xl text-text">Soluciones Ópticas</h1>
-        <p className="mt-4 max-w-2xl text-text-muted">
-          Sitio en construcción — el catálogo y la información institucional se incorporan en las
-          próximas etapas.
-        </p>
-        <DevConnectivityCheck />
-      </Container>
+      <Hero />
+      <CategoryDiscoverySection />
+      <BrandsPreviewSection />
+      <WhyChooseUsSection />
+      <BranchesPreviewSection />
+      <CTASection />
+      <DevConnectivityCheck />
     </>
   );
 }
@@ -31,7 +35,7 @@ function DevConnectivityCheck() {
   if (!import.meta.env.DEV) return null;
 
   return (
-    <p className="mt-8 text-xs text-text-muted">
+    <p className="px-4 py-4 text-center text-xs text-text-muted">
       API: {isLoading ? "verificando…" : isError ? "sin conexión" : (data?.status ?? "desconocido")}
     </p>
   );

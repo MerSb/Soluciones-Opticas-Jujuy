@@ -36,7 +36,7 @@ describe("routing", () => {
     renderAt("/");
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: /soluciones ópticas/i }),
+      await screen.findByRole("heading", { level: 1, name: /anteojos recetados/i }),
     ).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: /principal/i });
     expect(nav).toBeInTheDocument();

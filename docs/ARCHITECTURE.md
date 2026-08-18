@@ -27,7 +27,7 @@ Monorepo (npm workspaces): `apps/web`, `apps/api`, `packages/shared`, `prisma/`,
 ```
 apps/web/src/
   app/         router.tsx, routes.tsx, providers.tsx
-  pages/       route-level shells — real content arrives with the catalog UI step
+  pages/       Home/About/Brands/Branches/Contact are real; Products/ProductDetail are still shells
   components/  layout/ (Header, Footer, Layout), ui/ (Container, StatusMessage, SeoHead, ResponsiveImage)
   services/    api-client.ts + queries/ (TanStack Query hooks)
   lib/         env.ts
