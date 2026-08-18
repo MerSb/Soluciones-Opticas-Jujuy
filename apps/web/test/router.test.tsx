@@ -15,14 +15,50 @@ function renderAt(path: string) {
 }
 
 beforeEach(() => {
-  // HomePage's dev-only connectivity check fires a real fetch() otherwise
-  // — stub it so these tests stay offline and deterministic (no external
-  // network calls), same principle as the backend's test suite.
+  // The full route tree renders here (Home fetches health/categories/
+  // brands/branches; product detail fetches its own product) — the
+  // mock discriminates by path so every route gets a response shaped
+  // like what it actually expects, not a generic stub.
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ status: "ok" }),
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === "/api/products/andina-aviador") {
+        return {
+          ok: true,
+          json: async () => ({
+            name: "Andina Aviador",
+            slug: "andina-aviador",
+            brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
+            category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
+            shape: "aviator",
+            price: 45000,
+            frameMeasurements: {
+              lensWidth: 58,
+              bridgeWidth: 14,
+              templeLength: 140,
+              lensHeight: 50,
+              frameWidth: 138,
+            },
+            variants: [
+              {
+                id: "v1",
+                color: "Negro",
+                material: "Metal",
+                sku: "AND-AVI-NEG",
+                price: 45000,
+                inStock: true,
+                images: [],
+              },
+            ],
+          }),
+        };
+      }
+
+      // /api/health, /api/brands, /api/categories, /api/branches — all
+      // consumed by Home's sections, none of which are under test here.
+      return { ok: true, json: async () => ({ status: "ok", data: [] }) };
     }),
   );
 });
@@ -43,10 +79,12 @@ describe("routing", () => {
     expect(screen.getByRole("link", { name: /productos/i })).toBeInTheDocument();
   });
 
-  it("resolves the :slug param on the lazy product-detail route", async () => {
+  it("resolves the :slug param on the lazy product-detail route and renders the real product", async () => {
     renderAt("/products/andina-aviador");
 
-    expect(await screen.findByRole("heading", { name: /andina-aviador/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Andina Aviador" }),
+    ).toBeInTheDocument();
   });
 
   it("shows a branded 404 with a working way back home for an unknown route", async () => {

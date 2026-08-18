@@ -11,7 +11,10 @@ export function WhyChooseUsSection() {
         <SectionHeading eyebrow="Por qué elegirnos" title="Pensado para vos" align="center" />
         <div className="mx-auto mt-10 grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-2">
           {siteContent.strengths.map((strength) => (
-            <div key={strength.title} className="rounded-lg border border-border bg-surface p-6">
+            <div
+              key={strength.title}
+              className="rounded-lg border border-border bg-surface-muted p-6"
+            >
               <h3 className="font-display text-lg text-text">{strength.title}</h3>
               <p className="mt-2 text-sm text-text-muted">{strength.description}</p>
             </div>

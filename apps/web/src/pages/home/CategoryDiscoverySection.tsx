@@ -25,7 +25,7 @@ export function CategoryDiscoverySection() {
             <Link
               key={category.slug}
               to={`/products?category=${category.slug}`}
-              className="rounded-lg border border-border bg-surface p-6 text-center shadow-soft transition-colors hover:border-primary"
+              className="rounded-lg border border-border bg-surface-muted p-6 text-center shadow-soft transition-colors hover:border-primary"
             >
               <span className="font-display text-lg text-text">{category.name}</span>
             </Link>
