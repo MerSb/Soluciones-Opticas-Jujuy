@@ -1,8 +1,8 @@
 # Client assets
 
-Where real client-provided image assets live, and how to wire each one in. Two subfolders
-(`hero/`, `storefront/`) hold real photos already; `brand/` and `products/` are still empty
-placeholders — see each subfolder's own README for the exact source requirements, and
+Where real client-provided image assets live, and how to wire each one in. Three subfolders
+(`hero/`, `storefront/`, `brand/`) hold real assets already; `products/` is still an empty
+placeholder — see each subfolder's own README for the exact source requirements, and
 `docs/CLIENT_CONTENT_CHECKLIST.md` for the full list of what's still pending from Soluciones
 Ópticas.
 
@@ -15,9 +15,12 @@ target formats/sizes).
 
 ## `brand/`
 
-Brand logos, if the client legally supplies official assets (see `CLIENT_CONTENT_CHECKLIST.md` —
-**do not scrape logos from the internet**, ever). Until then, `BrandRail.tsx` (Home) renders the
-confirmed brand names typographically, and `BrandCard.tsx` (`/brands`) falls back to a monogram.
+Two things: Soluciones Ópticas' own logo — live already, used in the Header — and third-party
+product brand logos (ELEVE, Pierre Cardin, etc.), still pending and only if the client legally
+supplies official assets (see `CLIENT_CONTENT_CHECKLIST.md` — **do not scrape logos from the
+internet**, ever). Until those exist, `BrandRail.tsx` (Home) renders the confirmed brand names
+typographically, and `BrandCard.tsx` (`/brands`) falls back to a monogram. See `brand/README.md`
+for which file is which.
 
 ## `hero/`
 

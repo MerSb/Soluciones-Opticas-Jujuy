@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import logo from "../../assets/brand/logo.webp";
+import logo2x from "../../assets/brand/logo-2x.webp";
 import { WhatsAppButton } from "../ui/WhatsAppButton";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
@@ -57,12 +59,20 @@ export function Header() {
   return (
     <header className="border-b border-border bg-surface">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        <Link
-          to="/"
-          className="whitespace-nowrap font-display text-lg font-bold text-text lg:text-xl"
-          aria-label="Soluciones Ópticas — Inicio"
-        >
-          Soluciones Ópticas
+        {/* The real logo — a self-contained round badge (its own teal
+            background + the "Soluciones Ópticas" wordmark baked in), so
+            no separate text label is rendered alongside it; that would
+            just repeat the wordmark the image already carries. The
+            image's own `alt` supplies the link's accessible name. */}
+        <Link to="/" className="shrink-0">
+          <img
+            src={logo}
+            srcSet={`${logo} 1x, ${logo2x} 2x`}
+            alt="Soluciones Ópticas — Inicio"
+            width={40}
+            height={40}
+            className="h-9 w-9 rounded-full lg:h-10 lg:w-10"
+          />
         </Link>
 
         {/* lg:, not md: — with "Promociones" and the theme switcher

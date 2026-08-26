@@ -21,6 +21,17 @@ typographically on Home's brand rail: ELEVE, Pierre Cardin, Bulk, Carolina Emanu
 Valdez, Ruana, Unicity, Baku, Fioralba Lentes. Names only — no logos, descriptions, or products are
 attached to them yet; see "Assets needed" below for what would unlock more.
 
+## Resolved: real logo (2026-08-26)
+
+The real logo (a round teal/white badge — a line-art glasses/scooter mark, the "SOLUCIONES
+OPTICAS" wordmark, and the address/phone baked into the badge itself) was supplied as an actual
+file this time (`apps/api/assets/soluciones-opticas-logo.jpg`, 1500×1500 JPEG) — unlike the earlier
+sightings of this same logo inline in chat, which this environment had no way to save. Optimized to
+two WebP sizes (80px/160px for 1x/2x display) and now live in the Header, replacing the styled-text
+wordmark — see `apps/web/src/assets/brand/`. Not added to the Footer (it doesn't currently show any
+separate brand wordmark to replace) or resized/re-cropped beyond simple downsizing — the badge is
+used as supplied.
+
 ## Resolved in the Phase A/B continuation step (2026-08-26)
 
 Two real photos were supplied directly and are now live: a Hero product photo (glasses, studio
@@ -119,18 +130,11 @@ this is the plain-language version of the same list.
 | ------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **Hero product photo**   | ✅ Received  | —                                                                                                                                                          | Live in the Hero — see `apps/web/src/assets/hero/README.md`                                                       |
 | **Store exterior photo** | ✅ Received  | —                                                                                                                                                          | Live on Home's storefront section                                                                                 |
-| **Logo**                 | Still needed | SVG preferred; transparent PNG acceptable                                                                                                                  | Header/footer (currently the business name as styled text)                                                        |
+| **Logo**                 | ✅ Received  | —                                                                                                                                                          | Live in the Header — see `apps/web/src/assets/brand/README.md`                                                    |
 | **Product photography**  | Still needed | Front view at minimum; 3/4 and side views where available, consistent background across the catalog                                                        | Product cards and detail-page gallery (not the active delivery path yet regardless — see "Product catalog" below) |
 | **Brand logos**          | Still needed | Only if legally supplied by Soluciones Ópticas — never sourced independently                                                                               | Brand cards on `/brands`; the confirmed-names rail on Home stays typographic either way, by design                |
 | **Store interior photo** | Still needed | —                                                                                                                                                          | Not currently used anywhere on the site; would be a natural addition to the exterior photo's own section          |
 | **Social media**         | Still needed | TikTok URL (mentioned as in use); Instagram/Facebook/YouTube handles possibly visible in the storefront photo's own signage, not yet confirmed (see above) | Header/footer social links (`siteContent.socialLinks`, currently empty)                                           |
-
-A real logo mark is visible in the storefront photo itself (a round badge with a black line-art
-glasses/scooter icon and the business wordmark, on the illuminated sign and printed placards inside
-the shop) — consistent with what was described once in an earlier step's conversation. Cropping it
-out of an environmental photo wouldn't give a usable header asset (perspective, uneven lighting,
-low effective resolution) — the actual source file (the design file, or however the sign was
-originally produced) is what would cover the Logo row above.
 
 ## Product catalog (currently fictional dev-seed data)
 

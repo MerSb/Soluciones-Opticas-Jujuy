@@ -449,6 +449,18 @@ script (not a project dependency — see "Image foundation" below) and committed
 `apps/web/src/assets/{hero,storefront}/`; the originals stay outside the repo (in the location they
 were supplied), per this project's own "don't commit huge unoptimized originals" convention.
 
+### Header: real logo
+
+A fourth real asset — the actual logo, `apps/api/assets/soluciones-opticas-logo.jpg` — was supplied
+in a follow-up message as a real file (unlike two earlier sightings of this same badge inline in
+chat, which this environment had no way to save). Resized to 80px/160px WebP
+(`apps/web/src/assets/brand/logo.webp` / `logo-2x.webp`) and now live in `Header.tsx`, replacing the
+styled-text "Soluciones Ópticas" wordmark. The badge is a self-contained circular mark with its own
+teal background and the wordmark baked in, so no separate text label renders next to it — the
+`<img>`'s own `alt` carries the link's accessible name, same string the old `aria-label` used
+("Soluciones Ópticas — Inicio"). Swapping text for a ~36–40px image only _reduced_ the Header's
+width budget, so it didn't reopen the 768px wrap issue documented above.
+
 ### Hero: real product photo
 
 `HeroVisual.tsx`'s `HERO_PRODUCT_IMAGE` now points at the real photo instead of `null`. It's a full
