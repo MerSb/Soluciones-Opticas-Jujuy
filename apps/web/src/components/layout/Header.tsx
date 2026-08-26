@@ -69,9 +69,9 @@ export function Header() {
             src={logo}
             srcSet={`${logo} 1x, ${logo2x} 2x`}
             alt="Soluciones Ópticas — Inicio"
-            width={40}
-            height={40}
-            className="h-9 w-9 rounded-full lg:h-10 lg:w-10"
+            width={64}
+            height={64}
+            className="h-14 w-14 rounded-full lg:h-16 lg:w-16"
           />
         </Link>
 
