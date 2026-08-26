@@ -2,12 +2,13 @@
 
 Status: approved. Source: [`apps/web`](../apps/web). All Etapa 1 pages are now real and
 API-backed: Home, About, Brands, Branches, Contact, and the Product Catalog (`/products`,
-`/products/:slug`). The Home Hero and Header received two further refinement passes: motion + real
-contact data (see "Hero & Header refinement" below), then a Premium Visual Experience pass adding
+`/products/:slug`). The Home Hero and Header received three further refinement passes: motion +
+real contact data (see "Hero & Header refinement" below), a Premium Visual Experience pass adding
 real typography, a light/dark/system theme, real confirmed brands, and a real Promociones catalog
-category (see "Typography", "Theming", and "Promotions & confirmed brands" below). Authentication,
-favorites, measurements, recommendations, admin, and checkout remain out of scope, per
-`ARCHITECTURE.md`'s
+category (see "Typography", "Theming", and "Promotions & confirmed brands" below), and a Phase A/B
+continuation pass integrating the client's real Hero photo and storefront photo and finishing
+Home's commercial section order (see "Real assets integration" below). Authentication, favorites,
+measurements, recommendations, admin, and checkout remain out of scope, per `ARCHITECTURE.md`'s
 phased scope. See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-wide picture and
 [API.md](API.md) for the backend this consumes, including a "Known limitations" section a previous
 step surfaced.
@@ -34,8 +35,9 @@ apps/web/
     app/           router.tsx (browser router), routes.tsx (route data),
                    providers.tsx (Theme + QueryClient), theme.tsx (ThemeProvider/useTheme)
     content/       site-content.ts — typed institutional content, see below
-    assets/        client-provided images once they exist — hero/, brand/, products/,
-                   each with its own README spec; empty today, see CLIENT_CONTENT_CHECKLIST.md
+    assets/        client-provided images — hero/ (real photo, +responsive srcset variants),
+                   storefront/ (real photo), brand/ and products/ still empty placeholders;
+                   each with its own README spec, see CLIENT_CONTENT_CHECKLIST.md
     components/
       layout/      Header, Footer, Layout, ThemeSwitcher
       ui/          Container, StatusMessage, SeoHead, ResponsiveImage, WhatsAppButton,
@@ -51,8 +53,8 @@ apps/web/
                    VariantSelector, MeasurementsTable, ColorSwatchList
       ErrorBoundary.tsx
     pages/
-      home/        HomePage's section components (category/promotions/brand-rail/branch
-                   previews, why-choose-us)
+      home/        HomePage's section components (brand rail, category discovery, featured
+                   products, promotions, why-choose-us, store showcase, branch preview)
       *.tsx        one real page per route (Home, About, Brands, Branches, Contact, Products,
                    ProductDetail, 404) — every Etapa 1 page is real now
     services/
@@ -284,14 +286,14 @@ long as it's "filling"), so the entrance animation (CSS-owned), the scroll-depth
 
 ### Visual asset
 
-`HeroFrameIllustration` and `HeroOpticalArc` are hand-rolled inline SVGs, not a photo — no client
-photography exists yet (see `CLIENT_CONTENT_CHECKLIST.md`) and none was fabricated or hotlinked
-from another optical retailer's site. They extend the same line-art language already established
-by `ProductImagePlaceholder` to a larger, more detailed Hero-scale composition.
-**Temporary development asset — replace before production**, ideally with the client's actual logo
-(a round cyan/white badge with a line-art glasses mark, shown once in this step's own kickoff
-conversation but not saved to disk anywhere this environment could read it as a file) once it's
-provided as an actual image asset.
+`HeroFrameIllustration` and `HeroOpticalArc` are hand-rolled inline SVGs — the fallback path when
+no real product photo is configured, still active as of this step (see "Real assets integration"
+below for when it's not). No client photography existed at the time this was written, and none was
+fabricated or hotlinked from another optical retailer's site. They extend the same line-art
+language already established by `ProductImagePlaceholder` to a larger, more detailed Hero-scale
+composition. A real product photo was supplied in the Phase A/B continuation step and is now the
+active path — this SVG is the documented, still-maintained fallback `HeroVisual.tsx` renders if
+`HERO_PRODUCT_IMAGE` is ever unset again, not dead code.
 
 ### Benefit panel
 
@@ -437,6 +439,105 @@ near-zero.
   property values — zero JS/render-path difference between them). Reported the consistent number,
   not the outlier, and noted the methodology caveat in the final report rather than silently
   discarding the anomaly.
+
+## Real assets integration (Phase A/B continuation step)
+
+The client supplied three real assets directly in this step: a Hero product photo
+(`hero-lenses.png`), a full-page visual reference/wireframe (guidance only, never embedded — see
+below), and a real, unedited photo of the physical storefront. Optimized with a one-off `sharp`
+script (not a project dependency — see "Image foundation" below) and committed as WebP under
+`apps/web/src/assets/{hero,storefront}/`; the originals stay outside the repo (in the location they
+were supplied), per this project's own "don't commit huge unoptimized originals" convention.
+
+### Hero: real product photo
+
+`HeroVisual.tsx`'s `HERO_PRODUCT_IMAGE` now points at the real photo instead of `null`. It's a full
+studio shot with its own black background and baked-in cyan lighting/reflection already
+composited in — not a transparent cutout — which changed how it needed to integrate (§8 of that
+step's brief: "Do NOT display it as a rectangular screenshot/card... should feel integrated into
+the composition"). Two real integration bugs were found and fixed live; see "Bugs found and fixed
+live" below.
+
+Responsive `srcset`/`sizes` (480w/800w/1200w/1536w, `sizes="(min-width: 1024px) 46vw, 100vw"`)
+mirrors `HeroVisual`'s own layout (`lg:w-[46%]` below `lg:`, full-width above it) — a live
+Lighthouse pass caught the un-sized single image downloading full-resolution even on mobile, where
+it displays at roughly a quarter of that size (see "Bugs found and fixed live").
+
+### Home: real storefront photo and commercial flow
+
+`StoreShowcaseSection.tsx` (new) shows the real, unedited storefront photo alongside real address,
+phone, a maps CTA, and a WhatsApp CTA — deliberately calmer than Hero (no parallax, no entrance
+choreography, no product-style lighting) since its job is institutional trust ("this belongs to a
+real local business"), not product presentation. Its short copy — the six services listed — was
+read directly off the storefront's own signage in the supplied photo, not written from a general
+brief; `siteContent.services` documents that provenance inline.
+
+`FeaturedProductsSection.tsx` (new) is a real catalog preview on Home (`useProductsQuery`, the same
+hook `/products` itself uses), named "Descubrí nuestro catálogo," not "Destacados"/"Featured" — the
+schema has no curation flag, so this is honestly the newest page of real products, not a claimed
+hand-picked selection.
+
+Home's section order changed to follow the commercial flow this step's brief specified: Hero (still
+loudest) → brand rail → category discovery → product preview (second-loudest, `WhyChooseUsSection`
+now positioned after the product preview rather than before it) → promotions (still hidden while
+empty) → why-choose-us → real storefront → branches → contact CTA. `HomePage.tsx`'s own top comment
+documents this ordering rationale.
+
+### What the wireframe reference changed (and didn't)
+
+The supplied visual reference is structurally very close to what this project had already built
+independently from written specs — same nav items, same theme switcher concept, same Hero
+composition, same 4-column benefit panel. Where it differed, existing approved decisions were kept
+deliberately, not overwritten just because the reference showed something else:
+
+- The reference's Hero headline ("BIENVENIDOS A / SOLUCIONES ÓPTICAS") is mockup placeholder text,
+  not approved copy — the brief itself said so explicitly ("do not casually change approved copy").
+  The real, previously-approved headline ("Tu visión, nuestra pasión") is unchanged.
+- The reference's benefit panel uses "Calidad Óptica" / "Garantía y Confianza" — exactly the two
+  unconfirmed-claim phrases [ADR-0016](adr/0016-dark-cyan-visual-identity.md)'s sibling reasoning
+  and this project's own `heroBenefits` comment already ruled out for not being confirmed facts.
+  Kept the existing neutral wording rather than reverting to the mockup's.
+- The reference shows a "®" registered-trademark mark next to the wordmark — no trademark
+  registration has been confirmed, so this was treated as exactly the kind of "accidental
+  text/errors contained in an image" the brief says not to reproduce, and left out.
+- The reference's theme switcher is a simplified two-state sun/moon toggle; the existing
+  three-state (system/light/dark) switcher is kept, since it's the more complete, already-accessible
+  implementation the _previous_ step's brief specifically asked for, not a regression to fix.
+
+### Bugs found and fixed live (Phase A/B continuation step)
+
+- **`mix-blend-mode: screen` didn't actually blend against the page background — it only looked
+  like it worked in dark mode, by coincidence.** The Hero image's black background was meant to
+  vanish into whatever's behind it via `screen` blending (`screen(black, X) = X`, always). Live
+  testing in light mode showed a hard black rectangle instead — exactly the "generic rectangular
+  card" look the brief rules out. Root cause: several ancestors of the image
+  (`will-change-transform`, and the `transform`-driven entrance/scroll layers) each form their own
+  CSS stacking context, so the blend only ever composited against a mostly-transparent backdrop
+  _within_ the image's own group — it never reached the real page background several stacking
+  contexts up. The dark-mode "success" was two unrelated near-black colors happening to look similar
+  side by side, not the blend mechanism working. Fixed by switching to a `mask-image` radial fade
+  instead (`radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)`),
+  which fades the image's own dark corners to transparent regardless of stacking-context semantics
+  — verified correct in both themes afterward.
+- **The Hero image downloaded at full resolution (1536px) even on mobile, where it displays at
+  roughly 380px.** A live Lighthouse pass flagged ~48KB of wasted transfer specifically on this
+  image. Fixed with a real `srcset`/`sizes` (see "Hero: real product photo" above) — re-measured at
+  0 wasted bytes afterward, not just theoretically fixed.
+- **A full-page Playwright screenshot showed the new storefront photo as a blank box.** Investigated
+  before concluding it was a real bug: a focused, scrolled-into-view screenshot of just that
+  `<img>` rendered it correctly, and DOM inspection confirmed the image was fully loaded
+  (`complete: true`, correct `naturalWidth`, correct computed layout dimensions). The image uses
+  `loading="lazy"`; a full-page screenshot taken immediately after `networkidle` with a fixed wait
+  can capture before a below-the-fold lazy image's load actually completes. Not a code defect —
+  re-verified with a screenshot script that scrolls through the full page first (matching how a
+  real visitor would trigger lazy-loading) and it renders correctly every time.
+- **Lighthouse performance scores were highly variable across repeated runs after the real images
+  were added (67–88 across identical light-mode runs, 75–99 across dark-mode runs on this same
+  shared desktop environment already flagged in the Hero Refinement step's own report).** One real,
+  fixable finding was separated from the noise: the un-sized Hero image (see above). After fixing
+  that, remaining run-to-run variance is consistent with the same ambient-CPU-contention pattern
+  already documented — ranges are reported honestly in the final report rather than a single
+  cherry-picked number.
 
 ## Product Catalog architecture
 
@@ -689,12 +790,14 @@ whichever SSG tool gets picked), it has one call site per page to change, not ze
 `decoding="async"` by default. No Cloudinary URL building (that's the integration layer's job,
 not built yet — public `id`s aren't resolved to delivery URLs here, per ADR-0010).
 
-No photography exists yet, and none was fabricated — no stock photos, nothing hotlinked from
-another optical retailer's site. The Hero uses a small abstract two-circle motif (plain CSS,
-`aria-hidden`, evokes lenses without pretending to be a product photo) as a placeholder for real
-storefront/product photography; brand cards fall back to a CSS monogram (first letter) when
-`logoPublicId` is null, which is every brand right now. Both are contained, one-component swaps
-once real assets exist — see `CLIENT_CONTENT_CHECKLIST.md`.
+Two real, client-supplied photos exist now — the Hero product photo and the Home storefront photo
+(both `apps/web/src/assets/*`, see "Real assets integration" above) — optimized to WebP with a
+one-off local `sharp` script (not a project dependency; run once, not part of the build pipeline).
+Nothing else was fabricated to fill the gap: no stock photos, nothing hotlinked from another
+optical retailer's site. Per-product catalog photography still doesn't exist — `ProductCard`/
+`ProductGallery` still render `ProductImagePlaceholder`, and brand cards still fall back to a CSS
+monogram (first letter) when `logoPublicId` is null, which is every brand right now. Both stay
+contained, one-component swaps once real assets exist — see `CLIENT_CONTENT_CHECKLIST.md`.
 
 Google Maps: no API key, no embed, no invented coordinates — `lib/maps.ts` prefers a branch's own
 `googleMapsUrl` when the API provides one, else builds a standard `maps/search` URL from the
@@ -716,7 +819,7 @@ project doesn't have (test functions are imported explicitly from `"vitest"`, `t
 off); worth calling out because its absence silently leaked DOM state between tests until this
 step's manual-verification pass caught it as a real test failure, not a hypothetical one.
 
-75 tests across 17 files. From earlier steps: routing/404/nav (3), the API client (3),
+81 tests across 19 files. From earlier steps: routing/404/nav (3), the API client (3),
 `buildWhatsAppUrl` (3), `buildMapsUrl` (2), `BrandsPage`/`BranchesPage` loading+success+error+empty
 states (5), and `ContactPage`'s form fill-and-submit flow (1, plus 2 updated this step). From the
 Product Catalog UI step:
@@ -776,6 +879,16 @@ Added with the Premium Visual Experience step:
   nav active-state bug described in "Bugs found and fixed live" above (Promociones does _not_ show
   active on the plain, unfiltered catalog; it _does_ show active specifically when the catalog is
   filtered to it).
+
+Added with the Phase A/B continuation step:
+
+- `store-showcase-section.test.tsx` — 4 tests: the real storefront photo renders with descriptive
+  alt text; the confirmed address, a real `tel:` phone link, and a real Google Maps "Cómo llegar"
+  CTA all render; the real services read from the storefront's own signage render (not invented
+  ones); the WhatsApp CTA renders with the confirmed number.
+- `featured-products-section.test.tsx` — 2 tests: renders nothing on loading/error rather than a
+  skeleton flash on Home (same "fails quietly" pattern as `PromotionsSection`); renders real
+  products with a working link to the full catalog.
 
 All network calls mocked — no external calls, same principle as the backend suite. `test/setup.ts`
 carries three environment-gap stubs `jsdom` doesn't provide: `scrollIntoView`, `matchMedia`, and a
@@ -878,3 +991,22 @@ ambient CPU contention on this shared desktop environment during trace collectio
 identical configuration scored 99/10ms TBT); light and dark are CSS-token-only differences with zero
 JS/render-path divergence, so a real per-theme performance gap was never plausible in the first
 place, and the numbers above are the consistent, reproduced result.
+
+**Phase A/B continuation step:** all 56 (theme × viewport × page) combinations from the Premium
+Visual Experience step's own matrix re-run clean — zero horizontal overflow, zero console/page
+errors (excluding a handful of `net::ERR_NETWORK_CHANGED` entries traced to this host machine's own
+network stack, confirmed non-reproducible by re-running the same combinations immediately after and
+getting zero errors both times). An automated axe-core pass re-ran across both themes on six pages,
+including the rebuilt Home — zero violations. Keyboard tab order and reduced-motion re-verified on
+the reordered Home; a touch `tap()` on the new "Cómo llegar" CTA (mobile viewport) resolved to the
+correct Google Maps URL.
+
+Lighthouse re-ran against the production build (both themes, same Puppeteer+Lighthouse
+`emulateMediaFeatures` method as the previous step) after the real Hero/storefront photos were
+added: accessibility, best practices, and SEO stayed at 100/100/100 in both themes; performance
+ranged 67–88 (light) and 75–99 (dark) across repeated identical runs — the same ambient-CPU-noise
+pattern already documented for this shared machine, not a new regression, confirmed by separating
+out the one _real_, fixable finding underneath the noise (see "Bugs found and fixed live" above —
+the Hero image's missing `srcset`, re-measured at 0 wasted bytes after the fix) rather than treating
+the whole score swing as either "fine" or "broken" without investigating. LCP stayed in the 2.0–2.6s
+range across runs, CLS stayed at 0 in every run.

@@ -1,17 +1,51 @@
 import type { RefObject } from "react";
+import heroLenses from "../../../assets/hero/hero-lenses.webp";
+import heroLenses480 from "../../../assets/hero/hero-lenses-480.webp";
+import heroLenses800 from "../../../assets/hero/hero-lenses-800.webp";
+import heroLenses1200 from "../../../assets/hero/hero-lenses-1200.webp";
 import { HeroOpticalArc } from "./HeroOpticalArc";
 import { HeroFrameIllustration } from "./HeroFrameIllustration";
 
-// §5: the visual architecture supports a real product photo without
-// rewriting Hero — drop a transparent-background WebP/AVIF/PNG into
-// apps/web/src/assets/hero/ (see that folder's README for the source
-// spec: 1800px+, 3/4 angle, transparent background), import it, and set
-// `src` here. Until then this stays null and HeroVisual renders the
-// hand-drawn SVG fallback instead — §29 is explicit that the fallback
-// should NOT keep growing more elaborate in place of a real asset, so
-// this is intentionally a one-line switch, not a feature to build out
-// further.
-const HERO_PRODUCT_IMAGE: { src: string; alt: string } | null = null;
+// §5/Phase A: a real product photo, supplied directly (hero-lenses.png,
+// optimized to WebP — see apps/web/src/assets/hero/README.md). Not a
+// transparent cutout — a full studio shot with its own black background
+// and baked-in cyan lighting/reflection already composited in.
+//
+// A `mix-blend-mode: screen` approach was tried first (screen-blending
+// black with anything leaves that anything unchanged, so in theory the
+// photo's black background would vanish into whatever's behind it) —
+// live-tested and rejected: several ancestors of this element
+// (`will-change-transform`, and the `transform`-driven entrance/scroll
+// layers) each form their own stacking context, so the blend only ever
+// composited against a mostly-transparent backdrop *within* this
+// element's own group, never actually reaching the real page
+// background several layers up. It looked like it worked in dark mode
+// purely by color coincidence (opaque near-black photo on a near-black
+// page) and visibly failed in light mode — a hard black rectangle,
+// exactly the "generic rectangular card" look §8 rules out. Fixed with
+// a `mask-image` radial fade instead: the image's own dark corners fade
+// to transparent at the edges regardless of blend/stacking-context
+// semantics, which is why this approach doesn't have the same failure
+// mode. The SVG fallback doesn't need either treatment — it's already
+// transparent.
+// A Lighthouse pass caught this image downloading full-size (1536px)
+// even on mobile, where it displays at ~380px — a real ~48KB waste, not
+// noise. `srcset`/`sizes` fixes it: the `sizes` value mirrors this
+// component's own layout (`lg:w-[46%]` of the container below `lg`,
+// full-width above it — see the wrapper className below).
+const HERO_PRODUCT_IMAGE: {
+  src: string;
+  srcSet: string;
+  sizes: string;
+  width: number;
+  height: number;
+} | null = {
+  src: heroLenses,
+  srcSet: `${heroLenses480} 480w, ${heroLenses800} 800w, ${heroLenses1200} 1200w, ${heroLenses} 1536w`,
+  sizes: "(min-width: 1024px) 46vw, 100vw",
+  width: 1536,
+  height: 1024,
+};
 
 // Small decorative "technical" marks (§12) — a plus sign and a
 // coordinate-style tick, aria-hidden, non-interactive. Entrance-only
@@ -75,12 +109,25 @@ export function HeroVisual({ visualRef }: { visualRef: RefObject<HTMLDivElement 
 
             <div className="relative">
               {HERO_PRODUCT_IMAGE ? (
+                // Decorative: the headline + copy already carry the
+                // Hero's actual message, and this isn't a specific,
+                // identifiable real product (no confirmed model/brand
+                // to name) — empty alt, same treatment the SVG fallback
+                // gets one level up (its wrapper is aria-hidden).
                 <img
                   src={HERO_PRODUCT_IMAGE.src}
-                  alt={HERO_PRODUCT_IMAGE.alt}
-                  className="relative h-auto w-full [filter:drop-shadow(0_0_28px_rgb(34_211_238/0.28))]"
-                  width={1800}
-                  height={1050}
+                  srcSet={HERO_PRODUCT_IMAGE.srcSet}
+                  sizes={HERO_PRODUCT_IMAGE.sizes}
+                  alt=""
+                  className="relative h-auto w-full"
+                  style={{
+                    maskImage:
+                      "radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)",
+                    WebkitMaskImage:
+                      "radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)",
+                  }}
+                  width={HERO_PRODUCT_IMAGE.width}
+                  height={HERO_PRODUCT_IMAGE.height}
                   loading="eager"
                   fetchPriority="high"
                 />

@@ -21,6 +21,31 @@ typographically on Home's brand rail: ELEVE, Pierre Cardin, Bulk, Carolina Emanu
 Valdez, Ruana, Unicity, Baku, Fioralba Lentes. Names only — no logos, descriptions, or products are
 attached to them yet; see "Assets needed" below for what would unlock more.
 
+## Resolved in the Phase A/B continuation step (2026-08-26)
+
+Two real photos were supplied directly and are now live: a Hero product photo (glasses, studio
+lighting) and a real, unedited photo of the physical storefront (Alvear 732). Both optimized to
+WebP and committed — see `apps/web/src/assets/hero/` and `apps/web/src/assets/storefront/`, and
+"Assets needed" below for what's still missing. Six real services were also read directly off the
+storefront's own signage (Monofocal, Bifocal, Multifocal, Lentes de sol, Arreglos en general,
+Tratamientos especiales) and are now shown in Home's new storefront section
+(`siteContent.services`) — separate from the "Por qué elegirnos" section further down Home, which
+still uses its own, earlier-established generic strengths and wasn't changed.
+
+**Not yet confirmed, spotted only as a visual observation in the storefront photo's own signage:**
+what look like real social media handles — an Instagram-style handle
+("soluciones.opticas.jujuy"), a Facebook-style page name ("SolucionesOpticasJujuy"), and a YouTube
+channel name ("Soluciones Opticas Jujuy"). These were **not** wired into `siteContent.socialLinks`
+— reading small text off a photo and guessing at a URL from it is exactly the kind of inference
+that risks linking to the wrong account, worse than no link at all. Please confirm the exact
+handles/URLs directly rather than this documenting them as fact.
+
+**Also visible in the same photo, not acted on:** PAMI and "Instituto de Seguros de Jujuy" branding
+on the storefront, suggesting some kind of accepted-coverage relationship — not added to the site
+in any form, since a specific insurance/coverage claim carries real consequences if the sign is
+outdated or the relationship has changed. Worth confirming directly if this is something to state
+on the site.
+
 ## Blocking a real, working feature right now
 
 | Item              | Where it's used | Current state        |
@@ -85,25 +110,27 @@ year, headcount, or specific history). Real content wanted for:
 
 ## Assets needed
 
-None of the following block anything from working — every gap has an honest placeholder (a
-hand-drawn SVG illustration for the Hero, a monogram for brand cards, typographic names for the
-brand rail). Each one is a direct upgrade whenever it exists. Full technical spec for each in
-`apps/web/src/assets/*/README.md`; this is the plain-language version of the same list.
+None of the still-needed rows below block anything from working — every gap has an honest
+placeholder (a monogram for brand cards, typographic names for the brand rail). Each one is a
+direct upgrade whenever it exists. Full technical spec for each in `apps/web/src/assets/*/README.md`;
+this is the plain-language version of the same list.
 
-| Asset                    | Spec                                                                                                | Where it plugs in                                                                                                 |
-| ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Logo**                 | SVG preferred; transparent PNG acceptable                                                           | Header/footer (currently the business name as styled text)                                                        |
-| **Hero product photo**   | High-resolution (1800px+), transparent background preferred, 3/4 angle                              | Replaces the current hand-drawn glasses illustration — one-line switch, see `apps/web/src/assets/hero/README.md`  |
-| **Product photography**  | Front view at minimum; 3/4 and side views where available, consistent background across the catalog | Product cards and detail-page gallery (not the active delivery path yet regardless — see "Product catalog" below) |
-| **Brand logos**          | Only if legally supplied by Soluciones Ópticas — never sourced independently                        | Brand cards on `/brands`; the confirmed-names rail on Home stays typographic either way, by design                |
-| **Store exterior photo** | —                                                                                                   | Not currently used anywhere on the site; would be a natural addition to About/Branches once available             |
-| **Store interior photo** | —                                                                                                   | Same as above                                                                                                     |
-| **Social media**         | TikTok URL (mentioned as in use, not yet provided); Instagram URL if applicable                     | Header/footer social links (`siteContent.socialLinks`, currently empty)                                           |
+| Asset                    | Status       | Spec                                                                                                                                                       | Where it plugs in                                                                                                 |
+| ------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Hero product photo**   | ✅ Received  | —                                                                                                                                                          | Live in the Hero — see `apps/web/src/assets/hero/README.md`                                                       |
+| **Store exterior photo** | ✅ Received  | —                                                                                                                                                          | Live on Home's storefront section                                                                                 |
+| **Logo**                 | Still needed | SVG preferred; transparent PNG acceptable                                                                                                                  | Header/footer (currently the business name as styled text)                                                        |
+| **Product photography**  | Still needed | Front view at minimum; 3/4 and side views where available, consistent background across the catalog                                                        | Product cards and detail-page gallery (not the active delivery path yet regardless — see "Product catalog" below) |
+| **Brand logos**          | Still needed | Only if legally supplied by Soluciones Ópticas — never sourced independently                                                                               | Brand cards on `/brands`; the confirmed-names rail on Home stays typographic either way, by design                |
+| **Store interior photo** | Still needed | —                                                                                                                                                          | Not currently used anywhere on the site; would be a natural addition to the exterior photo's own section          |
+| **Social media**         | Still needed | TikTok URL (mentioned as in use); Instagram/Facebook/YouTube handles possibly visible in the storefront photo's own signage, not yet confirmed (see above) | Header/footer social links (`siteContent.socialLinks`, currently empty)                                           |
 
-A real logo was actually shown once, inline in a client message during an earlier step (a round
-cyan/white badge with a black line-art glasses mark and the business name/contact info) — but that
-was a chat image, not a file on disk this environment could read or save into the repo. If that's
-the real logo, providing it as an actual file covers the first row above directly.
+A real logo mark is visible in the storefront photo itself (a round badge with a black line-art
+glasses/scooter icon and the business wordmark, on the illuminated sign and printed placards inside
+the shop) — consistent with what was described once in an earlier step's conversation. Cropping it
+out of an environmental photo wouldn't give a usable header asset (perspective, uneven lighting,
+low effective resolution) — the actual source file (the design file, or however the sign was
+originally produced) is what would cover the Logo row above.
 
 ## Product catalog (currently fictional dev-seed data)
 
@@ -136,10 +163,12 @@ the UI.
 
 ## Not blocking anything, informational only
 
-- **Services offered:** the "Por qué elegirnos" section on Home uses deliberately generic
-  strengths (personalized attention, brand variety, multiple branches, professional advice) —
-  no specific services (eye exams, contact lens fitting, etc.) are claimed since none were
-  confirmed. If there are specific services worth highlighting, they can be added there.
+- **Services offered:** six real services are now confirmed (see "Resolved in the Phase A/B
+  continuation step" above) and shown in Home's storefront section. The separate "Por qué
+  elegirnos" section further down Home still uses its own, earlier-established deliberately generic
+  strengths (personalized attention, brand variety, multiple branches, professional advice) — not
+  updated to the confirmed services list, since that section's copy was already an approved,
+  intentional choice from an earlier step, not a placeholder waiting on this data specifically.
 - **Years in business, customer counts, certifications, awards, guarantees:** none appear
   anywhere on the site — these were explicitly excluded rather than estimated, per this step's
   own instruction not to invent them.

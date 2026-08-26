@@ -1,9 +1,10 @@
 # Client assets
 
-Where real client-provided image assets live once they exist, and how to wire each one in. Nothing
-in this directory tree is committed yet — see each subfolder's own README for the exact source
-requirements, and `docs/CLIENT_CONTENT_CHECKLIST.md` for the full list of what's still pending from
-Soluciones Ópticas.
+Where real client-provided image assets live, and how to wire each one in. Two subfolders
+(`hero/`, `storefront/`) hold real photos already; `brand/` and `products/` are still empty
+placeholders — see each subfolder's own README for the exact source requirements, and
+`docs/CLIENT_CONTENT_CHECKLIST.md` for the full list of what's still pending from Soluciones
+Ópticas.
 
 ## Why a source folder at all
 
@@ -20,9 +21,14 @@ confirmed brand names typographically, and `BrandCard.tsx` (`/brands`) falls bac
 
 ## `hero/`
 
-The Hero's product visual — see `hero/README.md` for the exact spec. `HeroVisual.tsx` already has a
-one-line switch ready for this (`HERO_PRODUCT_IMAGE`); the current hand-drawn SVG is an explicitly
-temporary fallback, not a design decision to keep refining in place of a real photo.
+The Hero's product visual — a real photo lives here already (see `hero/README.md`). The hand-drawn
+SVG (`HeroFrameIllustration.tsx`) is the fallback path `HeroVisual.tsx` renders only if
+`HERO_PRODUCT_IMAGE` is unset — kept, not a design decision to keep refining in place of a real
+photo.
+
+## `storefront/`
+
+The physical store's exterior photo, used on Home (not Hero) — see `storefront/README.md`.
 
 ## `products/`
 

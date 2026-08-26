@@ -40,6 +40,13 @@ export interface SiteContent {
    * BrandRail.tsx and CLIENT_CONTENT_CHECKLIST.md.
    */
   confirmedBrands: string[];
+  /**
+   * Real services, read directly off the storefront's own signage in
+   * the photo supplied for the "Phase A/B" continuation step (2026-08-26)
+   * — not inferred, not from a written brief. Kept close to the source
+   * wording rather than elaborated. Used by StoreShowcaseSection.
+   */
+  services: string[];
 }
 
 export const siteContent: SiteContent = {
@@ -137,5 +144,16 @@ export const siteContent: SiteContent = {
     "Unicity",
     "Baku",
     "Fioralba Lentes",
+  ],
+
+  // Read directly off the real storefront's own signage (Phase A/B
+  // continuation step, 2026-08-26) — kept close to the source wording.
+  services: [
+    "Monofocal",
+    "Bifocal",
+    "Multifocal",
+    "Lentes de sol",
+    "Arreglos en general",
+    "Tratamientos especiales",
   ],
 };
