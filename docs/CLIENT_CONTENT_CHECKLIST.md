@@ -5,13 +5,63 @@ below blocked implementation — every gap uses honest, neutral placeholder hand
 `apps/web/src/content/site-content.ts` for Home/Institutional, and the Product Catalog section
 below for the catalog), never an invented fact. This list is how to replace each one.
 
+## Resolved in the Hero Refinement step (2026-08-17)
+
+Address, phone, and WhatsApp number were confirmed and are now live in `siteContent` — every
+WhatsApp CTA site-wide (Header, Hero, Contact page, closing CTA) links to a real number, and the
+Hero and Contact page show the real address/phone instead of "A confirmar." One thing this
+sandboxed environment couldn't verify: an actual click-through against a live WhatsApp account —
+worth a real test once deployed, to confirm `5493884844442` (the normalized form of `0388
+484-4442`) opens the right chat.
+
+## Resolved in the Premium Visual Experience step (2026-08-18)
+
+Ten brand names were confirmed and are now live (`siteContent.confirmedBrands`) — shown
+typographically on Home's brand rail: ELEVE, Pierre Cardin, Bulk, Carolina Emanuel, Mistral Lentes,
+Valdez, Ruana, Unicity, Baku, Fioralba Lentes. Names only — no logos, descriptions, or products are
+attached to them yet; see "Assets needed" below for what would unlock more.
+
+## Resolved: real logo (2026-08-26)
+
+The real logo (a round teal/white badge — a line-art glasses/scooter mark, the "SOLUCIONES
+OPTICAS" wordmark, and the address/phone baked into the badge itself) was supplied as an actual
+file this time (`apps/api/assets/soluciones-opticas-logo.jpg`, 1500×1500 JPEG) — unlike the earlier
+sightings of this same logo inline in chat, which this environment had no way to save. Optimized to
+two WebP sizes (80px/160px for 1x/2x display) and now live in the Header, replacing the styled-text
+wordmark — see `apps/web/src/assets/brand/`. Not added to the Footer (it doesn't currently show any
+separate brand wordmark to replace) or resized/re-cropped beyond simple downsizing — the badge is
+used as supplied.
+
+## Resolved in the Phase A/B continuation step (2026-08-26)
+
+Two real photos were supplied directly and are now live: a Hero product photo (glasses, studio
+lighting) and a real, unedited photo of the physical storefront (Alvear 732). Both optimized to
+WebP and committed — see `apps/web/src/assets/hero/` and `apps/web/src/assets/storefront/`, and
+"Assets needed" below for what's still missing. Six real services were also read directly off the
+storefront's own signage (Monofocal, Bifocal, Multifocal, Lentes de sol, Arreglos en general,
+Tratamientos especiales) and are now shown in Home's new storefront section
+(`siteContent.services`) — separate from the "Por qué elegirnos" section further down Home, which
+still uses its own, earlier-established generic strengths and wasn't changed.
+
+**Not yet confirmed, spotted only as a visual observation in the storefront photo's own signage:**
+what look like real social media handles — an Instagram-style handle
+("soluciones.opticas.jujuy"), a Facebook-style page name ("SolucionesOpticasJujuy"), and a YouTube
+channel name ("Soluciones Opticas Jujuy"). These were **not** wired into `siteContent.socialLinks`
+— reading small text off a photo and guessing at a URL from it is exactly the kind of inference
+that risks linking to the wrong account, worse than no link at all. Please confirm the exact
+handles/URLs directly rather than this documenting them as fact.
+
+**Also visible in the same photo, not acted on:** PAMI and "Instituto de Seguros de Jujuy" branding
+on the storefront, suggesting some kind of accepted-coverage relationship — not added to the site
+in any form, since a specific insurance/coverage claim carries real consequences if the sign is
+outdated or the relationship has changed. Worth confirming directly if this is something to state
+on the site.
+
 ## Blocking a real, working feature right now
 
-| Item                | Where it's used                 | Current state                                                                                                                                                                                                                                                                         |
-| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **WhatsApp number** | Hero, closing CTA, Contact page | Not set (`siteContent.whatsappNumber = null`). The button renders in a clearly disabled "Número de WhatsApp a confirmar" state — real, not a placeholder link, so nothing sends a customer to a wrong number. Set the real number and every WhatsApp CTA site-wide activates at once. |
-| **Phone number**    | Contact page                    | Shows "A confirmar."                                                                                                                                                                                                                                                                  |
-| **Email address**   | Contact page                    | Shows "A confirmar."                                                                                                                                                                                                                                                                  |
+| Item              | Where it's used | Current state        |
+| ----------------- | --------------- | -------------------- |
+| **Email address** | Contact page    | Shows "A confirmar." |
 
 ## Branch data (currently fictional dev-seed data)
 
@@ -33,14 +83,21 @@ preview). Needed per real branch:
 
 ## Brand data (currently fictional dev-seed data)
 
-Same situation: `GET /api/brands` works and is tested; the three brands showing right now
-(Andina Eyewear, Lumen Óptica, Cielo Frames) are fictional placeholders for development, each
-already labeled "Marca de desarrollo — datos ficticios" in their description field. Needed:
+`GET /api/brands` works and is tested; the three brands showing right now (Andina Eyewear, Lumen
+Óptica, Cielo Frames) are fictional placeholders for development, each already labeled "Marca de
+desarrollo — datos ficticios" in their description field. **Not the same thing** as the ten
+confirmed brand names noted above — those are real but currently exist only as institutional
+content (a name, nothing else); this database table is a real, tested mechanism but still holds
+fictional rows. The two get reconciled once real per-brand data (products, at minimum) exists for
+the confirmed names — renaming the fictional DB rows to real names _without_ real products behind
+them would misattribute fake products to a real brand, so that hasn't been done. Needed to make
+that real:
 
-- Real brand list
-- Logos (optional — cards fall back to a clean monogram when there's no logo; Cloudinary image
-  upload/delivery isn't wired up yet regardless, so logos become usable once that integration
-  step happens)
+- Which of the ten confirmed brands (or others) Soluciones Ópticas actually stocks products from,
+  and the real products/prices for each
+- Logos, if official assets can be legally supplied (see "Assets needed" below) — optional; cards
+  fall back to a clean monogram without one, and `BrandRail` (Home) shows names typographically by
+  design regardless
 
 ## About page
 
@@ -55,18 +112,29 @@ year, headcount, or specific history). Real content wanted for:
 
 ## Visual identity
 
-- **Logo:** none exists yet — the header/footer currently show the business name as styled text
-  (serif wordmark), not a logo mark. A real logo can replace or sit alongside this.
-- **Preferred colors:** the current palette (near-black background, white typography, bright cyan
-  `#22d3ee` accent — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)) was specified directly
-  as the site's visual direction. Not a placeholder awaiting client input — noted here only for
-  completeness.
-- **Photography:** none used yet, deliberately — no stock photos, no images copied from other
-  optical retailers' sites. The Hero currently uses an abstract two-circle motif (pure CSS, evokes
-  lenses) instead of a photo. Real storefront/staff/product photography would be a direct
-  upgrade whenever available — swapping it in only touches `components/marketing/Hero.tsx`.
-- **Social media links:** none provided — not rendered anywhere yet (`siteContent.socialLinks` is
-  an empty array).
+- **Preferred colors:** the current palette (near-black/white-and-cyan in dark mode, a calibrated
+  darker cyan/teal on white in light mode — see [ADR-0016](adr/0016-dark-cyan-visual-identity.md)
+  and [ADR-0017](adr/0017-typography-and-theme-system.md)) was specified directly as the site's
+  visual direction. Not a placeholder awaiting client input — noted here only for completeness.
+- **Typography:** Manrope Variable, self-hosted — a deliberate choice, not a placeholder (see
+  ADR-0017). No client input needed here either.
+
+## Assets needed
+
+None of the still-needed rows below block anything from working — every gap has an honest
+placeholder (a monogram for brand cards, typographic names for the brand rail). Each one is a
+direct upgrade whenever it exists. Full technical spec for each in `apps/web/src/assets/*/README.md`;
+this is the plain-language version of the same list.
+
+| Asset                    | Status       | Spec                                                                                                                                                       | Where it plugs in                                                                                                 |
+| ------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Hero product photo**   | ✅ Received  | —                                                                                                                                                          | Live in the Hero — see `apps/web/src/assets/hero/README.md`                                                       |
+| **Store exterior photo** | ✅ Received  | —                                                                                                                                                          | Live on Home's storefront section                                                                                 |
+| **Logo**                 | ✅ Received  | —                                                                                                                                                          | Live in the Header — see `apps/web/src/assets/brand/README.md`                                                    |
+| **Product photography**  | Still needed | Front view at minimum; 3/4 and side views where available, consistent background across the catalog                                                        | Product cards and detail-page gallery (not the active delivery path yet regardless — see "Product catalog" below) |
+| **Brand logos**          | Still needed | Only if legally supplied by Soluciones Ópticas — never sourced independently                                                                               | Brand cards on `/brands`; the confirmed-names rail on Home stays typographic either way, by design                |
+| **Store interior photo** | Still needed | —                                                                                                                                                          | Not currently used anywhere on the site; would be a natural addition to the exterior photo's own section          |
+| **Social media**         | Still needed | TikTok URL (mentioned as in use); Instagram/Facebook/YouTube handles possibly visible in the storefront photo's own signage, not yet confirmed (see above) | Header/footer social links (`siteContent.socialLinks`, currently empty)                                           |
 
 ## Product catalog (currently fictional dev-seed data)
 
@@ -99,10 +167,12 @@ the UI.
 
 ## Not blocking anything, informational only
 
-- **Services offered:** the "Por qué elegirnos" section on Home uses deliberately generic
-  strengths (personalized attention, brand variety, multiple branches, professional advice) —
-  no specific services (eye exams, contact lens fitting, etc.) are claimed since none were
-  confirmed. If there are specific services worth highlighting, they can be added there.
+- **Services offered:** six real services are now confirmed (see "Resolved in the Phase A/B
+  continuation step" above) and shown in Home's storefront section. The separate "Por qué
+  elegirnos" section further down Home still uses its own, earlier-established deliberately generic
+  strengths (personalized attention, brand variety, multiple branches, professional advice) — not
+  updated to the confirmed services list, since that section's copy was already an approved,
+  intentional choice from an earlier step, not a placeholder waiting on this data specifically.
 - **Years in business, customer counts, certifications, awards, guarantees:** none appear
   anywhere on the site — these were explicitly excluded rather than estimated, per this step's
   own instruction not to invent them.

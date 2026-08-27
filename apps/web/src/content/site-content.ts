@@ -10,8 +10,11 @@
 export interface SiteContent {
   businessName: string;
   city: string;
+  /** Confirmed street address. Null: not yet provided. */
+  address: string | null;
   /** E.164-ish, digits only after the leading +. Null: not yet provided. */
   whatsappNumber: string | null;
+  /** Canonical display format — every consumer renders this string as-is, never a re-formatted variant (see lib/format-phone.ts for the tel: href form). */
   phone: string | null;
   email: string | null;
   socialLinks: { label: string; url: string }[];
@@ -22,6 +25,28 @@ export interface SiteContent {
     serviceApproach: string;
   };
   strengths: { title: string; description: string }[];
+  /** Compact 4-item strip for the Hero's bottom benefit panel — short, icon-friendly copy, deliberately distinct from `strengths` (used later on the same Home page by WhyChooseUsSection) and deliberately neutral: no unconfirmed claims like "Marcas originales"/"Calidad óptica"/"Garantía" (see Hero refinement step's report). */
+  heroBenefits: { title: string; description: string }[];
+  /**
+   * Confirmed brand NAMES only (Premium Visual Experience step) —
+   * institutional/marketing content, not the same thing as the
+   * database-backed `GET /api/brands` list BrandsPage/BrandCard read.
+   * Deliberately kept separate: the DB brands table today holds
+   * fictional dev-seed brands (Andina Eyewear, etc.) tied to fictional
+   * dev-seed products/prices — renaming those rows to these real names
+   * would misattribute fake products/prices to a real confirmed brand,
+   * which is worse than generic placeholder names. No logos,
+   * descriptions, or per-brand pages exist for these yet — see
+   * BrandRail.tsx and CLIENT_CONTENT_CHECKLIST.md.
+   */
+  confirmedBrands: string[];
+  /**
+   * Real services, read directly off the storefront's own signage in
+   * the photo supplied for the "Phase A/B" continuation step (2026-08-26)
+   * — not inferred, not from a written brief. Kept close to the source
+   * wording rather than elaborated. Used by StoreShowcaseSection.
+   */
+  services: string[];
 }
 
 export const siteContent: SiteContent = {
@@ -29,8 +54,19 @@ export const siteContent: SiteContent = {
   // The repository/business name itself establishes this — not invented.
   city: "Jujuy, Argentina",
 
-  whatsappNumber: null,
-  phone: null,
+  // Confirmed by the client in the Hero Refinement step (2026-08-17).
+  address: "Alvear 732, San Salvador de Jujuy, Jujuy",
+  // Confirmed by the client as both the telephone and WhatsApp number.
+  // Display format kept exactly as given; digits: 0388 484-4442 -> area
+  // code 388, local number 4844442. Normalized for wa.me as
+  // 54 (AR) + 9 (mobile-number prefix, matching the convention this
+  // project's own whatsapp.test.ts already assumes for AR numbers) +
+  // the national number without its leading 0 -> 5493884844442. This
+  // hasn't been click-tested against a live WhatsApp account in this
+  // sandboxed environment — worth a real click-through check once
+  // deployed.
+  whatsappNumber: "5493884844442",
+  phone: "0388 484-4442",
   email: null,
   socialLinks: [],
 
@@ -67,5 +103,57 @@ export const siteContent: SiteContent = {
       title: "Asesoramiento profesional",
       description: "Te ayudamos a elegir con criterio, sin apuros, priorizando lo que necesitás.",
     },
+  ],
+
+  // Deliberately NOT "Marcas originales" / "Calidad óptica" / "Garantía"
+  // — those specific claims appeared in the Hero's visual reference but
+  // aren't confirmed facts (no certification, no stated warranty terms),
+  // so this uses the neutral replacements the Hero Refinement step
+  // itself calls out as safe: variety, personalized attention, the
+  // catalog, and a direct invitation to ask.
+  heroBenefits: [
+    {
+      title: "Variedad de estilos",
+      description: "Marcos para recetados, sol y uso deportivo.",
+    },
+    {
+      title: "Atención personalizada",
+      description: "Te ayudamos a elegir sin apuros.",
+    },
+    {
+      title: "Encontrá tu marco",
+      description: "Explorá el catálogo completo online.",
+    },
+    {
+      title: "Consultanos",
+      description: "Por WhatsApp o en cualquier sucursal.",
+    },
+  ],
+
+  // Confirmed by the client in the Premium Visual Experience step
+  // (2026-08-18). Names only — no logos scraped from the internet, no
+  // invented descriptions/history, per that step's explicit instruction.
+  confirmedBrands: [
+    "ELEVE",
+    "Pierre Cardin",
+    "Bulk",
+    "Carolina Emanuel",
+    "Mistral Lentes",
+    "Valdez",
+    "Ruana",
+    "Unicity",
+    "Baku",
+    "Fioralba Lentes",
+  ],
+
+  // Read directly off the real storefront's own signage (Phase A/B
+  // continuation step, 2026-08-26) — kept close to the source wording.
+  services: [
+    "Monofocal",
+    "Bifocal",
+    "Multifocal",
+    "Lentes de sol",
+    "Arreglos en general",
+    "Tratamientos especiales",
   ],
 };

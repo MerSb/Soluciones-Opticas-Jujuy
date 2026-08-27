@@ -14,6 +14,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
@@ -23,10 +24,13 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "db:seed": "prisma db seed",
+    "db:seed:staging": "tsx prisma/seed-staging.ts",
     "db:reset:local": "node --env-file=.env scripts/assert-local-db.mjs && prisma migrate reset",
     "dev:api": "npm run dev -w apps/api",
     "test:api": "npm run test -w apps/api",
     "typecheck:api": "npm run typecheck -w apps/api",
+    "build:api": "npm run build -w apps/api",
+    "start:api": "npm run start -w apps/api",
     "dev:web": "npm run dev -w apps/web",
     "test:web": "npm run test -w apps/web",
     "typecheck:web": "npm run typecheck -w apps/web",

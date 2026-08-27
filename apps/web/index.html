@@ -1,8 +1,34 @@
 <!doctype html>
 <html lang="es">
   <head>
+    <!--
+      Blocking, synchronous, first in <head> — sets data-theme before
+      first paint so an explicit theme choice never flashes the OS
+      theme first. Only runs when a choice exists: "system" (or no
+      stored value) sets nothing here and is handled entirely by
+      `prefers-color-scheme` in CSS, which applies at parse time with
+      no flash risk to begin with — see global.css / app/theme.tsx.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("sopt-theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (e) {
+          /* localStorage unavailable (private browsing, etc.) — falls
+             back to prefers-color-scheme, same as "system". */
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Placeholder favicon reusing the site's existing glasses-icon
+         visual language (ProductImagePlaceholder/HeroFrameIllustration)
+         — not a real logo, none exists yet (see
+         CLIENT_CONTENT_CHECKLIST.md). Replace once one does. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Soluciones Ópticas</title>
   </head>
   <body>

@@ -14,7 +14,7 @@ export function BrandCard({ brand }: { brand: BrandSummary }) {
         {brand.name.charAt(0)}
       </div>
       <div>
-        <p className="font-medium text-text">{brand.name}</p>
+        <p className="font-semibold text-text">{brand.name}</p>
         {brand.productCount > 0 && (
           <p className="text-sm text-text-muted">
             {brand.productCount} {brand.productCount === 1 ? "producto" : "productos"}

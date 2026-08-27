@@ -26,3 +26,8 @@ coverage/
 
 # prisma
 prisma/*.db
+
+# raw client-supplied source images — optimized derivatives get committed
+# under apps/web/src/assets/*/, originals stay out of git history (see
+# that folder's own README: "don't commit huge unoptimized originals")
+apps/api/assets/

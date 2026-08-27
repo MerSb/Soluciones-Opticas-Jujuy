@@ -23,7 +23,8 @@ const ICON = (
 // it back if a real second context needs it, not speculatively.
 export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
   const { whatsappNumber } = siteContent;
-  const baseClassName = "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium";
+  const baseClassName =
+    "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-[transform,box-shadow,background-color] duration-200";
 
   if (!whatsappNumber) {
     return (
@@ -43,10 +44,23 @@ export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
       href={buildWhatsAppUrl(whatsappNumber, message)}
       target="_blank"
       rel="noopener noreferrer"
-      className={`${baseClassName} bg-primary text-surface hover:bg-primary-dark`}
+      className={`group relative overflow-hidden ${baseClassName} bg-primary text-surface hover:-translate-y-px hover:bg-primary-dark hover:shadow-elevated focus-visible:shadow-elevated`}
     >
       {ICON}
       {children}
+      {/*
+       * The CTA shine (§12): a narrow highlight crossing the button
+       * once per hover, not a continuous loop. Resting position is
+       * off-canvas to the left (`-translate-x-full`, matching
+       * `cta-shine`'s own `from` value) — `group-hover` only *applies*
+       * the animation, it doesn't need to also handle a resting state,
+       * since removing the animation on hover-out just leaves the
+       * element at that same off-canvas transform, invisibly.
+       */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 left-0 w-1/3 -translate-x-full skew-x-[-20deg] bg-white/30 group-hover:[animation:cta-shine_600ms_ease]"
+      />
     </a>
   );
 }

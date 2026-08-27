@@ -1,12 +1,21 @@
 import { SeoHead } from "../components/ui/SeoHead";
 import { Hero } from "../components/marketing/Hero";
 import { CTASection } from "../components/marketing/CTASection";
+import { BrandRail } from "./home/BrandRail";
 import { CategoryDiscoverySection } from "./home/CategoryDiscoverySection";
-import { BrandsPreviewSection } from "./home/BrandsPreviewSection";
+import { FeaturedProductsSection } from "./home/FeaturedProductsSection";
+import { PromotionsSection } from "./home/PromotionsSection";
 import { WhyChooseUsSection } from "./home/WhyChooseUsSection";
+import { StoreShowcaseSection } from "./home/StoreShowcaseSection";
 import { BranchesPreviewSection } from "./home/BranchesPreviewSection";
 import { useHealthQuery } from "../services/queries/health";
 
+// Order follows the commercial flow from the Phase A/B continuation
+// step's brief: Hero (loudest) -> brands -> category discovery ->
+// product preview (second-loudest) -> promotions (hidden while empty)
+// -> why-choose-us -> real storefront (institutional trust) -> branches
+// -> contact CTA. Not every section is equally loud — see each
+// component's own comments for why.
 export function HomePage() {
   return (
     <>
@@ -16,9 +25,19 @@ export function HomePage() {
         canonicalPath="/"
       />
       <Hero />
+      {/* Real confirmed brand NAMES (BrandRail, institutional content),
+          not the database-backed brand preview this replaced — see
+          site-content.ts's confirmedBrands comment for why those are
+          deliberately different things right now. The DB-backed
+          BrandsPage (/brands, full grid with real product counts)
+          still exists and still works; it just isn't previewed here
+          anymore in favor of the real names. */}
+      <BrandRail />
       <CategoryDiscoverySection />
-      <BrandsPreviewSection />
+      <FeaturedProductsSection />
+      <PromotionsSection />
       <WhyChooseUsSection />
+      <StoreShowcaseSection />
       <BranchesPreviewSection />
       <CTASection />
       <DevConnectivityCheck />

@@ -5,19 +5,20 @@ import { ContactPage } from "../src/pages/ContactPage";
 import { renderWithProviders } from "./test-utils";
 
 describe("ContactPage", () => {
-  it("shows WhatsApp as pending rather than linking to an invented number", () => {
+  it("renders a real WhatsApp link using the confirmed number", () => {
     renderWithProviders(<ContactPage />);
 
-    const whatsapp = screen.getByTitle(/número de whatsapp a confirmar/i);
-    expect(whatsapp.tagName).toBe("SPAN"); // not a real link when unconfigured
-    expect(whatsapp).toHaveAttribute("aria-disabled", "true");
+    const whatsapp = screen.getByRole("link", { name: /escribinos/i });
+    expect(whatsapp).toHaveAttribute("href", expect.stringContaining("wa.me/5493884844442"));
   });
 
-  it("shows phone and email as pending rather than inventing values", () => {
+  it("renders the confirmed phone number as a tel: link and email as still pending", () => {
     renderWithProviders(<ContactPage />);
 
-    const pending = screen.getAllByText(/a confirmar/i);
-    expect(pending.length).toBeGreaterThanOrEqual(2); // phone + email
+    const phone = screen.getByRole("link", { name: "0388 484-4442" });
+    expect(phone).toHaveAttribute("href", "tel:03884844442");
+
+    expect(screen.getByText(/a confirmar/i)).toBeInTheDocument(); // email only, now
   });
 
   it("has an accessible, labeled contact form that discloses it isn't wired to a backend yet", async () => {

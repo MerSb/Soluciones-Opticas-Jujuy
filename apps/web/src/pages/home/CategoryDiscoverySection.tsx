@@ -8,7 +8,14 @@ import { useCategoriesQuery } from "../../services/queries/categories";
 // on the homepage for a supplementary section. The full experience,
 // with proper loading/error feedback, is the catalog itself (/products).
 export function CategoryDiscoverySection() {
-  const { data: categories, isLoading, isError } = useCategoriesQuery();
+  const { data: allCategories, isLoading, isError } = useCategoriesQuery();
+  // A tile that leads to an empty catalog view reads as broken, not as
+  // "not yet stocked" — filtered here rather than in the API, since a
+  // 0-product category is still a legitimate `GET /api/categories`
+  // result (Promociones, right now) that other consumers (the nav
+  // link, the dedicated Home promotions section) intentionally do want
+  // to know about even while empty.
+  const categories = allCategories?.filter((category) => category.productCount > 0);
 
   if (isLoading || isError || !categories || categories.length === 0) return null;
 
@@ -25,15 +32,19 @@ export function CategoryDiscoverySection() {
             <Link
               key={category.slug}
               to={`/products?category=${category.slug}`}
-              className="rounded-lg border border-border bg-surface-muted p-6 text-center shadow-soft transition-colors hover:border-primary"
+              className="rounded-lg border border-border bg-surface-muted p-6 text-center shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary hover:shadow-elevated"
             >
-              <span className="font-display text-lg text-text">{category.name}</span>
+              <span className="font-display text-lg font-semibold text-text">{category.name}</span>
             </Link>
           ))}
         </div>
         <div className="mt-8 text-center">
-          <Link to="/products" className="text-sm font-medium text-primary hover:underline">
-            Ver catálogo completo →
+          <Link
+            to="/products"
+            className="group inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+          >
+            Ver catálogo completo
+            <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
           </Link>
         </div>
       </Container>
