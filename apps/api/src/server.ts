@@ -5,7 +5,9 @@ import { prisma } from "./lib/prisma.js";
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
-  console.log(`API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
+  console.log(
+    `API listening on port ${env.PORT} (NODE_ENV=${env.NODE_ENV}, APP_ENV=${env.APP_ENV})`,
+  );
 });
 
 function shutdown(signal: string): void {
