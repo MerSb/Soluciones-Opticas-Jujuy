@@ -531,6 +531,13 @@ deliberately, not overwritten just because the reference showed something else:
   instead (`radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)`),
   which fades the image's own dark corners to transparent regardless of stacking-context semantics
   — verified correct in both themes afterward.
+  **Superseded later** (post-staging-deployment step): the mask only faded the outer edges, so the
+  still-opaque interior read as a visible black blob around the glasses in light mode — because
+  the frame itself is black, no color-based CSS technique (blend or mask) can ever fully separate
+  "background" from "glasses" here. Fixed at the asset level: the source photo was re-processed
+  through real subject segmentation (`rembg`, `isnet-general-use` model) into an actual
+  transparent-background cutout, committed as the new `hero-lenses*.webp` files. `HeroVisual.tsx`
+  applies no mask/blend to the image at all now — see `apps/web/src/assets/hero/README.md`.
 - **The Hero image downloaded at full resolution (1536px) even on mobile, where it displays at
   roughly 380px.** A live Lighthouse pass flagged ~48KB of wasted transfer specifically on this
   image. Fixed with a real `srcset`/`sizes` (see "Hero: real product photo" above) — re-measured at

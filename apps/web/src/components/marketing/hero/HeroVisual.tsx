@@ -6,28 +6,23 @@ import heroLenses1200 from "../../../assets/hero/hero-lenses-1200.webp";
 import { HeroOpticalArc } from "./HeroOpticalArc";
 import { HeroFrameIllustration } from "./HeroFrameIllustration";
 
-// §5/Phase A: a real product photo, supplied directly (hero-lenses.png,
-// optimized to WebP — see apps/web/src/assets/hero/README.md). Not a
-// transparent cutout — a full studio shot with its own black background
-// and baked-in cyan lighting/reflection already composited in.
-//
-// A `mix-blend-mode: screen` approach was tried first (screen-blending
-// black with anything leaves that anything unchanged, so in theory the
-// photo's black background would vanish into whatever's behind it) —
-// live-tested and rejected: several ancestors of this element
-// (`will-change-transform`, and the `transform`-driven entrance/scroll
-// layers) each form their own stacking context, so the blend only ever
-// composited against a mostly-transparent backdrop *within* this
-// element's own group, never actually reaching the real page
-// background several layers up. It looked like it worked in dark mode
-// purely by color coincidence (opaque near-black photo on a near-black
-// page) and visibly failed in light mode — a hard black rectangle,
-// exactly the "generic rectangular card" look §8 rules out. Fixed with
-// a `mask-image` radial fade instead: the image's own dark corners fade
-// to transparent at the edges regardless of blend/stacking-context
-// semantics, which is why this approach doesn't have the same failure
-// mode. The SVG fallback doesn't need either treatment — it's already
-// transparent.
+// §5/Phase A: a real product photo, supplied directly (hero-lenses.png —
+// see apps/web/src/assets/hero/README.md). The original was a full
+// studio shot with its own black background and baked-in cyan
+// lighting/reflection — since the frame itself is also black, no CSS
+// treatment (blend mode, gradient mask) could separate "background" from
+// "glasses" by color alone without also eating the frame. Two things
+// were tried and rejected before the current fix: `mix-blend-mode:
+// screen` (broke in light mode — several ancestors of this element
+// form their own stacking context, so the blend only ever composited
+// within this element's own group, never reaching the real page
+// background) and a `mask-image` radial fade (only faded the outer
+// edges, leaving an opaque black blob around the glasses in light
+// mode). Fixed at the asset level instead: the source photo was run
+// through real subject segmentation (rembg/isnet-general-use, not
+// color keying) to produce an actual transparent-background cutout,
+// committed directly as the WebP files below — no CSS masking needed
+// at all now. The SVG fallback was already transparent.
 // A Lighthouse pass caught this image downloading full-size (1536px)
 // even on mobile, where it displays at ~380px — a real ~48KB waste, not
 // noise. `srcset`/`sizes` fixes it: the `sizes` value mirrors this
@@ -120,12 +115,6 @@ export function HeroVisual({ visualRef }: { visualRef: RefObject<HTMLDivElement 
                   sizes={HERO_PRODUCT_IMAGE.sizes}
                   alt=""
                   className="relative h-auto w-full"
-                  style={{
-                    maskImage:
-                      "radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)",
-                    WebkitMaskImage:
-                      "radial-gradient(ellipse 82% 78% at 50% 55%, black 48%, black 66%, transparent 100%)",
-                  }}
                   width={HERO_PRODUCT_IMAGE.width}
                   height={HERO_PRODUCT_IMAGE.height}
                   loading="eager"
