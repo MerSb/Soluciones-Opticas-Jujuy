@@ -105,6 +105,14 @@ export const routes: RouteObject[] = [
                   return { Component: FavoritesPage };
                 },
               },
+              {
+                path: "optical-profile",
+                lazy: async () => {
+                  const { OpticalProfilePage } =
+                    await import("../pages/account/OpticalProfilePage");
+                  return { Component: OpticalProfilePage };
+                },
+              },
             ],
           },
         ],

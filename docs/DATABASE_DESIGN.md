@@ -1,4 +1,4 @@
-# Database Design — Etapa 1 + 2
+# Database Design — Etapa 1 + 2 (+ optical profile)
 
 Status: approved. Schema lives in [`prisma/schema.prisma`](../prisma/schema.prisma). This
 document is the narrative reference; individual decisions are in [`adr/`](adr/). Which database
@@ -6,21 +6,23 @@ each environment points at is documented in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 
 ## Entity overview
 
-| Entity           | Represents                                                                   | Table              |
-| ---------------- | ---------------------------------------------------------------------------- | ------------------ |
-| `Brand`          | An eyewear brand (Ray-Ban, etc.)                                             | `brands`           |
-| `Category`       | A catalog category (sunglasses, optical, sport…)                             | `categories`       |
-| `Product`        | A frame _model_ — the thing with a name, a shape, and frame measurements     | `products`         |
-| `ProductVariant` | A purchasable color/material option of a product, with its own SKU and stock | `product_variants` |
-| `ProductImage`   | A photo of a specific variant                                                | `product_images`   |
-| `Branch`         | A physical store location                                                    | `branches`         |
-| `User`           | A customer (or, eventually, admin) account — Etapa 2                         | `users`            |
-| `RefreshToken`   | A rotating session-refresh credential, hashed at rest — Etapa 2              | `refresh_tokens`   |
-| `Favorite`       | A customer's saved product — Etapa 2                                         | `favorites`        |
+| Entity                   | Represents                                                                                                         | Table                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| `Brand`                  | An eyewear brand (Ray-Ban, etc.)                                                                                   | `brands`                    |
+| `Category`               | A catalog category (sunglasses, optical, sport…)                                                                   | `categories`                |
+| `Product`                | A frame _model_ — the thing with a name, a shape, and frame measurements                                           | `products`                  |
+| `ProductVariant`         | A purchasable color/material option of a product, with its own SKU and stock                                       | `product_variants`          |
+| `ProductImage`           | A photo of a specific variant                                                                                      | `product_images`            |
+| `Branch`                 | A physical store location                                                                                          | `branches`                  |
+| `User`                   | A customer (or, eventually, admin) account — Etapa 2                                                               | `users`                     |
+| `RefreshToken`           | A rotating session-refresh credential, hashed at rest — Etapa 2                                                    | `refresh_tokens`            |
+| `Favorite`               | A customer's saved product — Etapa 2                                                                               | `favorites`                 |
+| `CustomerOpticalProfile` | A customer's current-frame measurements + style preferences — see [ADR-0019](adr/0019-optical-profile-taxonomy.md) | `customer_optical_profiles` |
 
-Still deliberately absent: `user_measurements` (the future `current_frame_*` optical profile —
-see below), `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`, `audit_logs`. These
-remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope.
+Still deliberately absent: `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`,
+`audit_logs`. These remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope. (The
+"`user_measurements`" placeholder named in earlier phases' docs is now `CustomerOpticalProfile`,
+below — same concept, real table.)
 
 ## Relationships
 
@@ -32,7 +34,14 @@ Variant  (1) ──── (N) ProductImage
 Branch                                  — standalone, no relations
 User     (1) ──── (N) RefreshToken
 User     (1) ──── (N) Favorite ──── (1) Product
+User     (1) ──── (0..1) CustomerOpticalProfile
 ```
+
+- **CustomerOpticalProfile → User**: `onDelete: Cascade`, `userId @unique` — a true
+  one-to-zero-or-one; a customer has at most one optical profile, enforced by the database, not
+  just application logic. See ADR-0019 for the full field/vocabulary design, and the
+  `current_frame_*` section below for why it's a separate entity from `Product`'s own frame
+  measurements.
 
 - **RefreshToken → User**, **Favorite → User**: `onDelete: Cascade` — neither has standalone
   meaning without the account they belong to. No account-deletion feature exists yet; this is
@@ -59,12 +68,12 @@ recommendation engine needs to run numeric tolerance comparisons against them di
 
 ## `current_frame_*` vs. product measurements
 
-Product/frame measurements above describe a **catalog item**. A completely separate, future
-`user_measurements`/`CustomerOpticalProfile` table (a later phase) will describe a **customer's
-own, currently-owned frame**, using `current_frame_*` naming (ADR-0012) — never `preferred_*`, and
-never the same table or model as the fields here. The boundary held through this phase's `User`
-model too: it carries no measurement, prescription, or preference fields at all — those belong on
-a future, separate 1:1-related entity, not accumulated directly onto `User` as they're built.
+Product/frame measurements above describe a **catalog item**. `CustomerOpticalProfile` (a real
+table now — see ADR-0019) describes a **customer's own, currently-owned frame**, using
+`current_frame_*` naming (ADR-0012) — never `preferred_*`, and never the same table or model as
+the fields here. The boundary held through the `User` model too: it carries no measurement,
+prescription, or preference fields at all — those live on the separate, 1:1-related
+`CustomerOpticalProfile` instead of being accumulated directly onto `User`.
 
 ## Important constraints
 
@@ -150,7 +159,10 @@ migration that corrects it; editing history breaks the checksum Prisma uses to d
 predicts for any schema change once the index is no longer declared in `schema.prisma`; that one
 statement was removed by hand before `db:migrate:deploy`, and the index and the
 `product_variants_stock_check` constraint were both confirmed still present against the real
-local database afterward.
+local database afterward. The `add_customer_optical_profile` migration hit the exact same
+predicted drift (same `DROP INDEX` proposal, same fix, same post-apply verification) — confirming
+this isn't a one-off, but the expected, repeatable consequence of ADR-0014's tradeoff every time
+the schema changes.
 
 ## Seed policy
 
@@ -170,6 +182,9 @@ one: manual browser verification registers a real throwaway account through the 
 flow, and every API test creates and cleans up its own uniquely-suffixed account per run (see
 `API.md` "Testing"). If a fixture account is ever genuinely needed later, it belongs in a
 dedicated, clearly-commented test-fixture path — not a reusable password checked into this repo.
+Same policy extends to `CustomerOpticalProfile`: no fixture measurements/preferences are seeded
+for any real-looking user — API tests create their own throwaway profiles the same way they
+create their own throwaway users.
 
 **Never seed staging or production automatically.** No script in this repo does or will target a
 non-local `DATABASE_URL` for seeding.

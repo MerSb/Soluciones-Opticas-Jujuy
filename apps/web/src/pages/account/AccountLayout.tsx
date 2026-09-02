@@ -10,13 +10,8 @@ interface AccountNavItem {
 const NAV_ITEMS: AccountNavItem[] = [
   { to: "/account/profile", label: "Mi perfil" },
   { to: "/account/favorites", label: "Mis favoritos" },
+  { to: "/account/optical-profile", label: "Mis medidas y preferencias" },
 ];
-
-// "Mis medidas"/"Mis preferencias" aren't built yet (optical-profile
-// phase) — shown as disabled, clearly-labeled future entries rather
-// than omitted entirely or, worse, linking nowhere (§29 of the auth
-// brief: never a dead control presented as live).
-const FUTURE_ITEMS = ["Mis medidas", "Mis preferencias"];
 
 // A consumer account area, not an admin panel (§29) — a simple top nav
 // over a narrow content column, not a dense sidebar dashboard.
@@ -63,16 +58,6 @@ export function AccountLayout() {
               >
                 {item.label}
               </NavLink>
-            </li>
-          ))}
-          {FUTURE_ITEMS.map((label) => (
-            <li key={label}>
-              <span className="inline-flex cursor-not-allowed items-center gap-1.5 border-b-2 border-transparent px-3 py-3 text-sm font-medium text-text-muted/50">
-                {label}
-                <span className="rounded-full bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                  Próximamente
-                </span>
-              </span>
             </li>
           ))}
         </ul>

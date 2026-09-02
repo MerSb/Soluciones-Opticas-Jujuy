@@ -7,6 +7,7 @@ import { branchesRouter } from "./branches.routes.js";
 import { authRouter } from "./auth.routes.js";
 import { profileRouter } from "./profile.routes.js";
 import { favoritesRouter } from "./favorites.routes.js";
+import { opticalProfileRouter } from "./optical-profile.routes.js";
 
 export const apiRouter = Router();
 
@@ -18,3 +19,4 @@ apiRouter.use("/branches", branchesRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/profile", profileRouter);
 apiRouter.use("/favorites", favoritesRouter);
+apiRouter.use("/optical-profile", opticalProfileRouter);

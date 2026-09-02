@@ -17,24 +17,26 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                   | Purpose                                                     | Auth                                 |
-| ------ | ---------------------- | ----------------------------------------------------------- | ------------------------------------ |
-| GET    | `/api/health`          | Liveness check                                              | Public                               |
-| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate            | Public                               |
-| GET    | `/api/products/:slug`  | Product detail                                              | Public                               |
-| GET    | `/api/brands`          | Brand listing with product counts                           | Public                               |
-| GET    | `/api/categories`      | Category listing with product counts                        | Public                               |
-| GET    | `/api/branches`        | Branch listing                                              | Public                               |
-| POST   | `/api/auth/register`   | Create a customer account, starts a session                 | Public (rate-limited)                |
-| POST   | `/api/auth/login`      | Starts a session                                            | Public (rate-limited)                |
-| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401) | Refresh cookie                       |
-| POST   | `/api/auth/logout`     | Ends the session                                            | Public (no-op if already logged out) |
-| GET    | `/api/auth/me`         | The authenticated user's safe profile                       | Required                             |
-| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint    | Required                             |
-| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                  | Required                             |
-| GET    | `/api/favorites`       | The authenticated customer's favorited products             | Required                             |
-| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                 | Required                             |
-| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                              | Required                             |
+| Method | Path                   | Purpose                                                             | Auth                                 |
+| ------ | ---------------------- | ------------------------------------------------------------------- | ------------------------------------ |
+| GET    | `/api/health`          | Liveness check                                                      | Public                               |
+| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate                    | Public                               |
+| GET    | `/api/products/:slug`  | Product detail                                                      | Public                               |
+| GET    | `/api/brands`          | Brand listing with product counts                                   | Public                               |
+| GET    | `/api/categories`      | Category listing with product counts                                | Public                               |
+| GET    | `/api/branches`        | Branch listing                                                      | Public                               |
+| POST   | `/api/auth/register`   | Create a customer account, starts a session                         | Public (rate-limited)                |
+| POST   | `/api/auth/login`      | Starts a session                                                    | Public (rate-limited)                |
+| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401)         | Refresh cookie                       |
+| POST   | `/api/auth/logout`     | Ends the session                                                    | Public (no-op if already logged out) |
+| GET    | `/api/auth/me`         | The authenticated user's safe profile                               | Required                             |
+| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint            | Required                             |
+| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                          | Required                             |
+| GET    | `/api/favorites`       | The authenticated customer's favorited products                     | Required                             |
+| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                         | Required                             |
+| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                                      | Required                             |
+| GET    | `/api/optical-profile` | The authenticated customer's frame measurements + style preferences | Required                             |
+| PATCH  | `/api/optical-profile` | Update any subset of measurements/preferences                       | Required                             |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
@@ -138,6 +140,40 @@ already-favorited product, or removing one that isn't favorited, both succeed (`
 erroring. A favorite is scoped to its owner at the database level (`@@unique([userId,
 productId])`); one customer can never see or affect another's favorites. Favoriting an unknown
 product slug is `404 NOT_FOUND`.
+
+## Optical profile
+
+**Not a prescription system** — no sphere/cylinder/axis/visual-acuity/diagnosis field exists or
+is planned here; see `docs/adr/0019-optical-profile-taxonomy.md` and `ADR-0008`. Captures the
+measurements printed on a customer's _current_ frame plus style/shape/material/color
+preferences, as input data for a future recommendation engine (not built yet — no match score or
+"for you" ranking exists today).
+
+```json
+{
+  "currentFrameLensWidth": 52,
+  "currentFrameBridgeWidth": 18,
+  "currentFrameTempleLength": 140,
+  "currentFrameLensHeight": null,
+  "preferredShapes": ["AVIATOR"],
+  "preferredMaterials": ["METAL"],
+  "preferredColors": ["NEGRO"],
+  "preferredStyles": ["CLASSIC"]
+}
+```
+
+`GET /api/optical-profile` returns this shape — all-`null`/all-empty, never a `404` — even before
+the customer has ever saved anything (§19 of the brief). `PATCH /api/optical-profile` (not `PUT`;
+matches `/api/profile`'s existing partial-update convention — every field here is independently
+optional) creates the row on first save, updates it on every save after. Measurements are in
+**millimeters**; `null` means "not provided," never `0`. Plausibility ranges (typo-catching, not
+medical): lens width 30–80, bridge 10–35, temple length 100–170, lens height 20–60. Preference
+fields are canonical enum arrays — `FrameShape`, `FrameMaterial`, `ColorFamily`,
+`StylePreference` — deliberately separate from the catalog's own free-text `Product.shape`/
+`ProductVariant.material`/`.color`; see the ADR for the full taxonomy reasoning and why matching
+them is a future recommender concern, not solved here. A repeated value in a preference list is
+deduplicated, not rejected. Ownership is always derived from the authenticated session — there is
+no `:userId` route param.
 
 ## `GET /api/products`
 
@@ -405,14 +441,13 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-49 tests: the original 21 (listing, pagination, filters, search, sort, validation, detail) plus
-28 new — registration (success, duplicate email, invalid input, role can't be client-supplied,
-password is actually hashed), login (success, wrong password, unknown email — same generic
-message), `auth/me` (authenticated/unauthenticated), logout (clears the session, idempotent),
-refresh (rotates the session, a replayed pre-rotation token is rejected), profile (read, update,
-forbidden fields silently stripped, validation), and favorites (list, add, duplicate-add is
-idempotent, remove, duplicate-remove is idempotent, 404 on an unknown product, cross-customer
-isolation).
+64 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, plus 15 new
+optical-profile tests — empty profile before any save (never a 404), first save creates the row,
+second save updates it (not a duplicate row), partial update leaves other fields untouched,
+clearing a measurement to `null`, valid preference lists across all four categories, duplicate
+preference values deduplicated, a measurement below/above/negative the plausible range each
+rejected, an invalid preference value rejected, cross-customer isolation, and reachability after
+an access-token refresh.
 
 ## Environment variables (this stage)
 

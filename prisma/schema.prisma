@@ -76,9 +76,9 @@ model Product {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  brand    Brand            @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  variants ProductVariant[]
+  brand     Brand            @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category  Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants  ProductVariant[]
   favorites Favorite[]
 
   @@index([brandId])
@@ -184,8 +184,8 @@ model User {
   /// schema must stay valid for the future OAuth case too.
   passwordHash String? @map("password_hash")
 
-  firstName String @map("first_name")
-  lastName  String @map("last_name")
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
   phone     String?
 
   role Role @default(CUSTOMER)
@@ -200,8 +200,9 @@ model User {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  favorites     Favorite[]
-  refreshTokens RefreshToken[]
+  favorites      Favorite[]
+  refreshTokens  RefreshToken[]
+  opticalProfile CustomerOpticalProfile?
 
   @@map("users")
 }
@@ -241,4 +242,106 @@ model Favorite {
   @@unique([userId, productId])
   @@index([userId])
   @@map("favorites")
+}
+
+/// Canonical machine values for frame shape — chosen to already match
+/// this catalog's own free-text `Product.shape` values where seeded data
+/// overlaps (aviator, rectangular, round, wrap all appear verbatim in
+/// prisma/seed.ts today) plus the remaining shapes named in the optical-
+/// profile brief. `Product.shape`/`ProductVariant.material`/`.color`
+/// remain plain free text — see docs/adr/0019 for why a catalog-schema
+/// change was deliberately avoided and how the future recommender is
+/// expected to reconcile the two sides instead.
+enum FrameShape {
+  AVIATOR
+  RECTANGULAR
+  ROUND
+  SQUARE
+  CAT_EYE
+  OVAL
+  WRAP
+}
+
+/// Mirrors the material strings actually seeded (METAL/ACETATE/TR90 ~
+/// "Metal"/"Acetato"/"TR90") plus common additional eyewear materials.
+enum FrameMaterial {
+  METAL
+  ACETATE
+  TR90
+  MIXED
+  INJECTED
+  NYLON
+}
+
+/// A small set of color *families*, not an attempt to enumerate every
+/// real color name — `ProductVariant.color` is free text ("Carey",
+/// "Habano", ...) and always will be for physical-product reasons (real
+/// frame colors don't fit a short enum). This exists so a customer can
+/// express "I like black frames" as a stable, queryable value; matching
+/// it against catalog rows is a future normalization step, not exact
+/// string equality.
+enum ColorFamily {
+  NEGRO
+  CAREY
+  DORADO
+  PLATEADO
+  AZUL
+  ROJO
+  VERDE
+  TRANSPARENTE
+  ROSA
+  HABANO
+  MULTICOLOR
+}
+
+/// Deliberately small and explainable (§14 of the optical-profile
+/// brief) — not a fine-grained taxonomy.
+enum StylePreference {
+  CLASSIC
+  MODERN
+  MINIMALIST
+  ELEGANT
+  URBAN
+  BOLD
+}
+
+/// One-to-zero-or-one with User (`userId @unique`) — a dedicated entity
+/// rather than columns piled onto User, so this stays a clean,
+/// independently-evolvable "input data for a future recommender" concept
+/// (§16) instead of User accumulating every future preference field
+/// directly. See docs/adr/0019-optical-profile-taxonomy.md.
+///
+/// NOT a prescription: no sphere/cylinder/axis/addition/prism/visual-
+/// acuity/diagnosis field exists here or is planned for this entity —
+/// see ADR-0008 (no facial-data persistence) and the optical-profile
+/// brief's own explicit boundary. `current_frame_*` naming (not
+/// `preferred_*`) for the measured facts, per ADR-0012 — this model
+/// also adds `currentFrameLensHeight`, which ADR-0012 already named
+/// alongside the other three even though it predates this phase's own
+/// (3-field) brief; included here to stay consistent with that earlier,
+/// already-approved naming decision rather than silently dropping it.
+model CustomerOpticalProfile {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+
+  /// All four nullable independently — a customer may know only part of
+  /// their frame's own printed markings (§8). Millimeters; see the ADR
+  /// for the validation ranges and why they're plausibility bounds, not
+  /// medical/manufacturing tolerances.
+  currentFrameLensWidth    Float? @map("current_frame_lens_width")
+  currentFrameBridgeWidth  Float? @map("current_frame_bridge_width")
+  currentFrameTempleLength Float? @map("current_frame_temple_length")
+  currentFrameLensHeight   Float? @map("current_frame_lens_height")
+
+  preferredShapes    FrameShape[]      @map("preferred_shapes")
+  preferredMaterials FrameMaterial[]   @map("preferred_materials")
+  preferredColors    ColorFamily[]     @map("preferred_colors")
+  preferredStyles    StylePreference[] @map("preferred_styles")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("customer_optical_profiles")
 }
