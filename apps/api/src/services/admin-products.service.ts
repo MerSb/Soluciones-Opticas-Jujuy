@@ -6,10 +6,13 @@ import type {
   AdminVariantDto,
   Paginated,
   StylePreference,
+  UploadSignatureDto,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { generateUniqueSlug } from "../lib/slug.js";
+import { MAX_IMAGE_BYTES } from "../lib/image-validation.js";
+import * as imageProvider from "./image-provider.service.js";
 import type {
   AdminProductsListQuery,
   CreateImageBody,
@@ -408,6 +411,14 @@ async function clearOtherPrimaryImages(
   });
 }
 
+// Called *after* the browser has already uploaded the file straight to
+// Cloudinary (see signImageUpload below) — this only ever persists
+// metadata. §25 "orphan prevention": if that persistence itself fails
+// (variant deleted concurrently, a DB error, ...), the asset the client
+// just told us about already exists in Cloudinary with nothing in our
+// database referencing it. Best-effort cleanup is attempted before the
+// original error is rethrown — a failure during cleanup is logged, not
+// surfaced, so it never masks the real error the caller needs to see.
 export async function createImage(
   productId: string,
   variantId: string,
@@ -415,22 +426,36 @@ export async function createImage(
 ): Promise<AdminImageDto> {
   await requireVariantOfProduct(productId, variantId);
 
-  const row = await prisma.$transaction(async (tx) => {
-    if (body.isPrimary) {
-      await clearOtherPrimaryImages(tx, variantId);
-    }
-    return tx.productImage.create({
-      data: {
-        variantId,
-        cloudinaryPublicId: body.cloudinaryPublicId,
-        alt: body.alt,
-        sortOrder: body.sortOrder,
-        isPrimary: body.isPrimary,
-      },
-      select: IMAGE_SELECT,
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      if (body.isPrimary) {
+        await clearOtherPrimaryImages(tx, variantId);
+      }
+      return tx.productImage.create({
+        data: {
+          variantId,
+          cloudinaryPublicId: body.cloudinaryPublicId,
+          alt: body.alt,
+          sortOrder: body.sortOrder,
+          isPrimary: body.isPrimary,
+        },
+        select: IMAGE_SELECT,
+      });
     });
-  });
-  return toImageDto(row);
+    return toImageDto(row);
+  } catch (error) {
+    await imageProvider.tryCleanupOrphanedAsset(body.cloudinaryPublicId);
+    throw error;
+  }
+}
+
+export async function signImageUpload(
+  productId: string,
+  variantId: string,
+): Promise<UploadSignatureDto> {
+  await requireVariantOfProduct(productId, variantId);
+  const signature = imageProvider.generateUploadSignature(productId, variantId);
+  return { ...signature, maxFileSizeBytes: MAX_IMAGE_BYTES };
 }
 
 export async function updateImage(
@@ -461,11 +486,39 @@ export async function updateImage(
   return toImageDto(row);
 }
 
+// Explicit ordering, per §18/19 of the brief — there is no real
+// distributed transaction across our database and an external provider,
+// so the two steps are sequenced deliberately rather than left to
+// chance:
+//   1. identify the DB row (already done by requireImageOfVariant) to
+//      get its cloudinaryPublicId.
+//   2. remove the remote asset. If this fails, the DB row is left
+//      completely untouched and the error propagates as-is (502) — the
+//      UI must never claim success while the asset still exists
+//      remotely, and a retry is always safe (remote delete is
+//      idempotent).
+//   3. only once the remote asset is confirmed gone (or was already
+//      gone), delete the DB row. If *this* step fails — a narrow,
+//      rare window — the asset is genuinely gone from Cloudinary but
+//      the DB still references it; that inconsistency is logged loudly
+//      as a known, named limitation (no automatic reconciliation exists
+//      in V1) rather than silently swallowed, and the error still
+//      propagates so the admin knows to retry/investigate rather than
+//      seeing a false success.
 export async function deleteImage(
   productId: string,
   variantId: string,
   imageId: string,
 ): Promise<void> {
-  await requireImageOfVariant(productId, variantId, imageId);
-  await prisma.productImage.delete({ where: { id: imageId } });
+  const image = await requireImageOfVariant(productId, variantId, imageId);
+  await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
+  try {
+    await prisma.productImage.delete({ where: { id: imageId } });
+  } catch (error) {
+    console.error(
+      "CRITICAL: Cloudinary asset deleted but the DB image row survived — orphaned reference",
+      { imageId, cloudinaryPublicId: image.cloudinaryPublicId, error },
+    );
+    throw error;
+  }
 }

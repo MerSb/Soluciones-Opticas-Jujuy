@@ -9,6 +9,7 @@ import {
   getProduct,
   listProducts,
   restoreProduct,
+  signImageUpload,
   updateImage,
   updateProduct,
   updateVariant,
@@ -59,6 +60,11 @@ adminProductsRouter.delete(
   deleteVariant,
 );
 
+adminProductsRouter.post(
+  "/:id/variants/:variantId/images/sign-upload",
+  validateParams(variantIdParamSchema),
+  signImageUpload,
+);
 adminProductsRouter.post(
   "/:id/variants/:variantId/images",
   validateParams(variantIdParamSchema),

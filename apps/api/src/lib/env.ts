@@ -35,6 +35,31 @@ const envSchema = z.object({
       32,
       "JWT_SECRET must be at least 32 characters — generate one with `openssl rand -hex 32`.",
     ),
+  // All three optional and all-or-nothing (see the .refine below) — a
+  // developer without Cloudinary credentials must still be able to run
+  // the whole app; only the upload-signature endpoint itself refuses
+  // with a clear error when unconfigured (see lib/cloudinary.ts). Never
+  // required at startup the way JWT_SECRET is: unlike a forgeable
+  // session, a missing Cloudinary credential has no silent-corruption
+  // failure mode to fail fast against — it just means one feature is
+  // off. See docs/adr/0022-cloudinary-image-pipeline.md.
+  CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
+  CLOUDINARY_API_KEY: z.string().min(1).optional(),
+  CLOUDINARY_API_SECRET: z.string().min(1).optional(),
 });
 
-export const env = envSchema.parse(process.env);
+export const env = envSchema
+  .refine(
+    (value) =>
+      [value.CLOUDINARY_CLOUD_NAME, value.CLOUDINARY_API_KEY, value.CLOUDINARY_API_SECRET].every(
+        (v) => v !== undefined,
+      ) ||
+      [value.CLOUDINARY_CLOUD_NAME, value.CLOUDINARY_API_KEY, value.CLOUDINARY_API_SECRET].every(
+        (v) => v === undefined,
+      ),
+    {
+      message:
+        "CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set together, or not at all.",
+    },
+  )
+  .parse(process.env);

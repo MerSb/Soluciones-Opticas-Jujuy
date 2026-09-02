@@ -44,7 +44,8 @@ describe("admin categories", () => {
     expect(deleted.status).toBe(200);
     expect(deleted.body.deletedAt).not.toBeNull();
 
-    const restored = await adminAgent.post(`/api/admin/categories/${created.body.id}/restore`)
+    const restored = await adminAgent
+      .post(`/api/admin/categories/${created.body.id}/restore`)
       .set("Content-Type", "application/json");
     expect(restored.body.deletedAt).toBeNull();
   });

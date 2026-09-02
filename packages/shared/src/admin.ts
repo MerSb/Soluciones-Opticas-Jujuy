@@ -187,3 +187,20 @@ export interface AdminProductsQuery {
   q?: string;
   includeDeleted?: boolean;
 }
+
+// Returned by POST .../images/sign-upload — everything the browser needs
+// to upload directly to Cloudinary, and nothing else. `signature` is a
+// single-use-scoped HMAC over exactly these params plus the (never-
+// exposed) API secret — safe to hand to the browser; it authorizes only
+// an upload matching this exact publicId/timestamp/allowedFormats
+// combination, not arbitrary account access. See
+// docs/adr/0022-cloudinary-image-pipeline.md.
+export interface UploadSignatureDto {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  publicId: string;
+  allowedFormats: string;
+  maxFileSizeBytes: number;
+}

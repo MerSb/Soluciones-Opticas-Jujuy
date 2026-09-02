@@ -42,6 +42,11 @@ export const restoreProduct = asyncHandler(async (_req: Request, res: Response) 
   res.json(await adminProductsService.restoreProduct(id));
 });
 
+export const signImageUpload = asyncHandler(async (_req: Request, res: Response) => {
+  const { id, variantId } = res.locals.params as { id: string; variantId: string };
+  res.json(await adminProductsService.signImageUpload(id, variantId));
+});
+
 export const createVariant = asyncHandler(async (_req: Request, res: Response) => {
   const { id } = res.locals.params as { id: string };
   const body = res.locals.body as CreateVariantBody;

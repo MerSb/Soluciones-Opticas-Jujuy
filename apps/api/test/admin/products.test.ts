@@ -1,8 +1,29 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { createAdminAgent } from "./helpers.js";
+import * as imageProvider from "../../src/services/image-provider.service.js";
+
+// The provider service boundary (§26 of the brief) is mocked for every
+// ordinary admin test — no real Cloudinary network call, no real
+// credentials needed to run this suite. Only test/lib/cloudinary.test.ts
+// and test/services/image-provider.service.test.ts exercise the mapping/
+// signing logic itself, with the Cloudinary SDK mocked one layer deeper.
+vi.mock("../../src/services/image-provider.service.js", () => ({
+  isConfigured: vi.fn(() => true),
+  requireConfigured: vi.fn(),
+  generateUploadSignature: vi.fn((productId: string, variantId: string) => ({
+    cloudName: "test-cloud",
+    apiKey: "test-key",
+    timestamp: 1_700_000_000,
+    signature: "mock-signature",
+    publicId: `soluciones-opticas/test/products/${productId}/${variantId}/mock-uuid`,
+    allowedFormats: "jpg,jpeg,png,webp",
+  })),
+  deleteRemoteAsset: vi.fn(async () => undefined),
+  tryCleanupOrphanedAsset: vi.fn(async () => undefined),
+}));
 
 const app = createApp();
 const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -30,6 +51,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.product.deleteMany({ where: { name: { startsWith: `Test Product ${RUN_ID}` } } });
   await prisma.user.deleteMany({ where: { email: { in: [adminEmail, customerEmail] } } });
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
 });
 
 describe("admin products", () => {
@@ -99,7 +124,8 @@ describe("admin products", () => {
     const withDeleted = await adminAgent.get("/api/admin/products?limit=50&includeDeleted=true");
     expect(withDeleted.body.data.map((p: { id: string }) => p.id)).toContain(id);
 
-    const restored = await adminAgent.post(`/api/admin/products/${id}/restore`)
+    const restored = await adminAgent
+      .post(`/api/admin/products/${id}/restore`)
       .set("Content-Type", "application/json");
     expect(restored.body.deletedAt).toBeNull();
   });
@@ -202,6 +228,153 @@ describe("admin products", () => {
       expect(first.body.id).not.toBe(second.body.id);
     });
   });
+
+  describe("image upload signature (sign-upload)", () => {
+    it("requires authentication and the ADMIN role, same as every other admin route", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sign Auth`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-SIGN-AUTH-${RUN_ID}` });
+
+      const guestResponse = await request(app)
+        .post(
+          `/api/admin/products/${product.body.id}/variants/${variant.body.id}/images/sign-upload`,
+        )
+        .set("Content-Type", "application/json");
+      expect(guestResponse.status).toBe(401);
+
+      const customerResponse = await customerAgent
+        .post(
+          `/api/admin/products/${product.body.id}/variants/${variant.body.id}/images/sign-upload`,
+        )
+        .set("Content-Type", "application/json");
+      expect(customerResponse.status).toBe(403);
+    });
+
+    it("404s for a variant that doesn't belong to the given product", async () => {
+      const productA = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sign A`,
+        brandId,
+        categoryId,
+        basePrice: 1000,
+      });
+      const productB = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sign B`,
+        brandId,
+        categoryId,
+        basePrice: 1000,
+      });
+      const variantA = await adminAgent
+        .post(`/api/admin/products/${productA.body.id}/variants`)
+        .send({ sku: `TEST-SKU-SIGN-B-${RUN_ID}` });
+
+      const response = await adminAgent
+        .post(
+          `/api/admin/products/${productB.body.id}/variants/${variantA.body.id}/images/sign-upload`,
+        )
+        .set("Content-Type", "application/json");
+      expect(response.status).toBe(404);
+    });
+
+    it("returns a signature shaped for a direct-to-Cloudinary upload, never the API secret", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sign Shape`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-SIGN-SHAPE-${RUN_ID}` });
+
+      const response = await adminAgent
+        .post(
+          `/api/admin/products/${product.body.id}/variants/${variant.body.id}/images/sign-upload`,
+        )
+        .set("Content-Type", "application/json");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        cloudName: "test-cloud",
+        apiKey: "test-key",
+        signature: "mock-signature",
+        allowedFormats: "jpg,jpeg,png,webp",
+      });
+      expect(typeof response.body.timestamp).toBe("number");
+      expect(typeof response.body.maxFileSizeBytes).toBe("number");
+      expect(response.body.publicId).toContain(product.body.id);
+      expect(response.body.publicId).toContain(variant.body.id);
+      expect(response.body).not.toHaveProperty("apiSecret");
+      expect(JSON.stringify(response.body)).not.toMatch(/secret/i);
+    });
+  });
+
+  describe("image delete — provider-then-database ordering", () => {
+    it("deletes the remote asset before the DB row, in that order", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Delete Order`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-DEL-ORDER-${RUN_ID}` });
+      const image = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/to-delete", alt: "Foto a borrar" });
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}/images/${image.body.id}`,
+      );
+      expect(response.status).toBe(204);
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledWith("test/to-delete");
+
+      const remaining = await prisma.productImage.findUnique({ where: { id: image.body.id } });
+      expect(remaining).toBeNull();
+    });
+
+    it("never deletes the DB row when the remote delete fails — no false success", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Delete Fail`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-DEL-FAIL-${RUN_ID}` });
+      const image = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/wont-delete", alt: "Foto que falla" });
+
+      vi.mocked(imageProvider.deleteRemoteAsset).mockRejectedValueOnce(
+        new Error("simulated Cloudinary outage"),
+      );
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}/images/${image.body.id}`,
+      );
+      expect(response.status).toBe(500);
+
+      const stillThere = await prisma.productImage.findUnique({ where: { id: image.body.id } });
+      expect(stillThere).not.toBeNull();
+    });
+  });
+
+  // The actual "upload succeeded, DB write failed" orphan-cleanup path
+  // (§25) needs a genuine Prisma failure *after* requireVariantOfProduct
+  // already passed — not reproducible through the HTTP layer without
+  // injecting a real race condition, so it's covered as a service-level
+  // unit test instead: test/services/admin-products-orphan-cleanup.test.ts
+  // mocks prisma directly to force the write to fail and asserts
+  // imageProvider.tryCleanupOrphanedAsset is called with the exact
+  // public_id that was about to be orphaned.
 
   // The brief's own explicit regression: an Admin edits a real test
   // product's shape, and the recommendation engine's ranking visibly
