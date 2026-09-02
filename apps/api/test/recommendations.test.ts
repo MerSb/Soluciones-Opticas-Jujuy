@@ -67,6 +67,46 @@ describe("GET /api/recommendations", () => {
     expect(top.product).toHaveProperty("slug");
   });
 
+  // A score of 100 must never read as "as much evidence as a full
+  // profile match" on its own — `matchEvidence`/`evidenceLevel` is what
+  // distinguishes a one-signal 100 from a six-signal 100, since `score`
+  // alone cannot (see docs/adr/0020 "Coverage / confidence semantics").
+  it("exposes matchEvidence/evidenceLevel per recommendation, separate from score/tier", async () => {
+    const response = await agentA.get("/api/recommendations");
+    for (const recommendation of response.body.recommendations) {
+      expect(typeof recommendation.matchEvidence).toBe("number");
+      expect(recommendation.matchEvidence).toBeGreaterThanOrEqual(0);
+      expect(recommendation.matchEvidence).toBeLessThanOrEqual(100);
+      expect(["LOW", "MEDIUM", "HIGH"]).toContain(recommendation.evidenceLevel);
+    }
+  });
+
+  it("a real single-signal-only profile produces a 100 score with low matchEvidence, not high", async () => {
+    const soleSignalAgent = request.agent(app);
+    const soleSignalEmail = `reco-test-sole-${RUN_ID}@example.com`;
+    await soleSignalAgent.post("/api/auth/register").send({
+      firstName: "Sole",
+      lastName: "Signal",
+      email: soleSignalEmail,
+      password: "password123",
+    });
+    await soleSignalAgent.patch("/api/optical-profile").send({ preferredShapes: ["AVIATOR"] });
+
+    const response = await soleSignalAgent.get("/api/recommendations");
+    const aviador = response.body.recommendations.find(
+      (r: { product: { slug: string } }) => r.product.slug === "andina-aviador",
+    );
+    expect(aviador).toBeDefined();
+    // Only the shape signal (weight 25 of 100) was ever applicable —
+    // fully matched, so score is a real 100, but evidence is real too:
+    // 25% coverage, LOW evidence — never HIGH just because score is 100.
+    expect(aviador.score).toBe(100);
+    expect(aviador.matchEvidence).toBe(25);
+    expect(aviador.evidenceLevel).toBe("LOW");
+
+    await prisma.user.deleteMany({ where: { email: soleSignalEmail } });
+  });
+
   it("every returned reason has a code, a message, and a strength", async () => {
     const response = await agentA.get("/api/recommendations");
     for (const recommendation of response.body.recommendations) {

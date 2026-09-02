@@ -109,23 +109,51 @@ just because of what it's missing.
 
 ## Coverage / confidence semantics
 
-Two distinct numbers, deliberately not conflated:
+**Three** distinct numbers, deliberately not conflated (a pre-approval audit found the third one
+was computed but never actually exposed — see "Post-audit hardening" below):
 
-- **`score`** (per recommendation): compatibility _among what was comparable_ — can be high even
-  from a single strong signal on an otherwise-sparse profile.
+- **`score`** (per recommendation): compatibility _among what was comparable_ — can be a
+  mathematically real 100 from a single strong signal on an otherwise-sparse profile. A shape-only
+  preference, fully matched, earns every applicable point there is — `score` alone cannot and does
+  not try to communicate how little that "every point" actually was.
+- **`matchEvidence`** / **`evidenceLevel`** (per recommendation): `applicableWeight for this
+specific product's best variant ÷ TOTAL_POSSIBLE_WEIGHT × 100`, bucketed with the same LOW/
+  MEDIUM/HIGH thresholds as `confidenceLevel` below. This is what actually distinguishes a
+  one-signal 100 from a six-signal 100 — `score` cannot, by construction, since both are 100.
+  Verified directly: `GET /api/recommendations` for a profile with only `preferredShapes` set
+  returns `score: 100, matchEvidence: 25, evidenceLevel: "LOW"` for the matching seeded product
+  (`apps/api/test/recommendations.test.ts`, "a real single-signal-only profile..."). Also distinct
+  from `profileCoverage` below in general: a candidate can be missing data the customer _did_
+  specify (e.g. a product with no recorded lens width, even though the customer gave one),
+  lowering _that product's_ `matchEvidence` below the customer's own `profileCoverage` — verified
+  by a dedicated unit test.
 - **`profileCoverage`** (response-level, once): how much of the _customer's own_ stated data is
   usable, independent of any specific product — `applicableWeight / TOTAL_POSSIBLE_WEIGHT × 100`,
   computed once from the profile alone. Drives the "complete your profile" messaging (§32 of the
   brief), which is about the customer's input, not any one product's data gaps.
 
-`confidenceLevel` (`LOW`/`MEDIUM`/`HIGH`) is `profileCoverage` bucketed at 70/35. Never called "AI
-confidence" anywhere in code, docs, or UI copy.
+`confidenceLevel` and `evidenceLevel` (`LOW`/`MEDIUM`/`HIGH`) both read the same
+`CONFIDENCE_LEVELS` thresholds from `config.ts` via one shared function
+(`coverageToConfidenceLevel`) — one centralized bucketing rule applied to two different coverage
+numbers, not two independent implementations that could drift apart. Never called "AI confidence"
+anywhere in code, docs, or UI copy.
+
+**Frontend:** `RecommendationCard` shows a small caveat line — "Basado en poca información de tu
+perfil." (LOW) / "Basado en información parcial de tu perfil." (MEDIUM) — directly under the
+score, omitted entirely when `evidenceLevel` is HIGH (the common, well-evidenced case shouldn't
+carry visual noise). This is the customer-facing half of the fix: the number existing in the API
+response isn't sufficient on its own if nothing on the card actually uses it to qualify a high
+score.
 
 ## Tiers
 
-`score` bucketed into `HIGH`/`MEDIUM`/`LOW` at 70/40 — `"Alta compatibilidad"` / `"Buena
-compatibilidad"` / `"Compatibilidad parcial"`. Deliberately not `"Perfecto para vos"` or `"100%
-ideal"` anywhere — the score is a comparison against stated information, not a guarantee.
+`score` bucketed into `HIGH`/`MEDIUM`/`LOW` at `SCORE_TIERS.HIGH` (70) / `SCORE_TIERS.MEDIUM` (40)
+— `"Alta compatibilidad"` / `"Buena compatibilidad"` / `"Compatibilidad parcial"`. Deliberately
+not `"Perfecto para vos"` or `"100% ideal"` anywhere — the score is a comparison against stated
+information, not a guarantee. `scoreToTier`/`coverageToConfidenceLevel` read `SCORE_TIERS`/
+`CONFIDENCE_LEVELS` directly from `config.ts` — not a second, hardcoded copy of the same numbers
+(a pre-approval audit caught exactly that duplication; see "Post-audit hardening"). Boundary
+tests cover the value immediately below, at, and immediately above each threshold.
 
 ## Variant selection and stock
 
@@ -133,9 +161,22 @@ Shape and the four dimensions live on `Product`, shared by every variant; materi
 on `ProductVariant`. A product's score is its **best variant's** score, not an average across
 variants — the variant earning the most **raw points** wins (not the highest earned/applicable
 _ratio_, which would let a variant with very little applicable data but a lucky full match on
-that little beat a variant that matched more overall). Ties: prefer a variant with `stock > 0`
-over an equally-scored out-of-stock one; remaining ties broken deterministically by variant id —
-never `Math.random()`, never insertion order left to chance.
+that little beat a variant that matched more overall).
+
+**Stock policy** (hardened post-audit — see below): availability is a **hard partition**, applied
+_before_ score, not a tiebreak applied only when two variants score identically. If a product has
+at least one in-stock variant, only in-stock variants are ever eligible to become `bestVariant` —
+full stop, even when an out-of-stock sibling scored strictly higher. A slightly-weaker but
+actually-purchasable variant is what "best" has to mean for a customer who can act on the
+recommendation; a better-matching variant they cannot buy is not a better recommendation, it's a
+dead end. Only when a product has **no** in-stock variant at all does the pool fall back to
+scoring among every variant — the product still gets recommended, still ranked purely on its
+earned score like any other; no artificial ranking penalty is applied for being fully out of
+stock, since inventing one would itself be a new, undocumented policy the brief's own §24 never
+asked for (it only requires that an unavailable variant never be chosen _when an available one
+exists_ — it says nothing about penalizing a product that has no available variant at all).
+Remaining ties (equal score, same availability bucket) are broken deterministically by variant id
+— never `Math.random()`, never insertion order left to chance.
 
 ## Style-preference limitation
 
@@ -207,6 +248,34 @@ should produce a **structured signal fed into this engine** — it must never re
 engine must never assume biometric input exists. Virtual Try-On (visualization) and this engine
 (ranking) stay decoupled: a product can be recommended without VTO and virtually tried without
 being highly recommended.
+
+## Post-audit hardening
+
+A small audit before this ADR's own approval — commit `1ef09c4` was the implementation being
+reviewed — found three real gaps between what was documented/intended and what the code actually
+did, all fixed in the commit that follows it:
+
+1. **Per-recommendation evidence was computed but never exposed.** `scoreProduct` already
+   returned a `coverage` number, but `RecommendationDto` never carried it — only the
+   response-level `profileCoverage` reached the client, which does not protect a specific card
+   from showing a mathematically-real 100 score with no accompanying signal that it was built
+   from very little. Fixed by adding `matchEvidence`/`evidenceLevel` to `RecommendationDto` and a
+   caveat line on low/medium-evidence cards. See "Coverage / confidence semantics" above.
+2. **The stock policy only protected against exact score ties**, not the more common real case of
+   a strictly-better-scoring out-of-stock variant beating a slightly-weaker in-stock one. Fixed by
+   making availability a hard partition evaluated before score, per "Variant selection and stock"
+   above.
+3. **Tier thresholds were duplicated, not centralized** — `config.ts` defined `SCORE_TIERS`/
+   `CONFIDENCE_LEVELS`, but `scoreToTier`/`coverageToConfidenceLevel` had their own hardcoded
+   `70`/`40`/`35` literals that happened to match, not actually read the config. A threshold
+   change would have silently done nothing. Fixed by reading the config constants directly, plus
+   added boundary tests (immediately below/at/above each threshold) that didn't exist before.
+
+All three were caught by re-reading the actual implementation against the original brief's
+requirements, not assumed correct because the final report described the intended behavior — the
+report described intent accurately; the code hadn't fully caught up to it in these three spots.
+11 new backend tests and 1 new frontend test cover the fixes; no existing test needed to change
+its expected behavior (the fixes are strictly stricter/more complete, not a redesign).
 
 ## Known limitations
 

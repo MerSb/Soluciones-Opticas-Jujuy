@@ -32,6 +32,21 @@ export interface RecommendationDto {
    */
   score: number;
   tier: "LOW" | "MEDIUM" | "HIGH";
+  /**
+   * 0-100. How much of the total possible weight was even comparable
+   * for *this specific* product/variant — applicable weight ÷ total
+   * possible weight. Deliberately separate from `score`: a shape-only
+   * match (one signal, nothing else stated or comparable) can score
+   * 100 on that one signal while still carrying very little evidence —
+   * `matchEvidence` is what tells the two apart, since `score` alone
+   * cannot. Not the same number as the response-level `profileCoverage`
+   * — this one also accounts for gaps on the *candidate's* side (a
+   * product missing a dimension the customer did specify still lowers
+   * this product's own evidence, even though the customer's profile
+   * itself is complete).
+   */
+  matchEvidence: number;
+  evidenceLevel: "LOW" | "MEDIUM" | "HIGH";
   /** Only positive, earned signals — never a "why this didn't match" reason. */
   reasons: RecommendationReasonDto[];
   bestVariant: RecommendationVariantDto;

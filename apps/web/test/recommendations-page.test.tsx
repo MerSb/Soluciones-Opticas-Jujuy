@@ -124,6 +124,8 @@ describe("RecommendationsPage", () => {
               product: SAMPLE_PRODUCT,
               score: 60,
               tier: "MEDIUM",
+              matchEvidence: 20,
+              evidenceLevel: "LOW",
               reasons: [
                 {
                   code: "PREFERRED_SHAPE",
@@ -158,6 +160,8 @@ describe("RecommendationsPage", () => {
               product: SAMPLE_PRODUCT,
               score: 82,
               tier: "HIGH",
+              matchEvidence: 80,
+              evidenceLevel: "HIGH",
               reasons: [
                 {
                   code: "PREFERRED_SHAPE",
@@ -187,6 +191,43 @@ describe("RecommendationsPage", () => {
     expect(
       screen.getByText("El ancho del lente es similar al de tu armazón actual."),
     ).toBeInTheDocument();
+    // High evidence — no caveat note needed, the score already reads
+    // at face value correctly.
+    expect(screen.queryByText(/basado en (poca|información parcial)/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a low-evidence caveat on a card whose 100% score is built from a single signal, distinct from its tier label", async () => {
+    mockFetch({
+      "/api/recommendations": {
+        ok: true,
+        json: async () => ({
+          recommendations: [
+            {
+              product: SAMPLE_PRODUCT,
+              score: 100,
+              tier: "HIGH",
+              matchEvidence: 25,
+              evidenceLevel: "LOW",
+              reasons: [
+                {
+                  code: "PREFERRED_SHAPE",
+                  message: "La forma coincide con una de tus preferencias.",
+                  strength: "STRONG",
+                },
+              ],
+              bestVariant: { id: "v1", color: "Negro", material: "Metal", inStock: true },
+            },
+          ],
+          profileCoverage: 25,
+          confidenceLevel: "LOW",
+          profileIncomplete: false,
+        }),
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText(/100%/)).toBeInTheDocument();
+    expect(screen.getByText("Basado en poca información de tu perfil.")).toBeInTheDocument();
   });
 
   it("keeps the existing favorite button working on a recommendation card", async () => {

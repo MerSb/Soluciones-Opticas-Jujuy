@@ -194,6 +194,8 @@ GET /api/recommendations?limit=6
       "product": { "...": "same shape as ProductListItem" },
       "score": 82,
       "tier": "HIGH",
+      "matchEvidence": 80,
+      "evidenceLevel": "HIGH",
       "reasons": [
         {
           "code": "PREFERRED_SHAPE",
@@ -213,9 +215,19 @@ GET /api/recommendations?limit=6
 `score` (0-100): compatibility with the information this customer explicitly provided —
 `earnedWeight ÷ applicableWeight` for the product's best-scoring variant, **not** ÷ every possible
 weight, so an incomplete profile is never unfairly penalized just for being incomplete. Never a
-fit guarantee, a medical claim, or a purchase-probability/AI-confidence score. `profileCoverage`
-(0-100) is a _separate_, response-level number: how much of the customer's own stated profile is
-usable, independent of any specific product — drives "complete your profile" messaging.
+fit guarantee, a medical claim, or a purchase-probability/AI-confidence score.
+
+**`score` and evidence are two different numbers, on purpose.** A single matched preference (say,
+only a stated shape) can earn every applicable point there is and legitimately score 100 — that
+100 must not be read as "as much evidence as a full profile match," which `score` alone cannot
+communicate. `matchEvidence` (0-100, per recommendation) is `applicableWeight ÷
+TOTAL_POSSIBLE_WEIGHT` for that specific product's best variant, bucketed into `evidenceLevel`.
+`profileCoverage` (0-100) is a _third_, separate, response-level number: how much of the
+customer's own stated profile is usable, independent of any specific product — drives "complete
+your profile" messaging. `matchEvidence` and `profileCoverage` usually track closely but are not
+guaranteed to match — a candidate can be missing data the customer _did_ provide (e.g. no
+recorded lens width), which lowers that one product's `matchEvidence` below the customer's own
+`profileCoverage`.
 
 No optical profile (or an entirely empty one) → `200` with `{ recommendations: [], profileCoverage:
 0, confidenceLevel: "LOW", profileIncomplete: true }` — never a `404`/`500`, never a misleading
@@ -490,15 +502,17 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-120 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
-tests, plus 56 new for the recommendation engine — 48 pure unit tests over the normalization/
-scoring core (`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every
-missing-data case, dimension tolerance bands, best-variant selection with stock/id tiebreaks,
-style never scoring, determinism, score bounds, ranking tiebreaks, coverage/tier thresholds) and
-8 API integration tests (`test/recommendations.test.ts`: auth required, empty result for no
-profile, ranked real results once the profile has data, every reason has code/message/strength,
-`limit` respected and validated, cross-customer isolation, stable output across repeated
-requests).
+131 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
+tests, plus 67 for the recommendation engine — 39 pure unit tests over the normalization/scoring
+core (`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data
+case, dimension tolerance bands, best-variant selection including the hard stock-availability
+partition, an all-variants-out-of-stock product staying recommendable, style never scoring,
+determinism, score bounds, ranking tiebreaks, coverage/tier boundary values immediately below/at/
+above each threshold) and 10 API integration tests (`test/recommendations.test.ts`: auth required,
+empty result for no profile, ranked real results once the profile has data, every reason has
+code/message/strength, every recommendation carries `matchEvidence`/`evidenceLevel`, a real
+single-signal profile scoring 100 with low (not high) evidence, `limit` respected and validated,
+cross-customer isolation, stable output across repeated requests).
 
 ## Environment variables (this stage)
 

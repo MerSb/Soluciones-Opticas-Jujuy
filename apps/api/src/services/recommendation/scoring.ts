@@ -7,8 +7,10 @@ import type {
 import { normalizeColor, normalizeMaterial, normalizeShape } from "./normalize.js";
 import {
   CATEGORY_WEIGHTS,
+  CONFIDENCE_LEVELS,
   DIMENSION_TOLERANCE_BANDS,
   DIMENSION_WEIGHTS,
+  SCORE_TIERS,
   TOTAL_POSSIBLE_WEIGHT,
 } from "./config.js";
 
@@ -211,23 +213,31 @@ export interface ScoredProduct {
   reasons: ReasonInput[];
 }
 
-// Best-variant selection (§23/§24): the variant that earned the most
-// raw points wins — not the highest earned/applicable *ratio*, which
-// would let a variant with very little applicable data (but a lucky
-// 100% match on that little) beat a variant that matched more overall.
-// Ties are broken first by stock > 0 (never surface an unavailable
-// variant as the best one when an available, equally-scored variant
-// exists), then deterministically by variant id — never Math.random(),
-// never insertion order left to chance.
+// Best-variant selection (§23/§24). Stock policy, made explicit after
+// review: availability is a hard partition, evaluated *before* score —
+// if a product has at least one in-stock variant, only in-stock
+// variants are ever eligible to become bestVariant, full stop, even if
+// an out-of-stock sibling scored higher. A slightly-weaker but
+// actually-purchasable variant is what "best" means for a customer
+// who can act on the recommendation; a better-matching variant they
+// cannot buy is not a better recommendation, it's a dead end. Only when
+// a product has *no* in-stock variant at all does the pool fall back to
+// every variant — the product still gets recommended (§24 of the
+// brief only asks that an unavailable variant never be chosen *when an
+// available one exists*; it does not ask for out-of-stock products to
+// be suppressed or penalized, and inventing that penalty would be a new,
+// undocumented policy). Within whichever pool applies, the variant
+// earning the most raw points wins — not the highest earned/applicable
+// *ratio*, which would let a variant with very little applicable data
+// (but a lucky 100% match on that little) beat a variant that matched
+// more overall. Remaining ties are broken deterministically by variant
+// id — never Math.random(), never insertion order left to chance.
 function pickBestVariant(scored: ScoredVariant[]): ScoredVariant {
-  return scored.reduce((best, candidate) => {
+  const inStock = scored.filter((entry) => entry.variant.stock > 0);
+  const pool = inStock.length > 0 ? inStock : scored;
+  return pool.reduce((best, candidate) => {
     if (candidate.earned !== best.earned) {
       return candidate.earned > best.earned ? candidate : best;
-    }
-    const candidateInStock = candidate.variant.stock > 0;
-    const bestInStock = best.variant.stock > 0;
-    if (candidateInStock !== bestInStock) {
-      return candidateInStock ? candidate : best;
     }
     return candidate.variant.id < best.variant.id ? candidate : best;
   });
@@ -287,15 +297,18 @@ export function calculateProfileCoverage(profile: CustomerProfileInput): number 
   return Math.round((applicable / TOTAL_POSSIBLE_WEIGHT) * 100);
 }
 
+// Reads the actual config constants — not a re-typed copy of the
+// numbers. Changing a threshold in config.ts changes behavior here
+// directly; there is exactly one place these numbers are ever written.
 export function coverageToConfidenceLevel(coveragePercent: number): ConfidenceLevel {
-  if (coveragePercent >= 70) return "HIGH";
-  if (coveragePercent >= 35) return "MEDIUM";
+  if (coveragePercent >= CONFIDENCE_LEVELS.HIGH) return "HIGH";
+  if (coveragePercent >= CONFIDENCE_LEVELS.MEDIUM) return "MEDIUM";
   return "LOW";
 }
 
 export function scoreToTier(scorePercent: number): ScoreTier {
-  if (scorePercent >= 70) return "HIGH";
-  if (scorePercent >= 40) return "MEDIUM";
+  if (scorePercent >= SCORE_TIERS.HIGH) return "HIGH";
+  if (scorePercent >= SCORE_TIERS.MEDIUM) return "MEDIUM";
   return "LOW";
 }
 

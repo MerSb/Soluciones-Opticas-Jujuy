@@ -172,6 +172,14 @@ export async function getRecommendations(
       },
       score: result.score,
       tier: scoreToTier(result.score),
+      // Per-recommendation evidence — deliberately distinct from
+      // profileCoverage (response-level, customer-only): this accounts
+      // for gaps on *this specific* candidate too (see the DTO's own
+      // doc comment). Reuses the same LOW/MEDIUM/HIGH thresholds as
+      // profile-level confidenceLevel — one centralized bucketing rule
+      // for both.
+      matchEvidence: result.coverage,
+      evidenceLevel: coverageToConfidenceLevel(result.coverage),
       reasons: result.reasons,
       bestVariant: {
         id: bestVariantRow.id,

@@ -7,6 +7,18 @@ const TIER_LABEL: Record<RecommendationDto["tier"], string> = {
   LOW: "Compatibilidad parcial",
 };
 
+// A 100% score built from a single matching signal (e.g. only a shape
+// preference) must never read the same as a 100% built from six —
+// `score` alone can't communicate that difference, so this note stands
+// in for it (only when evidence isn't already HIGH, to avoid noise on
+// the common well-evidenced case). See
+// docs/adr/0020-recommendation-engine-v1.md "Coverage / confidence
+// semantics".
+const EVIDENCE_NOTE: Partial<Record<RecommendationDto["evidenceLevel"], string>> = {
+  LOW: "Basado en poca información de tu perfil.",
+  MEDIUM: "Basado en información parcial de tu perfil.",
+};
+
 // Reuses the exact same ProductCard the catalog/favorites grids use
 // (favorite button included, unchanged) and adds recommendation-specific
 // context around it — never a forked card design (§48 of the brief).
@@ -24,6 +36,9 @@ export function RecommendationCard({ recommendation }: { recommendation: Recomme
             compatibilidad con tus preferencias · {TIER_LABEL[recommendation.tier]}
           </span>
         </p>
+        {EVIDENCE_NOTE[recommendation.evidenceLevel] && (
+          <p className="text-xs text-text-muted">{EVIDENCE_NOTE[recommendation.evidenceLevel]}</p>
+        )}
         {recommendation.reasons.length > 0 && (
           <ul className="space-y-1 text-sm text-text-muted">
             {recommendation.reasons.map((reason) => (

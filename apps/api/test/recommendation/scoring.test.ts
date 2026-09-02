@@ -8,6 +8,7 @@ import {
   type CandidateProductInput,
   type CustomerProfileInput,
 } from "../../src/services/recommendation/scoring.js";
+import { CONFIDENCE_LEVELS, SCORE_TIERS } from "../../src/services/recommendation/config.js";
 
 function makeProduct(overrides: Partial<CandidateProductInput> = {}): CandidateProductInput {
   return {
@@ -254,6 +255,41 @@ describe("scoreProduct — variant awareness", () => {
     expect(first.bestVariant.id).toBe(second.bestVariant.id);
     expect(first.bestVariant.id).toBe("v-a");
   });
+
+  // Stock policy (audited/hardened after the initial implementation
+  // only preferred stock on an *exact* score tie): availability is a
+  // hard partition, checked before score. An out-of-stock variant is
+  // never bestVariant when any in-stock variant of the same product
+  // exists — even if the out-of-stock one scored strictly higher.
+  it("picks a slightly-weaker in-stock variant over a strictly-stronger out-of-stock one", () => {
+    const result = scoreProduct(
+      makeProduct({
+        variants: [
+          // Strongest match: color + material both hit. Out of stock.
+          { id: "v-strong-no-stock", color: "Negro", material: "Metal", stock: 0 },
+          // Weaker match: only color hits. In stock.
+          { id: "v-weak-in-stock", color: "Negro", material: "Acetato", stock: 4 },
+        ],
+      }),
+      makeProfile({ preferredColors: ["NEGRO"], preferredMaterials: ["METAL"] }),
+    );
+    expect(result!.bestVariant.id).toBe("v-weak-in-stock");
+  });
+
+  it("still recommends a product whose every variant is out of stock — falls back to the best-scoring one, not excluded", () => {
+    const result = scoreProduct(
+      makeProduct({
+        variants: [
+          { id: "v-1", color: "Rojo", material: null, stock: 0 },
+          { id: "v-2", color: "Negro", material: null, stock: 0 },
+        ],
+      }),
+      makeProfile({ preferredColors: ["NEGRO"] }),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.bestVariant.id).toBe("v-2");
+    expect(result!.score).toBe(100);
+  });
 });
 
 describe("scoreProduct — style is never scored (no catalog signal exists)", () => {
@@ -402,5 +438,99 @@ describe("calculateProfileCoverage / coverageToConfidenceLevel / scoreToTier", (
     expect(scoreToTier(10)).toBe("LOW");
     expect(scoreToTier(50)).toBe("MEDIUM");
     expect(scoreToTier(85)).toBe("HIGH");
+  });
+
+  // Boundary tests, reading the actual centralized thresholds from
+  // config.ts rather than re-hardcoding 70/40/35 here too — these fail
+  // loudly if scoring.ts ever drifts back to its own hardcoded copy
+  // instead of reading CONFIDENCE_LEVELS/SCORE_TIERS.
+  describe("boundary values", () => {
+    it("scoreToTier: immediately below, at, and immediately above the HIGH boundary", () => {
+      expect(scoreToTier(SCORE_TIERS.HIGH - 1)).toBe("MEDIUM");
+      expect(scoreToTier(SCORE_TIERS.HIGH)).toBe("HIGH");
+      expect(scoreToTier(SCORE_TIERS.HIGH + 1)).toBe("HIGH");
+    });
+
+    it("scoreToTier: immediately below, at, and immediately above the MEDIUM boundary", () => {
+      expect(scoreToTier(SCORE_TIERS.MEDIUM - 1)).toBe("LOW");
+      expect(scoreToTier(SCORE_TIERS.MEDIUM)).toBe("MEDIUM");
+      expect(scoreToTier(SCORE_TIERS.MEDIUM + 1)).toBe("MEDIUM");
+    });
+
+    it("coverageToConfidenceLevel: immediately below, at, and immediately above the HIGH boundary", () => {
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.HIGH - 1)).toBe("MEDIUM");
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.HIGH)).toBe("HIGH");
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.HIGH + 1)).toBe("HIGH");
+    });
+
+    it("coverageToConfidenceLevel: immediately below, at, and immediately above the MEDIUM boundary", () => {
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.MEDIUM - 1)).toBe("LOW");
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.MEDIUM)).toBe("MEDIUM");
+      expect(coverageToConfidenceLevel(CONFIDENCE_LEVELS.MEDIUM + 1)).toBe("MEDIUM");
+    });
+  });
+});
+
+describe("score vs. evidence — the two must never be conflated", () => {
+  // The exact scenario the brief warns about: one single stated
+  // preference, fully matched, mathematically scores 100 — but that 100
+  // must not read as "as much evidence as a full profile match."
+  // `coverage` (exposed to the API as `matchEvidence`) is what
+  // distinguishes the two; `score` alone cannot.
+  it("a single-signal perfect match scores 100 but carries low coverage", () => {
+    const result = scoreProduct(
+      makeProduct({ shape: "aviator" }),
+      makeProfile({ preferredShapes: ["AVIATOR"] }),
+    )!;
+    expect(result.score).toBe(100);
+    expect(result.coverage).toBeLessThan(50);
+    expect(coverageToConfidenceLevel(result.coverage)).not.toBe("HIGH");
+  });
+
+  it("a full-signal perfect match scores 100 with high coverage — genuinely distinct from the single-signal case", () => {
+    const result = scoreProduct(
+      makeProduct({
+        shape: "aviator",
+        lensWidth: 52,
+        bridgeWidth: 18,
+        templeLength: 140,
+        lensHeight: 32,
+      }),
+      makeProfile({
+        preferredShapes: ["AVIATOR"],
+        preferredMaterials: ["METAL"],
+        preferredColors: ["NEGRO"],
+        currentFrameLensWidth: 52,
+        currentFrameBridgeWidth: 18,
+        currentFrameTempleLength: 140,
+        currentFrameLensHeight: 32,
+      }),
+    )!;
+    expect(result.score).toBe(100);
+    expect(result.coverage).toBe(100);
+    expect(coverageToConfidenceLevel(result.coverage)).toBe("HIGH");
+  });
+
+  it("a candidate missing data the customer specified lowers that product's own coverage, independent of the customer's overall profile completeness", () => {
+    const completeProfile = makeProfile({
+      preferredShapes: ["AVIATOR"],
+      currentFrameLensWidth: 52,
+      currentFrameBridgeWidth: 18,
+      currentFrameTempleLength: 140,
+      currentFrameLensHeight: 32,
+    });
+    // This candidate only has a shape — every dimension is unknown for
+    // it specifically, even though the customer's own profile is
+    // complete on all four.
+    const sparseCandidate = makeProduct({
+      shape: "aviator",
+      lensWidth: null,
+      bridgeWidth: null,
+      templeLength: null,
+      lensHeight: null,
+    });
+    const result = scoreProduct(sparseCandidate, completeProfile)!;
+    const profileCoverage = calculateProfileCoverage(completeProfile);
+    expect(profileCoverage).toBeGreaterThan(result.coverage);
   });
 });
