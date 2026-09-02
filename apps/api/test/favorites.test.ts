@@ -29,7 +29,13 @@ afterAll(async () => {
 describe("favorites", () => {
   it("requires authentication for every operation", async () => {
     expect((await request(app).get("/api/favorites")).status).toBe(401);
-    expect((await request(app).post("/api/favorites/andina-aviador")).status).toBe(401);
+    expect(
+      (
+        await request(app)
+          .post("/api/favorites/andina-aviador")
+          .set("Content-Type", "application/json")
+      ).status,
+    ).toBe(401);
     expect((await request(app).delete("/api/favorites/andina-aviador")).status).toBe(401);
   });
 
@@ -40,7 +46,8 @@ describe("favorites", () => {
   });
 
   it("adds a favorite and lists it with product data", async () => {
-    const addResponse = await agentA.post("/api/favorites/andina-aviador");
+    const addResponse = await agentA.post("/api/favorites/andina-aviador")
+      .set("Content-Type", "application/json");
     expect(addResponse.status).toBe(204);
 
     const listResponse = await agentA.get("/api/favorites");
@@ -52,7 +59,8 @@ describe("favorites", () => {
   });
 
   it("adding the same favorite again is idempotent, not a duplicate or an error", async () => {
-    const response = await agentA.post("/api/favorites/andina-aviador");
+    const response = await agentA.post("/api/favorites/andina-aviador")
+      .set("Content-Type", "application/json");
     expect(response.status).toBe(204);
 
     const listResponse = await agentA.get("/api/favorites");
@@ -60,7 +68,8 @@ describe("favorites", () => {
   });
 
   it("404s when favoriting a product that doesn't exist", async () => {
-    const response = await agentA.post("/api/favorites/does-not-exist");
+    const response = await agentA.post("/api/favorites/does-not-exist")
+      .set("Content-Type", "application/json");
     expect(response.status).toBe(404);
   });
 
@@ -78,8 +87,10 @@ describe("favorites", () => {
   });
 
   it("isolates favorites between customers", async () => {
-    await agentA.post("/api/favorites/andina-aviador");
-    await agentB.post("/api/favorites/lumen-clasico");
+    await agentA.post("/api/favorites/andina-aviador")
+      .set("Content-Type", "application/json");
+    await agentB.post("/api/favorites/lumen-clasico")
+      .set("Content-Type", "application/json");
 
     const listA = await agentA.get("/api/favorites");
     const listB = await agentB.get("/api/favorites");

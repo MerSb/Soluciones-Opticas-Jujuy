@@ -99,7 +99,8 @@ describe("admin products", () => {
     const withDeleted = await adminAgent.get("/api/admin/products?limit=50&includeDeleted=true");
     expect(withDeleted.body.data.map((p: { id: string }) => p.id)).toContain(id);
 
-    const restored = await adminAgent.post(`/api/admin/products/${id}/restore`);
+    const restored = await adminAgent.post(`/api/admin/products/${id}/restore`)
+      .set("Content-Type", "application/json");
     expect(restored.body.deletedAt).toBeNull();
   });
 

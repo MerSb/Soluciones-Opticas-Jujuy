@@ -101,12 +101,18 @@ export function apiGet<T>(
   return request<T>(path, { method: "GET" }, searchParams);
 }
 
+// Always sends Content-Type: application/json, even for a bodyless POST
+// (logout, refresh, favorites add) — the API now requires it uniformly
+// on every POST (see requireJsonContentType, added during the
+// Cloudinary/staging-readiness CSRF re-evaluation): a plain HTML form
+// can never set this content type, so requiring it on every POST,
+// including ones with nothing to validate, closes that gap for good
+// instead of endpoint-by-endpoint.
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, {
     method: "POST",
-    ...(body !== undefined
-      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      : {}),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
   });
 }
 

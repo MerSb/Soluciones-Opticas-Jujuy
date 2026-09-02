@@ -165,7 +165,9 @@ describe("PATCH /api/optical-profile", () => {
   });
 
   it("stays reachable after the access token is refreshed", async () => {
-    const refreshResponse = await agentA.post("/api/auth/refresh");
+    const refreshResponse = await agentA
+      .post("/api/auth/refresh")
+      .set("Content-Type", "application/json");
     expect(refreshResponse.status).toBe(200);
     const response = await agentA.get("/api/optical-profile");
     expect(response.status).toBe(200);

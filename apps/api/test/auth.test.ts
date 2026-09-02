@@ -161,7 +161,9 @@ describe("POST /api/auth/logout", () => {
       password: "password123",
     });
 
-    const logoutResponse = await agent.post("/api/auth/logout");
+    const logoutResponse = await agent
+      .post("/api/auth/logout")
+      .set("Content-Type", "application/json");
     expect(logoutResponse.status).toBe(204);
 
     const meResponse = await agent.get("/api/auth/me");
@@ -169,7 +171,9 @@ describe("POST /api/auth/logout", () => {
   });
 
   it("is idempotent — logging out with no session still succeeds", async () => {
-    const response = await request(app).post("/api/auth/logout");
+    const response = await request(app)
+      .post("/api/auth/logout")
+      .set("Content-Type", "application/json");
     expect(response.status).toBe(204);
   });
 });
@@ -185,19 +189,24 @@ describe("POST /api/auth/refresh", () => {
     });
     const firstRefreshCookie = extractRawCookie(registerResponse, "sopt_refresh_token");
 
-    const refreshResponse = await agent.post("/api/auth/refresh");
+    const refreshResponse = await agent
+      .post("/api/auth/refresh")
+      .set("Content-Type", "application/json");
     expect(refreshResponse.status).toBe(200);
 
     // Replay the pre-rotation refresh token directly — it must have been
     // revoked by the rotation above, not just superseded.
     const replay = await request(app)
       .post("/api/auth/refresh")
+      .set("Content-Type", "application/json")
       .set("Cookie", `sopt_refresh_token=${firstRefreshCookie}`);
     expect(replay.status).toBe(401);
   });
 
   it("rejects a missing or invalid refresh token", async () => {
-    const response = await request(app).post("/api/auth/refresh");
+    const response = await request(app)
+      .post("/api/auth/refresh")
+      .set("Content-Type", "application/json");
     expect(response.status).toBe(401);
   });
 });

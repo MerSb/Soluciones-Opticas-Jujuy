@@ -6,6 +6,7 @@ import { env } from "./lib/env.js";
 import { ApiError } from "./lib/api-error.js";
 import { apiRouter } from "./routes/index.js";
 import { requestLogger } from "./middleware/request-logger.js";
+import { requireJsonContentType } from "./middleware/require-json.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
@@ -42,6 +43,7 @@ export function createApp(): Express {
   // not a file upload — bounds request size without touching any
   // legitimate use.
   app.use(express.json({ limit: "16kb" }));
+  app.use(requireJsonContentType);
 
   app.use("/api", apiRouter);
 

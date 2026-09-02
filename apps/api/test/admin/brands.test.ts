@@ -106,7 +106,8 @@ describe("admin brands", () => {
     expect(deleted.status).toBe(200);
     expect(deleted.body.deletedAt).not.toBeNull();
 
-    const restored = await adminAgent.post(`/api/admin/brands/${brand.body.id}/restore`);
+    const restored = await adminAgent.post(`/api/admin/brands/${brand.body.id}/restore`)
+      .set("Content-Type", "application/json");
     expect(restored.status).toBe(200);
     expect(restored.body.deletedAt).toBeNull();
   });

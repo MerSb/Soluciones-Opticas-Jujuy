@@ -37,4 +37,12 @@ export class ApiError extends Error {
   static rateLimited(message: string): ApiError {
     return new ApiError(429, "RATE_LIMITED", message);
   }
+
+  static unsupportedMediaType(message: string): ApiError {
+    return new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", message);
+  }
+
+  static badGateway(message: string): ApiError {
+    return new ApiError(502, "BAD_GATEWAY", message);
+  }
 }
