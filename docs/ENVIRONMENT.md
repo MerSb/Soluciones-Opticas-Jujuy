@@ -115,19 +115,21 @@ database with a relabeled purpose.
 `.env.example` (committed, placeholders only) documents every variable this repo currently uses,
 plus commented-out future ones for traceability:
 
-| Variable                           | Status | Notes                                                                                                                                                                                      |
-| ---------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                     | Active | Local Docker Postgres locally; Railway's staging connection string in staging (set in Railway's environment config, not in this repo). API-side only — never exposed to the frontend/Vite. |
-| `PORT`                             | Active | `apps/api`. Defaults to `3001` locally; Railway injects its own value, read dynamically — never hardcoded.                                                                                 |
-| `NODE_ENV`                         | Active | `apps/api`. `development` \| `test` \| `production` only — staging sets `production`. See "`NODE_ENV` vs `APP_ENV`" above.                                                                 |
-| `APP_ENV`                          | Active | `apps/api`. `development` \| `staging` \| `production` — the actual environment label, separate from `NODE_ENV`.                                                                           |
-| `CORS_ORIGINS`                     | Active | `apps/api`. Comma-separated allowlist. Never `*`. Local: `http://localhost:5173`. Staging: the exact Vercel staging origin only.                                                           |
-| `JWT_SECRET`                       | Active | `apps/api`. Required in every environment (min 32 chars). Generate a distinct value per environment — never reuse the local dev secret in staging.                                         |
-| `VITE_API_BASE_URL`                | Active | `apps/web`, build-time. Points at the local API in dev; at the Railway API's public URL in staging (set in Vercel's environment config, not in this repo).                                 |
-| `JWT_SECRET`, `JWT_REFRESH_SECRET` | Future | Added when auth is built (Etapa 2)                                                                                                                                                         |
-| `CLOUDINARY_URL`                   | Future | Added when the Cloudinary integration is built                                                                                                                                             |
-| `MERCADOPAGO_ACCESS_TOKEN`         | Future | Added when Mercado Pago integration is built (out of this engagement's scope)                                                                                                              |
-| `ARCA_CERT_PATH`                   | Future | Added when ARCA integration is built (out of this engagement's scope)                                                                                                                      |
+| Variable                     | Status | Notes                                                                                                                                                                                      |
+| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`               | Active | Local Docker Postgres locally; Railway's staging connection string in staging (set in Railway's environment config, not in this repo). API-side only — never exposed to the frontend/Vite. |
+| `PORT`                       | Active | `apps/api`. Defaults to `3001` locally; Railway injects its own value, read dynamically — never hardcoded.                                                                                 |
+| `NODE_ENV`                   | Active | `apps/api`. `development` \| `test` \| `production` only — staging sets `production`. See "`NODE_ENV` vs `APP_ENV`" above.                                                                 |
+| `APP_ENV`                    | Active | `apps/api`. `development` \| `staging` \| `production` — the actual environment label, separate from `NODE_ENV`.                                                                           |
+| `CORS_ORIGINS`               | Active | `apps/api`. Comma-separated allowlist. Never `*`. Local: `http://localhost:5173`. Staging: the exact Vercel staging origin only.                                                           |
+| `JWT_SECRET`                 | Active | `apps/api`. Required in every environment (min 32 chars). Generate a distinct value per environment — never reuse the local dev secret in staging.                                         |
+| `VITE_API_BASE_URL`          | Active | `apps/web`, build-time. Points at the local API in dev; at the Railway API's public URL in staging (set in Vercel's environment config, not in this repo).                                 |
+| `CLOUDINARY_CLOUD_NAME`      | Active | `apps/api`. Optional and all-or-nothing with the next two — unset locally, the app runs fine, only image upload is disabled. See `docs/IMAGE_PIPELINE.md`.                                 |
+| `CLOUDINARY_API_KEY`         | Active | `apps/api`. Same as above. Never exposed to the frontend.                                                                                                                                  |
+| `CLOUDINARY_API_SECRET`      | Active | `apps/api`. Same as above. Treat with the same care as `JWT_SECRET` — never logged, never committed.                                                                                       |
+| `VITE_CLOUDINARY_CLOUD_NAME` | Active | `apps/web`, build-time. **Not a secret** — the public segment of every Cloudinary delivery URL a browser already sees. Same value as `CLOUDINARY_CLOUD_NAME` above.                        |
+| `MERCADOPAGO_ACCESS_TOKEN`   | Future | Added when Mercado Pago integration is built (out of this engagement's scope)                                                                                                              |
+| `ARCA_CERT_PATH`             | Future | Added when ARCA integration is built (out of this engagement's scope)                                                                                                                      |
 
 ## Authentication (staging compatibility)
 

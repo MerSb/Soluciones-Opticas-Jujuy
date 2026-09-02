@@ -253,34 +253,42 @@ across repeated identical requests.
 `docs/adr/0021-admin-catalog-management.md` for the full design reasoning; this section is the
 endpoint reference.
 
-| Method                        | Path                                                          | Notes                                                                                            |
-| ----------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| GET                           | `/api/admin/brands`                                           | All brands, active and soft-deleted alike                                                        |
-| POST                          | `/api/admin/brands`                                           | `{ name, description?, logoPublicId? }`                                                          |
-| GET                           | `/api/admin/brands/:id`                                       |                                                                                                  |
-| PATCH                         | `/api/admin/brands/:id`                                       | No `slug` field accepted (ADR-0013)                                                              |
-| DELETE                        | `/api/admin/brands/:id`                                       | Soft-delete; `409` if it still backs an active product                                           |
-| POST                          | `/api/admin/brands/:id/restore`                               |                                                                                                  |
-| GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                 | Same shape as brands                                                                             |
-| GET                           | `/api/admin/products`                                         | `?page&limit&q&includeDeleted` — paginated                                                       |
-| POST                          | `/api/admin/products`                                         | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                    |
-| GET                           | `/api/admin/products/:id`                                     | Soft-deleted products are still fetchable directly                                               |
-| PATCH                         | `/api/admin/products/:id`                                     | No `slug` field accepted                                                                         |
-| DELETE                        | `/api/admin/products/:id`                                     | Soft-delete                                                                                      |
-| POST                          | `/api/admin/products/:id/restore`                             |                                                                                                  |
-| POST                          | `/api/admin/products/:id/variants`                            | `{ color?, material?, sku, stock?, priceOverride? }`; duplicate `sku` → `409`                    |
-| PATCH                         | `/api/admin/products/:id/variants/:variantId`                 |                                                                                                  |
-| DELETE                        | `/api/admin/products/:id/variants/:variantId`                 | **Hard** delete (cascades its images) — see ADR-0021                                             |
-| POST                          | `/api/admin/products/:id/variants/:variantId/images`          | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary? }` — metadata only, see "Image storage" below |
-| PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId` |                                                                                                  |
-| DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId` | Hard delete                                                                                      |
+| Method                        | Path                                                             | Notes                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| GET                           | `/api/admin/brands`                                              | All brands, active and soft-deleted alike                                                                                             |
+| POST                          | `/api/admin/brands`                                              | `{ name, description?, logoPublicId? }`                                                                                               |
+| GET                           | `/api/admin/brands/:id`                                          |                                                                                                                                       |
+| PATCH                         | `/api/admin/brands/:id`                                          | No `slug` field accepted (ADR-0013)                                                                                                   |
+| DELETE                        | `/api/admin/brands/:id`                                          | Soft-delete; `409` if it still backs an active product                                                                                |
+| POST                          | `/api/admin/brands/:id/restore`                                  |                                                                                                                                       |
+| GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                    | Same shape as brands                                                                                                                  |
+| GET                           | `/api/admin/products`                                            | `?page&limit&q&includeDeleted` — paginated                                                                                            |
+| POST                          | `/api/admin/products`                                            | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                                                         |
+| GET                           | `/api/admin/products/:id`                                        | Soft-deleted products are still fetchable directly                                                                                    |
+| PATCH                         | `/api/admin/products/:id`                                        | No `slug` field accepted                                                                                                              |
+| DELETE                        | `/api/admin/products/:id`                                        | Soft-delete                                                                                                                           |
+| POST                          | `/api/admin/products/:id/restore`                                |                                                                                                                                       |
+| POST                          | `/api/admin/products/:id/variants`                               | `{ color?, material?, sku, stock?, priceOverride? }`; duplicate `sku` → `409`                                                         |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId`                    |                                                                                                                                       |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId`                    | **Hard** delete (cascades its images) — see ADR-0021                                                                                  |
+| POST                          | `/api/admin/products/:id/variants/:variantId/images/sign-upload` | Returns an `UploadSignatureDto` for a direct-to-Cloudinary upload — see "Image upload" below                                          |
+| POST                          | `/api/admin/products/:id/variants/:variantId/images`             | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary? }` — persists metadata _after_ the browser already uploaded directly to Cloudinary |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId`    |                                                                                                                                       |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId`    | Hard delete — deletes the remote Cloudinary asset first, then the DB row (see below)                                                  |
 
-**Image storage:** there is still no real file-upload integration (no Cloudinary SDK, no
-credentialed external resource created this phase — that was an explicit stop-and-report
-checkpoint, not an oversight). `cloudinaryPublicId` is a plain string an operator pastes in after
-uploading through Cloudinary's own console, exactly like `prisma/seed.ts` already does. Only one
-image per variant can be `isPrimary: true` at a time — setting a new one unsets the previous
-automatically.
+**Image upload:** real, signed direct-to-Cloudinary upload — see
+`docs/adr/0022-cloudinary-image-pipeline.md` and `docs/IMAGE_PIPELINE.md` for the full
+architecture. The API never receives file bytes: `sign-upload` returns a short-lived signature
+(`cloudName`, `apiKey`, `timestamp`, `signature`, `publicId`, `allowedFormats`,
+`maxFileSizeBytes`) — never the API secret — the browser uploads directly to Cloudinary with it,
+then confirms the result via the existing `POST .../images` metadata endpoint. `allowed_formats`
+is signed and enforced by Cloudinary itself; there is no server-enforced file-size parameter
+(client-side check only — a named limitation, not an oversight). Requires
+`CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET` to be configured — `502` with
+a clear message otherwise. Only one image per variant can be `isPrimary: true` at a time — setting
+a new one unsets the previous automatically. Deleting an image deletes the remote asset first,
+then the DB row — a remote failure leaves the DB row untouched (safe to retry); if metadata
+persistence fails after a real upload, the API best-effort deletes the now-orphaned remote asset.
 
 **Every Admin mutation is immediately visible** to the public catalog and the recommendation
 engine — they read the same `Product`/`ProductVariant`/`ProductImage` rows, no cache or sync step
@@ -512,14 +520,24 @@ verified against a real multi-step browser E2E run staying comfortably under the
 a single Railway instance today; a shared store (e.g. Redis) would be needed if this API is ever
 scaled horizontally. The public catalog remains unrate-limited, as before.
 
-**CSRF:** evaluated, not ignored (see the ADR). No separate CSRF token is issued. The combination
-already in place — `SameSite` (Lax locally, None+Secure cross-site in staging), a strict CORS
-origin allowlist with `credentials: true`, and every mutating endpoint requiring a JSON body
-(which forces a CORS preflight for any cross-origin request, and a disallowed origin fails that
-preflight before the browser ever sends the real request) — already defeats classic
-form-submission CSRF. Revisit if a mutating endpoint using a "simple" request content type
-(`text/plain`, `application/x-www-form-urlencoded`) is ever added, since that specific combination
-wouldn't force a preflight.
+**CSRF:** evaluated, not ignored, and **re-evaluated** during the Cloudinary/staging-readiness
+phase before adding a new mutating endpoint (see `docs/adr/0022-cloudinary-image-pipeline.md`). No
+separate CSRF token is issued. The defense: `SameSite` (Lax locally, None+Secure cross-site in
+staging), a strict CORS origin allowlist with `credentials: true`, and — as of that
+re-evaluation — every `POST` route requiring a genuine `application/json` Content-Type,
+**enforced by `middleware/require-json.ts`, not just by convention**. That last point used to be
+merely a convention some routes happened to follow (a Zod-validated required body already made a
+route safe on its own) — the re-evaluation found several routes that had no required body at all
+(`/auth/logout`, `/auth/refresh`, `/favorites/:slug`, every `/admin/.../restore`) and were
+reachable via a bare cross-site HTML form submission (`express.json()` only skips _parsing_ a
+non-JSON body, it doesn't reject the request). Fixed centrally rather than per-route — see
+`test/security/csrf.test.ts`. A plain HTML form can never set `Content-Type: application/json`
+(only `application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`), so this alone
+forces any cross-origin attempt onto `fetch()`/XHR, which _does_ trigger a CORS preflight the
+origin allowlist rejects. PATCH/DELETE are exempt from the new middleware — HTML forms cannot
+submit those methods at all. Revisit if a genuinely new multipart/raw-binary-body mutating
+endpoint is ever added (the image-upload architecture in ADR-0022 was deliberately designed to
+need one — see that ADR's Decision 1).
 
 ## Logging
 
@@ -555,7 +573,7 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-154 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
+180 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
 tests, 70 for the recommendation engine (42 pure unit tests over the normalization/scoring core —
 `test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data case,
 dimension tolerance bands, best-variant selection including the hard stock-availability partition,
@@ -565,12 +583,21 @@ immediately below/at/above each threshold — plus 10 `test/recommendations.test
 tests: auth required, empty result for no profile, ranked real results once the profile has data,
 every reason has code/message/strength, every recommendation carries `matchEvidence`/
 `evidenceLevel`, a real single-signal profile scoring 100 with low (not high) evidence, `limit`
-respected and validated, cross-customer isolation, stable output across repeated requests), and 20
+respected and validated, cross-customer isolation, stable output across repeated requests), 26
 Admin tests (`test/admin/`: auth/role guard on every resource, slug generation and immutability,
 in-use guard on brand/category soft-delete, product/variant/image CRUD including cross-product
-404s and the one-primary-image-per-variant invariant, and the two live regressions — an Admin
-shape edit re-ranking a real recommendation, and an Admin stock edit preserving the stock
-hard-partition policy).
+404s and the one-primary-image-per-variant invariant, the image-upload signature endpoint's own
+auth/404/shape checks, provider-then-database delete ordering including a simulated remote
+failure, and the two live catalog/recommendation regressions — an Admin shape edit re-ranking a
+real recommendation, and an Admin stock edit preserving the stock hard-partition policy), 15
+Cloudinary-related tests split across three files with no real network call (7
+`test/lib/cloudinary.test.ts` — signature shape, idempotent delete, provider mocked one layer
+deep; 8 `test/services/image-provider.service.test.ts` — public_id scoping, freshness, ApiError
+translation; 1 `test/services/admin-products-orphan-cleanup.test.ts` — forces a DB failure after a
+successful "upload" and asserts best-effort remote cleanup is attempted), and 5
+`test/security/csrf.test.ts` tests guarding the bodyless-POST CSRF fix (a bare/form-content-typed
+request is rejected, a genuine `application/json` one still works, GET/PATCH/DELETE are
+unaffected).
 
 ## Environment variables (this stage)
 

@@ -93,13 +93,25 @@ above, staging deploys from `dev`, so this branch needs to reach `dev` first:
 
 In the Railway API service's **Variables** tab, set:
 
-| Variable       | Value                                                                                                                                                                                           |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL` | The Postgres connection string copied in step 2. Paste it only here.                                                                                                                            |
-| `NODE_ENV`     | `production`                                                                                                                                                                                    |
-| `APP_ENV`      | `staging`                                                                                                                                                                                       |
-| `CORS_ORIGINS` | The Vercel staging URL (set this after step 6 below produces it) — exact origin, comma-separated if more than one, never `*`.                                                                   |
-| `JWT_SECRET`   | A real generated secret, 32+ chars (`openssl rand -hex 32`). Generate a fresh one for staging — never reuse the local dev `.env` value. See `docs/adr/0018-authentication-session-strategy.md`. |
+| Variable                | Value                                                                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | The Postgres connection string copied in step 2. Paste it only here.                                                                                                                            |
+| `NODE_ENV`              | `production`                                                                                                                                                                                    |
+| `APP_ENV`               | `staging`                                                                                                                                                                                       |
+| `CORS_ORIGINS`          | The Vercel staging URL (set this after step 6 below produces it) — exact origin, comma-separated if more than one, never `*`.                                                                   |
+| `JWT_SECRET`            | A real generated secret, 32+ chars (`openssl rand -hex 32`). Generate a fresh one for staging — never reuse the local dev `.env` value. See `docs/adr/0018-authentication-session-strategy.md`. |
+| `CLOUDINARY_CLOUD_NAME` | From the Cloudinary account's Dashboard → "API Keys" (see step 4b below). Optional and all-or-nothing with the next two — the app runs without them, only image upload is disabled.             |
+| `CLOUDINARY_API_KEY`    | Same source as above. Never logged, never committed.                                                                                                                                            |
+| `CLOUDINARY_API_SECRET` | Same source as above. Never logged, never committed — treat with the same care as `JWT_SECRET`.                                                                                                 |
+
+### 4b. Create the Cloudinary account (human checkpoint — external, potentially billed)
+
+Not performed from this environment — creating a third-party account is an explicit human
+checkpoint, same reasoning as Railway/Vercel account creation above. See
+`docs/IMAGE_PIPELINE.md` "Getting real Cloudinary credentials" for the exact steps and where to
+find the three values above. Confirm current free-tier terms on Cloudinary's own pricing page
+before proceeding — do not assume pricing. Also set `VITE_CLOUDINARY_CLOUD_NAME` (same cloud name,
+not a secret) in the Vercel project's environment (step 6 below).
 
 `PORT` does not need to be set — Railway injects it, and `apps/api/src/lib/env.ts` already reads
 `process.env.PORT` dynamically.
@@ -153,7 +165,8 @@ build`, output directory `dist`) — confirm rather than assume; `apps/web/packa
    Preview deployment.
 6. Add environment variable `VITE_API_BASE_URL` set to the Railway API service's public URL
    (from step 3 — Railway assigns a `*.up.railway.app` URL by default; a custom domain is not
-   needed for staging).
+   needed for staging). Also add `VITE_CLOUDINARY_CLOUD_NAME` (the same cloud name set on the
+   Railway API service, step 4b) — not a secret, safe in a `VITE_`-prefixed variable.
 7. Deploy. Copy the resulting `*.vercel.app` staging URL and go back to step 4 above to set
    `CORS_ORIGINS` on the Railway API service to this exact origin.
 
@@ -232,3 +245,6 @@ Run once both services are live, against the real deployed URLs (not localhost):
   both themes — report actual numbers, including any run-to-run noise, rather than a single
   cherry-picked score.
 - `curl -sI https://<staging-url> | grep -i x-robots-tag` shows `noindex`.
+- Admin image upload works end-to-end (sign → direct Cloudinary upload → confirm) and the uploaded
+  image renders on the public catalog card, product detail gallery, and a recommendation card —
+  see `docs/IMAGE_PIPELINE.md` "Real smoke test". Clean up any test image/product afterward.
