@@ -18,6 +18,7 @@ import type {
   UpdateImageRequest,
   UpdateProductRequest,
   UpdateVariantRequest,
+  UploadSignatureDto,
 } from "@soluciones-opticas/shared";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../api-client";
 import { recommendationsQueryKey } from "./recommendations";
@@ -241,12 +242,68 @@ export function useDeleteVariantMutation(productId: string) {
 }
 
 // -------- images --------
+//
+// Upload is a three-step client-driven flow, not a single request (see
+// docs/adr/0022-cloudinary-image-pipeline.md):
+//   1. ask our API for a short-lived, scoped signature (JSON, cookie-
+//      authenticated, same CSRF posture as every other admin mutation).
+//   2. upload the file *directly* to Cloudinary using that signature —
+//      a completely different origin, no cookies, nothing our API ever
+//      sees or proxies.
+//   3. confirm the resulting metadata with our API (JSON again) — this
+//      step is the existing createImage endpoint; the API's own
+//      orphan-cleanup logic covers a failure here after step 2 already
+//      succeeded (see admin-products.service.ts).
 
-export function useCreateImageMutation(productId: string, variantId: string) {
+async function uploadFileToCloudinary(
+  signature: UploadSignatureDto,
+  file: File,
+): Promise<{ publicId: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("api_key", signature.apiKey);
+  formData.append("timestamp", String(signature.timestamp));
+  formData.append("signature", signature.signature);
+  formData.append("public_id", signature.publicId);
+  formData.append("allowed_formats", signature.allowedFormats);
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`,
+    { method: "POST", body: formData },
+  );
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? "No se pudo subir la imagen. Probá de nuevo.");
+  }
+  const result = (await response.json()) as { public_id: string };
+  return { publicId: result.public_id };
+}
+
+export function useUploadProductImageMutation(productId: string, variantId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateImageRequest) =>
-      apiPost<AdminImageDto>(`/api/admin/products/${productId}/variants/${variantId}/images`, body),
+    mutationFn: async ({
+      file,
+      alt,
+      isPrimary,
+    }: {
+      file: File;
+      alt: string;
+      isPrimary: boolean;
+    }) => {
+      const signature = await apiPost<UploadSignatureDto>(
+        `/api/admin/products/${productId}/variants/${variantId}/images/sign-upload`,
+      );
+      const uploaded = await uploadFileToCloudinary(signature, file);
+      const body: CreateImageRequest = { cloudinaryPublicId: uploaded.publicId, alt, isPrimary };
+      return apiPost<AdminImageDto>(
+        `/api/admin/products/${productId}/variants/${variantId}/images`,
+        body,
+      );
+    },
     onSuccess: () => invalidateProduct(queryClient, productId),
   });
 }

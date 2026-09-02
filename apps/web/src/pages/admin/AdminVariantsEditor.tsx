@@ -1,16 +1,23 @@
-import { useState } from "react";
-import type { FormEvent } from "react";
+import { useId, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import type { AdminImageDto, AdminVariantDto } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
+import { ProductImage } from "../../components/products/ProductImage";
 import { ApiClientError } from "../../services/api-client";
 import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
+import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 import {
-  useCreateImageMutation,
+  ALLOWED_IMAGE_MIME_TYPES,
+  MAX_IMAGE_BYTES,
+  validateImageFile,
+} from "../../lib/image-validation";
+import {
   useCreateVariantMutation,
   useDeleteImageMutation,
   useDeleteVariantMutation,
   useUpdateImageMutation,
   useUpdateVariantMutation,
+  useUploadProductImageMutation,
 } from "../../services/queries/admin";
 
 export function AdminVariantsEditor({
@@ -53,9 +60,8 @@ export function AdminVariantsEditor({
     <div>
       <h3 className="font-display text-base font-semibold text-text">Variantes</h3>
       <p className="mt-1 text-sm text-text-muted">
-        Cada variante representa un color/material con su propio SKU y stock. Las imágenes se cargan
-        por variante — todavía como metadatos (public_id de Cloudinary), no como carga de archivos:
-        ver el reporte de esta fase.
+        Cada variante representa un color/material con su propio SKU y stock. Las imágenes se suben
+        por variante, directo a nuestro proveedor de imágenes.
       </p>
 
       <div className="mt-4 space-y-4">
@@ -205,38 +211,27 @@ function ImagesEditor({
   variantId: string;
   images: AdminImageDto[];
 }) {
-  const createImage = useCreateImageMutation(productId, variantId);
   const updateImage = useUpdateImageMutation(productId, variantId);
   const deleteImage = useDeleteImageMutation(productId, variantId);
 
-  const [cloudinaryPublicId, setCloudinaryPublicId] = useState("");
-  const [alt, setAlt] = useState("");
-
-  function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    createImage.mutate(
-      { cloudinaryPublicId, alt, isPrimary: images.length === 0 },
-      {
-        onSuccess: () => {
-          setCloudinaryPublicId("");
-          setAlt("");
-        },
-      },
-    );
-  }
-
   return (
     <div className="mt-4 border-t border-border pt-4">
-      <p className="text-sm font-medium text-text">Imágenes (metadatos)</p>
-      <ul className="mt-2 space-y-2">
+      <p className="text-sm font-medium text-text">Imágenes</p>
+      <ul className="mt-2 flex flex-wrap gap-3">
         {images.map((image) => (
-          <li key={image.id} className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded bg-surface-muted px-2 py-1 font-mono text-xs text-text-muted">
-              {image.cloudinaryPublicId}
-            </span>
-            <span className="text-text-muted">{image.alt}</span>
+          <li key={image.id} className="w-28 text-center">
+            <ProductImage
+              publicId={image.cloudinaryPublicId}
+              alt={image.alt}
+              widths={CLOUDINARY_WIDTHS.adminThumbnail}
+              aspectRatio="1 / 1"
+              className="w-28 rounded-md"
+            />
+            <p className="mt-1 truncate text-xs text-text-muted" title={image.alt}>
+              {image.alt}
+            </p>
             {image.isPrimary ? (
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+              <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
                 Principal
               </span>
             ) : (
@@ -244,19 +239,26 @@ function ImagesEditor({
                 type="button"
                 onClick={() => updateImage.mutate({ imageId: image.id, body: { isPrimary: true } })}
                 disabled={updateImage.isPending}
-                className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                className="mt-1 block text-xs font-medium text-primary hover:underline disabled:opacity-60"
               >
-                Marcar como principal
+                Marcar principal
               </button>
             )}
             <button
               type="button"
               onClick={() => deleteImage.mutate(image.id)}
               disabled={deleteImage.isPending}
-              className="text-xs font-medium text-danger hover:underline disabled:opacity-60"
+              className="mt-1 block text-xs font-medium text-danger hover:underline disabled:opacity-60"
             >
               Eliminar
             </button>
+            {deleteImage.isError && deleteImage.variables === image.id && (
+              <p className="mt-1 text-xs text-danger">
+                {deleteImage.error instanceof ApiClientError
+                  ? deleteImage.error.message
+                  : "No se pudo eliminar."}
+              </p>
+            )}
           </li>
         ))}
         {images.length === 0 && (
@@ -264,29 +266,124 @@ function ImagesEditor({
         )}
       </ul>
 
-      <form onSubmit={handleCreate} className="mt-3 flex flex-wrap items-end gap-2" noValidate>
-        <FormField
-          label="Cloudinary public_id"
-          value={cloudinaryPublicId}
-          onChange={(e) => setCloudinaryPublicId(e.target.value)}
-          required
-          className="w-56"
-        />
-        <FormField
-          label="Texto alternativo"
-          value={alt}
-          onChange={(e) => setAlt(e.target.value)}
-          required
-          className="w-56"
-        />
-        <button
-          type="submit"
-          disabled={createImage.isPending || !cloudinaryPublicId || !alt}
-          className="rounded-md border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
-        >
-          {createImage.isPending ? "Agregando…" : "Agregar imagen"}
-        </button>
-      </form>
+      <ImageUploadForm
+        productId={productId}
+        variantId={variantId}
+        isFirstImage={images.length === 0}
+      />
     </div>
+  );
+}
+
+function ImageUploadForm({
+  productId,
+  variantId,
+  isFirstImage,
+}: {
+  productId: string;
+  variantId: string;
+  isFirstImage: boolean;
+}) {
+  const upload = useUploadProductImageMutation(productId, variantId);
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [alt, setAlt] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const inputId = useId();
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0] ?? null;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(null);
+    setPreviewUrl(null);
+    upload.reset();
+
+    if (!selected) return;
+    const error = validateImageFile(selected);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    setValidationError(null);
+    setFile(selected);
+    setPreviewUrl(URL.createObjectURL(selected));
+  }
+
+  function resetForm() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(null);
+    setPreviewUrl(null);
+    setAlt("");
+    setValidationError(null);
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!file) return;
+    upload.mutate({ file, alt, isPrimary: isFirstImage }, { onSuccess: () => resetForm() });
+  }
+
+  const uploadErrorMessage =
+    upload.error instanceof Error ? upload.error.message : "No se pudo subir la imagen.";
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 flex flex-wrap items-end gap-3" noValidate>
+      {previewUrl && (
+        // Preview only — never implies the upload has actually
+        // succeeded (§14): it's built from the local file the browser
+        // already has, shown while `upload` is still idle/pending.
+        <img
+          src={previewUrl}
+          alt=""
+          aria-hidden="true"
+          className="h-16 w-16 rounded-md border border-border object-cover"
+        />
+      )}
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-text" htmlFor={inputId}>
+          Imagen (JPEG, PNG o WebP, máx. {MAX_IMAGE_BYTES / (1024 * 1024)} MB)
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
+          onChange={handleFileChange}
+          className="text-sm text-text"
+        />
+      </div>
+      <FormField
+        label="Texto alternativo"
+        value={alt}
+        onChange={(e) => setAlt(e.target.value)}
+        required
+        className="w-56"
+      />
+      <button
+        type="submit"
+        disabled={upload.isPending || !file || !alt}
+        className="rounded-md border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
+      >
+        {upload.isPending ? "Subiendo…" : "Subir imagen"}
+      </button>
+      {validationError && (
+        <p role="alert" className="w-full text-sm text-danger">
+          {validationError}
+        </p>
+      )}
+      {upload.isError && (
+        <div className="flex w-full items-center gap-2">
+          <p role="alert" className="text-sm text-danger">
+            {uploadErrorMessage}
+          </p>
+          <button
+            type="button"
+            onClick={() => upload.mutate({ file: file!, alt, isPrimary: isFirstImage })}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
