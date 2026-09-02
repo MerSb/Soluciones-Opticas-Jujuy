@@ -11,6 +11,7 @@ const NAV_ITEMS: AccountNavItem[] = [
   { to: "/account/profile", label: "Mi perfil" },
   { to: "/account/favorites", label: "Mis favoritos" },
   { to: "/account/optical-profile", label: "Mis medidas y preferencias" },
+  { to: "/account/recommendations", label: "Para vos" },
 ];
 
 // A consumer account area, not an admin panel (§29) — a simple top nav

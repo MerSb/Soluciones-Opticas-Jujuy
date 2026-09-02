@@ -5,6 +5,7 @@ import { BrandRail } from "./home/BrandRail";
 import { CategoryDiscoverySection } from "./home/CategoryDiscoverySection";
 import { FeaturedProductsSection } from "./home/FeaturedProductsSection";
 import { PromotionsSection } from "./home/PromotionsSection";
+import { RecommendedForYouSection } from "./home/RecommendedForYouSection";
 import { WhyChooseUsSection } from "./home/WhyChooseUsSection";
 import { StoreShowcaseSection } from "./home/StoreShowcaseSection";
 import { BranchesPreviewSection } from "./home/BranchesPreviewSection";
@@ -12,10 +13,11 @@ import { useHealthQuery } from "../services/queries/health";
 
 // Order follows the commercial flow from the Phase A/B continuation
 // step's brief: Hero (loudest) -> brands -> category discovery ->
-// product preview (second-loudest) -> promotions (hidden while empty)
-// -> why-choose-us -> real storefront (institutional trust) -> branches
-// -> contact CTA. Not every section is equally loud — see each
-// component's own comments for why.
+// product preview (second-loudest) -> personalized recommendations
+// (authenticated customers only, hidden otherwise) -> promotions
+// (hidden while empty) -> why-choose-us -> real storefront
+// (institutional trust) -> branches -> contact CTA. Not every section
+// is equally loud — see each component's own comments for why.
 export function HomePage() {
   return (
     <>
@@ -35,6 +37,7 @@ export function HomePage() {
       <BrandRail />
       <CategoryDiscoverySection />
       <FeaturedProductsSection />
+      <RecommendedForYouSection />
       <PromotionsSection />
       <WhyChooseUsSection />
       <StoreShowcaseSection />

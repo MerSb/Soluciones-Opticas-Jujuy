@@ -113,6 +113,14 @@ export const routes: RouteObject[] = [
                   return { Component: OpticalProfilePage };
                 },
               },
+              {
+                path: "recommendations",
+                lazy: async () => {
+                  const { RecommendationsPage } =
+                    await import("../pages/account/RecommendationsPage");
+                  return { Component: RecommendationsPage };
+                },
+              },
             ],
           },
         ],

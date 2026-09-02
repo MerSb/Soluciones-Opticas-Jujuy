@@ -17,26 +17,27 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                   | Purpose                                                             | Auth                                 |
-| ------ | ---------------------- | ------------------------------------------------------------------- | ------------------------------------ |
-| GET    | `/api/health`          | Liveness check                                                      | Public                               |
-| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate                    | Public                               |
-| GET    | `/api/products/:slug`  | Product detail                                                      | Public                               |
-| GET    | `/api/brands`          | Brand listing with product counts                                   | Public                               |
-| GET    | `/api/categories`      | Category listing with product counts                                | Public                               |
-| GET    | `/api/branches`        | Branch listing                                                      | Public                               |
-| POST   | `/api/auth/register`   | Create a customer account, starts a session                         | Public (rate-limited)                |
-| POST   | `/api/auth/login`      | Starts a session                                                    | Public (rate-limited)                |
-| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401)         | Refresh cookie                       |
-| POST   | `/api/auth/logout`     | Ends the session                                                    | Public (no-op if already logged out) |
-| GET    | `/api/auth/me`         | The authenticated user's safe profile                               | Required                             |
-| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint            | Required                             |
-| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                          | Required                             |
-| GET    | `/api/favorites`       | The authenticated customer's favorited products                     | Required                             |
-| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                         | Required                             |
-| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                                      | Required                             |
-| GET    | `/api/optical-profile` | The authenticated customer's frame measurements + style preferences | Required                             |
-| PATCH  | `/api/optical-profile` | Update any subset of measurements/preferences                       | Required                             |
+| Method | Path                   | Purpose                                                                  | Auth                                 |
+| ------ | ---------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
+| GET    | `/api/health`          | Liveness check                                                           | Public                               |
+| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate                         | Public                               |
+| GET    | `/api/products/:slug`  | Product detail                                                           | Public                               |
+| GET    | `/api/brands`          | Brand listing with product counts                                        | Public                               |
+| GET    | `/api/categories`      | Category listing with product counts                                     | Public                               |
+| GET    | `/api/branches`        | Branch listing                                                           | Public                               |
+| POST   | `/api/auth/register`   | Create a customer account, starts a session                              | Public (rate-limited)                |
+| POST   | `/api/auth/login`      | Starts a session                                                         | Public (rate-limited)                |
+| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
+| POST   | `/api/auth/logout`     | Ends the session                                                         | Public (no-op if already logged out) |
+| GET    | `/api/auth/me`         | The authenticated user's safe profile                                    | Required                             |
+| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
+| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                               | Required                             |
+| GET    | `/api/favorites`       | The authenticated customer's favorited products                          | Required                             |
+| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                              | Required                             |
+| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                                           | Required                             |
+| GET    | `/api/optical-profile` | The authenticated customer's frame measurements + style preferences      | Required                             |
+| PATCH  | `/api/optical-profile` | Update any subset of measurements/preferences                            | Required                             |
+| GET    | `/api/recommendations` | Ranked, explained product recommendations for the authenticated customer | Required                             |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
@@ -146,8 +147,7 @@ product slug is `404 NOT_FOUND`.
 **Not a prescription system** — no sphere/cylinder/axis/visual-acuity/diagnosis field exists or
 is planned here; see `docs/adr/0019-optical-profile-taxonomy.md` and `ADR-0008`. Captures the
 measurements printed on a customer's _current_ frame plus style/shape/material/color
-preferences, as input data for a future recommendation engine (not built yet — no match score or
-"for you" ranking exists today).
+preferences — input data the recommendation engine below reads directly.
 
 ```json
 {
@@ -174,6 +174,55 @@ fields are canonical enum arrays — `FrameShape`, `FrameMaterial`, `ColorFamily
 them is a future recommender concern, not solved here. A repeated value in a preference list is
 deduplicated, not rejected. Ownership is always derived from the authenticated session — there is
 no `:userId` route param.
+
+## Recommendations
+
+Rules-based, deterministic, explainable — no AI/ML. See
+`docs/adr/0020-recommendation-engine-v1.md` for the full scoring/normalization/coverage design.
+
+```
+GET /api/recommendations?limit=6
+```
+
+`limit`: 1–20, default 6. Requires authentication; always uses `req.auth.userId`, never a
+`:userId` param.
+
+```json
+{
+  "recommendations": [
+    {
+      "product": { "...": "same shape as ProductListItem" },
+      "score": 82,
+      "tier": "HIGH",
+      "reasons": [
+        {
+          "code": "PREFERRED_SHAPE",
+          "message": "La forma coincide con una de tus preferencias.",
+          "strength": "STRONG"
+        }
+      ],
+      "bestVariant": { "id": "...", "color": "Negro", "material": "Metal", "inStock": true }
+    }
+  ],
+  "profileCoverage": 65,
+  "confidenceLevel": "MEDIUM",
+  "profileIncomplete": false
+}
+```
+
+`score` (0-100): compatibility with the information this customer explicitly provided —
+`earnedWeight ÷ applicableWeight` for the product's best-scoring variant, **not** ÷ every possible
+weight, so an incomplete profile is never unfairly penalized just for being incomplete. Never a
+fit guarantee, a medical claim, or a purchase-probability/AI-confidence score. `profileCoverage`
+(0-100) is a _separate_, response-level number: how much of the customer's own stated profile is
+usable, independent of any specific product — drives "complete your profile" messaging.
+
+No optical profile (or an entirely empty one) → `200` with `{ recommendations: [], profileCoverage:
+0, confidenceLevel: "LOW", profileIncomplete: true }` — never a `404`/`500`, never a misleading
+full result set. `reasons` only ever explains _earned_ signals — never a "why this didn't match"
+message. Ranking is fully deterministic: `score` DESC, then `profileCoverage` (of the specific
+match) DESC, then product id ASC — no randomness, verified by a test asserting identical output
+across repeated identical requests.
 
 ## `GET /api/products`
 
@@ -441,13 +490,15 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-64 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, plus 15 new
-optical-profile tests — empty profile before any save (never a 404), first save creates the row,
-second save updates it (not a duplicate row), partial update leaves other fields untouched,
-clearing a measurement to `null`, valid preference lists across all four categories, duplicate
-preference values deduplicated, a measurement below/above/negative the plausible range each
-rejected, an invalid preference value rejected, cross-customer isolation, and reachability after
-an access-token refresh.
+120 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
+tests, plus 56 new for the recommendation engine — 48 pure unit tests over the normalization/
+scoring core (`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every
+missing-data case, dimension tolerance bands, best-variant selection with stock/id tiebreaks,
+style never scoring, determinism, score bounds, ranking tiebreaks, coverage/tier thresholds) and
+8 API integration tests (`test/recommendations.test.ts`: auth required, empty result for no
+profile, ranked real results once the profile has data, every reason has code/message/strength,
+`limit` respected and validated, cross-customer isolation, stable output across repeated
+requests).
 
 ## Environment variables (this stage)
 
