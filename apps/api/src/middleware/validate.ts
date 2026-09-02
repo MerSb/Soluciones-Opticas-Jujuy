@@ -29,3 +29,15 @@ export function validateParams<T>(schema: ZodSchema<T>) {
     next();
   };
 }
+
+export function validateBody<T>(schema: ZodSchema<T>) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      next(ApiError.validation("Invalid request body.", result.error.flatten()));
+      return;
+    }
+    res.locals.body = result.data;
+    next();
+  };
+}

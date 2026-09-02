@@ -18,30 +18,106 @@ export class ApiClientError extends Error {
   }
 }
 
-export async function apiGet<T>(
+// Never attempt a silent refresh-and-retry for these — a 401 from
+// /login or /register is a real "wrong credentials"/policy answer, not
+// an expired session, and /refresh is the refresh call itself (retrying
+// it would loop). See docs/adr/0018-authentication-session-strategy.md.
+const SKIP_REFRESH_RETRY = new Set(["/api/auth/login", "/api/auth/register", "/api/auth/refresh"]);
+
+// Shared by every concurrent 401 — without this, several authenticated
+// queries failing at once would each fire their own refresh, rotating
+// the refresh cookie multiple times and invalidating each other.
+let refreshInFlight: Promise<boolean> | null = null;
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(new URL("/api/auth/refresh", env.apiBaseUrl), {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+async function toApiClientError(response: Response): Promise<ApiClientError> {
+  const body = (await response.json().catch(() => null)) as Partial<ApiErrorResponse> | null;
+  const errorBody = body?.error;
+  return new ApiClientError(
+    response.status,
+    errorBody?.code ?? "UNKNOWN_ERROR",
+    errorBody?.message ?? "Request failed.",
+    errorBody?.details,
+  );
+}
+
+async function request<T>(
   path: string,
+  init: RequestInit,
   searchParams?: Record<string, string | number | undefined>,
+  allowRefresh = true,
 ): Promise<T> {
   const url = new URL(path, env.apiBaseUrl);
-
   if (searchParams) {
     for (const [key, value] of Object.entries(searchParams)) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
   }
 
-  const response = await fetch(url);
-  const body: unknown = await response.json().catch(() => null);
+  // credentials: "include" on every request, not just authenticated
+  // ones — the httpOnly session cookie is only ever set/cleared by the
+  // API itself; a public GET simply carries none yet.
+  const response = await fetch(url, { ...init, credentials: "include" });
 
-  if (!response.ok) {
-    const errorBody = (body as Partial<ApiErrorResponse> | null)?.error;
-    throw new ApiClientError(
-      response.status,
-      errorBody?.code ?? "UNKNOWN_ERROR",
-      errorBody?.message ?? "Request failed.",
-      errorBody?.details,
-    );
+  // A 401 almost always just means the short-lived access token expired
+  // mid-session, not that the user actually logged out — one silent
+  // refresh-and-retry before surfacing it as a real auth failure.
+  if (response.status === 401 && allowRefresh && !SKIP_REFRESH_RETRY.has(path)) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      return request<T>(path, init, searchParams, false);
+    }
   }
 
-  return body as T;
+  if (!response.ok) {
+    throw await toApiClientError(response);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
+}
+
+export function apiGet<T>(
+  path: string,
+  searchParams?: Record<string, string | number | undefined>,
+): Promise<T> {
+  return request<T>(path, { method: "GET" }, searchParams);
+}
+
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    ...(body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {}),
+  });
+}
+
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function apiDelete<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
 }

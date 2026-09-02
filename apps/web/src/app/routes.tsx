@@ -1,4 +1,4 @@
-import type { RouteObject } from "react-router-dom";
+import { Navigate, type RouteObject } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 import { HomePage } from "../pages/HomePage";
 import { BrandsPage } from "../pages/BrandsPage";
@@ -24,12 +24,12 @@ function RouteLoadingFallback() {
 // (./router.tsx) — lets tests build a createMemoryRouter from the exact
 // same tree instead of duplicating it.
 //
-// /products and /products/:slug are lazy-loaded: they're the routes that
-// will carry real weight once the catalog UI exists (images, filters,
-// grids) — worth paying the code-splitting setup cost now, before they
-// grow, rather than refactoring later. Everything else here is a small,
-// near-universal shell with nothing to gain from a second network
-// round-trip.
+// /products, /products/:slug, /login, /register, and /account/* are all
+// lazy-loaded: either they carry real weight (catalog images/filters/
+// grids) or only a subset of visitors ever reaches them (auth/account),
+// so neither should cost the public-browsing majority anything in the
+// initial bundle. Everything else here is a small, near-universal shell
+// with nothing to gain from a second network round-trip.
 export const routes: RouteObject[] = [
   {
     path: "/",
@@ -56,6 +56,59 @@ export const routes: RouteObject[] = [
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },
       { path: "contact", element: <ContactPage /> },
+      // login/register/account: lazy, same reasoning as products — only
+      // a subset of visitors ever reach them, so the public catalog
+      // majority shouldn't pay for this code in their initial bundle
+      // (§55 of the auth brief).
+      {
+        path: "login",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { LoginPage } = await import("../pages/auth/LoginPage");
+          return { Component: LoginPage };
+        },
+      },
+      {
+        path: "register",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { RegisterPage } = await import("../pages/auth/RegisterPage");
+          return { Component: RegisterPage };
+        },
+      },
+      {
+        path: "account",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { ProtectedRoute } = await import("../components/auth/ProtectedRoute");
+          return { Component: ProtectedRoute };
+        },
+        children: [
+          {
+            lazy: async () => {
+              const { AccountLayout } = await import("../pages/account/AccountLayout");
+              return { Component: AccountLayout };
+            },
+            children: [
+              { index: true, element: <Navigate to="/account/profile" replace /> },
+              {
+                path: "profile",
+                lazy: async () => {
+                  const { ProfilePage } = await import("../pages/account/ProfilePage");
+                  return { Component: ProfilePage };
+                },
+              },
+              {
+                path: "favorites",
+                lazy: async () => {
+                  const { FavoritesPage } = await import("../pages/account/FavoritesPage");
+                  return { Component: FavoritesPage };
+                },
+              },
+            ],
+          },
+        ],
+      },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

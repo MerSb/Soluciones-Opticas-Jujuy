@@ -4,6 +4,7 @@ import logo from "../../assets/brand/logo.webp";
 import logo2x from "../../assets/brand/logo-2x.webp";
 import { WhatsAppButton } from "../ui/WhatsAppButton";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { useCurrentUserQuery } from "../../services/queries/auth";
 
 interface NavItem {
   to: string;
@@ -55,6 +56,12 @@ function navLinkClassName(isActive: boolean): string {
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+  const { data: currentUser } = useCurrentUserQuery();
+  // Never role or the user's id here — just enough to switch the label
+  // (§30 of the auth brief).
+  const accountLink = currentUser
+    ? { to: "/account", label: "Mi cuenta" }
+    : { to: "/login", label: "Ingresar" };
 
   return (
     <header className="border-b border-border bg-surface">
@@ -101,6 +108,13 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <Link
+            to={accountLink.to}
+            className="hidden text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
+          >
+            {accountLink.label}
+          </Link>
+
           <ThemeSwitcher />
 
           {/* Doubles as the "WhatsApp icon/action" and the "Escribinos"
@@ -186,6 +200,15 @@ export function Header() {
                 </li>
               );
             })}
+            <li>
+              <Link
+                to={accountLink.to}
+                onClick={() => setIsMenuOpen(false)}
+                className="block rounded-md px-3 py-2 text-base text-text"
+              >
+                {accountLink.label}
+              </Link>
+            </li>
             <li className="mt-2">
               <WhatsAppButton message="Hola, quisiera hacer una consulta.">
                 Escribinos

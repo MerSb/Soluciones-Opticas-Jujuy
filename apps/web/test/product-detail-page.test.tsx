@@ -41,6 +41,36 @@ const PRODUCT_DETAIL = {
   ],
 };
 
+// ProductDetailPage now also renders a FavoriteButton, which fires its
+// own GET /api/auth/me (and, once "authenticated", GET /api/favorites)
+// alongside the product fetch — a blanket "return the product for every
+// call" mock would hand that unrelated data back for those too. This
+// dispatches by path so each endpoint gets a shape it can actually
+// parse, matching how the real API actually responds per-route.
+function mockFetch(productResponse: {
+  ok: boolean;
+  status?: number;
+  json: () => Promise<unknown>;
+}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL) => {
+      const path = new URL(url).pathname;
+      if (path === "/api/auth/me") {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ error: { code: "UNAUTHENTICATED", message: "Not logged in." } }),
+        };
+      }
+      if (path === "/api/favorites") {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      return productResponse;
+    }),
+  );
+}
+
 function renderProductDetail(slug: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter([{ path: "/products/:slug", element: <ProductDetailPage /> }], {
@@ -59,10 +89,7 @@ afterEach(() => {
 
 describe("ProductDetailPage", () => {
   it("renders the product, price, measurements, and breadcrumbs on success", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => PRODUCT_DETAIL }),
-    );
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL });
     renderProductDetail("andina-aviador");
 
     expect(
@@ -77,10 +104,7 @@ describe("ProductDetailPage", () => {
   });
 
   it("switching variants updates availability", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => PRODUCT_DETAIL }),
-    );
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL });
     renderProductDetail("andina-aviador");
     await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
 
@@ -91,10 +115,7 @@ describe("ProductDetailPage", () => {
   });
 
   it("builds a variant-specific WhatsApp message once a color is selected", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => PRODUCT_DETAIL }),
-    );
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL });
     renderProductDetail("andina-aviador");
     await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
 
@@ -107,14 +128,11 @@ describe("ProductDetailPage", () => {
   });
 
   it("shows a product-specific 404 experience for an unknown slug, not a raw error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        json: async () => ({ error: { code: "NOT_FOUND", message: "No product found." } }),
-      }),
-    );
+    mockFetch({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { code: "NOT_FOUND", message: "No product found." } }),
+    });
     renderProductDetail("does-not-exist");
 
     expect(await screen.findByText("Producto no encontrado")).toBeInTheDocument();

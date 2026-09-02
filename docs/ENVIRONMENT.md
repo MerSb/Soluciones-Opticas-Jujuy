@@ -5,8 +5,8 @@ Three environments, two of which exist today.
 ## Local development
 
 **Status: exists.** PostgreSQL 16 via Docker Compose (`docker-compose.yml`, repo root) —
-isolated from any other project's containers on the same machine, on host port `5433` (`5432`
-was already in use locally; not a meaningful choice otherwise).
+isolated from any other project's containers on the same machine, on host port `5437` (`5432` and
+`5433` were both already in use locally by other projects; not a meaningful choice otherwise).
 
 ```
 docker compose up -d       # start
@@ -17,7 +17,7 @@ docker compose down -v     # stop and delete all local data
 Connection string (dev-only credentials, not sensitive — see `docker-compose.yml`):
 
 ```
-DATABASE_URL="postgresql://soluciones_opticas:soluciones_opticas@localhost:5433/soluciones_opticas_dev?schema=public"
+DATABASE_URL="postgresql://soluciones_opticas:soluciones_opticas@localhost:5437/soluciones_opticas_dev?schema=public"
 ```
 
 Used for: `prisma migrate dev --create-only` (drafting migrations — see
@@ -63,9 +63,10 @@ Manual steps to provision (do this, then this repo's tooling handles the rest):
    below. Never `npm run db:seed` (that script is the local-dev fictional seed, self-documented
    as local-only) and never invented product/price/stock data presented as real.
 7. Set the Railway API service's other environment variables: `NODE_ENV=production`,
-   `APP_ENV=staging`, `CORS_ORIGINS=<the Vercel staging URL, exact origin, no trailing slash>`.
-   `PORT` is injected by Railway itself — the app already reads `process.env.PORT` dynamically
-   (`apps/api/src/lib/env.ts`), never hardcoded.
+   `APP_ENV=staging`, `CORS_ORIGINS=<the Vercel staging URL, exact origin, no trailing slash>`,
+   and `JWT_SECRET=<a real generated secret, 32+ chars — `openssl rand -hex 32`, never reused
+from local `.env`>`. `PORT` is injected by Railway itself — the app already reads
+   `process.env.PORT` dynamically (`apps/api/src/lib/env.ts`), never hardcoded.
 8. Create a Vercel project with Root Directory `apps/web`, connected to this GitHub repo's `dev`
    branch (see `DEPLOYMENT.md` for the branch/workflow rationale). Set `VITE_API_BASE_URL` in
    Vercel's environment config to the Railway API's public URL.
@@ -121,11 +122,22 @@ plus commented-out future ones for traceability:
 | `NODE_ENV`                         | Active | `apps/api`. `development` \| `test` \| `production` only — staging sets `production`. See "`NODE_ENV` vs `APP_ENV`" above.                                                                 |
 | `APP_ENV`                          | Active | `apps/api`. `development` \| `staging` \| `production` — the actual environment label, separate from `NODE_ENV`.                                                                           |
 | `CORS_ORIGINS`                     | Active | `apps/api`. Comma-separated allowlist. Never `*`. Local: `http://localhost:5173`. Staging: the exact Vercel staging origin only.                                                           |
+| `JWT_SECRET`                       | Active | `apps/api`. Required in every environment (min 32 chars). Generate a distinct value per environment — never reuse the local dev secret in staging.                                         |
 | `VITE_API_BASE_URL`                | Active | `apps/web`, build-time. Points at the local API in dev; at the Railway API's public URL in staging (set in Vercel's environment config, not in this repo).                                 |
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | Future | Added when auth is built (Etapa 2)                                                                                                                                                         |
 | `CLOUDINARY_URL`                   | Future | Added when the Cloudinary integration is built                                                                                                                                             |
 | `MERCADOPAGO_ACCESS_TOKEN`         | Future | Added when Mercado Pago integration is built (out of this engagement's scope)                                                                                                              |
 | `ARCA_CERT_PATH`                   | Future | Added when ARCA integration is built (out of this engagement's scope)                                                                                                                      |
+
+## Authentication (staging compatibility)
+
+The session cookie strategy (`docs/adr/0018-authentication-session-strategy.md`) was designed
+around this exact three-environment model from the start, not retrofitted: cookie attributes are
+already environment-dependent (`SameSite=Lax`/non-`Secure` locally, `SameSite=None`/`Secure` in
+staging/production), and `cors()` already sets `credentials: true` alongside the existing strict
+`CORS_ORIGINS` allowlist — required for the cookie to travel between the Vercel and Railway
+origins. Nothing about staging deployment requires touching auth code; only the environment
+variables above need to be set on the Railway service.
 
 ## Search-engine indexing (staging)
 

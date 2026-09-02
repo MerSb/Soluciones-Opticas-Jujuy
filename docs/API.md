@@ -1,7 +1,10 @@
-# Catalog API — Etapa 1
+# Catalog + Account API — Etapa 1 + 2
 
-Status: approved. Public, read-only. No authentication exists yet — none of these endpoints
-need it. Source: [`apps/api`](../apps/api). Database: [`DATABASE_DESIGN.md`](DATABASE_DESIGN.md).
+Status: approved. The catalog endpoints are public/read-only. Etapa 2 (this update) adds
+first-party authentication, a customer profile, and favorites — see
+[`docs/adr/0018-authentication-session-strategy.md`](adr/0018-authentication-session-strategy.md)
+for the session/transport design. Source: [`apps/api`](../apps/api). Database:
+[`DATABASE_DESIGN.md`](DATABASE_DESIGN.md).
 
 ## Running locally
 
@@ -14,17 +17,127 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                  | Purpose                                          |
-| ------ | --------------------- | ------------------------------------------------ |
-| GET    | `/api/health`         | Liveness check                                   |
-| GET    | `/api/products`       | Catalog listing — search, filter, sort, paginate |
-| GET    | `/api/products/:slug` | Product detail                                   |
-| GET    | `/api/brands`         | Brand listing with product counts                |
-| GET    | `/api/categories`     | Category listing with product counts             |
-| GET    | `/api/branches`       | Branch listing                                   |
+| Method | Path                   | Purpose                                                     | Auth                                 |
+| ------ | ---------------------- | ----------------------------------------------------------- | ------------------------------------ |
+| GET    | `/api/health`          | Liveness check                                              | Public                               |
+| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate            | Public                               |
+| GET    | `/api/products/:slug`  | Product detail                                              | Public                               |
+| GET    | `/api/brands`          | Brand listing with product counts                           | Public                               |
+| GET    | `/api/categories`      | Category listing with product counts                        | Public                               |
+| GET    | `/api/branches`        | Branch listing                                              | Public                               |
+| POST   | `/api/auth/register`   | Create a customer account, starts a session                 | Public (rate-limited)                |
+| POST   | `/api/auth/login`      | Starts a session                                            | Public (rate-limited)                |
+| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401) | Refresh cookie                       |
+| POST   | `/api/auth/logout`     | Ends the session                                            | Public (no-op if already logged out) |
+| GET    | `/api/auth/me`         | The authenticated user's safe profile                       | Required                             |
+| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint    | Required                             |
+| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                  | Required                             |
+| GET    | `/api/favorites`       | The authenticated customer's favorited products             | Required                             |
+| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                 | Required                             |
+| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                              | Required                             |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
+
+## Authentication
+
+Session lives entirely in an httpOnly cookie — never in a response body, never in
+`localStorage`/`sessionStorage`. `POST /register` and `POST /login` return the new
+`SafeUserDto` and set two cookies:
+
+- `sopt_access_token` — a short-lived (15 min) JWT, `Path=/`. `authenticate` middleware verifies
+  it stateless (signature + expiry only, no DB round-trip per request).
+- `sopt_refresh_token` — an opaque, rotating credential, `Path=/api/auth` only. Its SHA-256 hash
+  is the only thing stored (`refresh_tokens` table); `POST /auth/refresh` looks it up, rejects it
+  if expired/revoked, and issues a brand-new access+refresh pair while revoking the one just used
+  — a replayed (already-rotated) refresh token is always rejected on its next use.
+
+Cookie attributes are environment-dependent (`APP_ENV`) — see the ADR for the exact reasoning:
+local dev uses `SameSite=Lax`/non-`Secure` (frontend and API are same-site, different origin,
+over plain http); staging/production use `SameSite=None`/`Secure` (Vercel and Railway are
+different sites, and `SameSite=None` requires `Secure`).
+
+`authenticate` (who are you?) and `authorize(...roles)` (are you allowed?) are separate
+middleware — every `Required`-auth route above uses `authenticate`; no route currently needs
+`authorize` (no admin-only endpoint exists yet).
+
+## Roles
+
+`Role` — `CUSTOMER | ADMIN` today (see ADR-0005 for the eventual richer set and why it isn't
+pre-built). Public registration can never create anything but `CUSTOMER` — `RegisterRequest` has
+no `role` field at all, and Zod strips any extra field a client sends anyway.
+
+## `POST /api/auth/register`
+
+```json
+{
+  "firstName": "Ana",
+  "lastName": "Gómez",
+  "email": "ana@example.com",
+  "phone": "3884000000",
+  "password": "..."
+}
+```
+
+`phone` is optional. `password`: 8–72 characters, no forced complexity classes (72 is bcrypt's
+own effective input cap, enforced explicitly with a clear message rather than silently
+truncated). Duplicate email → `409 CONFLICT`. Returns `201` + `SafeUserDto` on success.
+
+## `POST /api/auth/login`
+
+```json
+{ "email": "ana@example.com", "password": "..." }
+```
+
+Wrong password, unknown email, and an OAuth-only account with no password all return the same
+`401 UNAUTHENTICATED` with the same generic message (`"Email o contraseña incorrectos."`) — never
+reveals which case applies.
+
+## `GET /api/auth/me`, `GET /api/profile`
+
+Both return the identical `SafeUserDto` shape:
+
+```json
+{
+  "id": "...",
+  "email": "...",
+  "firstName": "...",
+  "lastName": "...",
+  "phone": "...",
+  "role": "CUSTOMER"
+}
+```
+
+Never `passwordHash`, `authProvider`/`authProviderId`, or any internal field.
+
+## `PATCH /api/profile`
+
+```json
+{ "firstName": "Ana", "lastName": "Gómez", "phone": "3884001111" }
+```
+
+All fields optional (partial update). Only `firstName`/`lastName`/`phone` are ever written —
+`role`, `email`, `authProvider*`, timestamps are not reachable from this endpoint's input type,
+and Zod strips any other field a client sends. Email editing is deliberately deferred (it would
+need its own verification semantics) — the frontend shows it read-only.
+
+## Favorites
+
+```json
+[
+  {
+    "id": "...",
+    "createdAt": "2026-...",
+    "product": { "name": "...", "slug": "...", "...": "same shape as ProductListItem" }
+  }
+]
+```
+
+`POST /api/favorites/:slug` and `DELETE /api/favorites/:slug` are both idempotent — adding an
+already-favorited product, or removing one that isn't favorited, both succeed (`204`) rather than
+erroring. A favorite is scoped to its owner at the database level (`@@unique([userId,
+productId])`); one customer can never see or affect another's favorites. Favoriting an unknown
+product slug is `404 NOT_FOUND`.
 
 ## `GET /api/products`
 
@@ -218,9 +331,10 @@ low thousands); the documented migration path if the catalog grows well past tha
 ```
 
 `code` is a stable machine-readable string (`VALIDATION_ERROR`, `NOT_FOUND`, `CORS_FORBIDDEN`,
-`INTERNAL_ERROR`); `details` only appears for validation errors and only contains Zod's
-field-level messages — never a stack trace, SQL, file path, or environment data. Unexpected
-errors are logged in full server-side and returned to the client as a generic `500 INTERNAL_ERROR`.
+`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
+appears for validation errors and only contains Zod's field-level messages — never a stack trace,
+SQL, file path, or environment data. Unexpected errors are logged in full server-side and
+returned to the client as a generic `500 INTERNAL_ERROR`.
 
 ## CORS
 
@@ -231,12 +345,31 @@ the actual Vercel URL isn't known yet. A disallowed origin gets `403 CORS_FORBID
 
 ## Security baseline
 
-`helmet()` for headers. No `express.json()` — every Etapa 1 endpoint is `GET` and accepts no
-request body; added when the first `POST`/`PUT` endpoint is built. **Rate limiting postponed,
-deliberately:** the abuse-prone surfaces named in `ARCHITECTURE.md` §13 (`/auth/*`, `/contact`)
-don't exist yet — this stage is unauthenticated `GET`-only catalog browsing at low expected
-traffic. Add `express-rate-limit` when `/contact` (a spam-prone `POST` endpoint) is built, not
-speculatively now.
+`helmet()` for headers. `cookie-parser` reads the session cookies; `express.json()` (16kb limit)
+parses request bodies — added with this update, since `/auth/*` and `/profile` are this API's
+first `POST`/`PATCH` endpoints. `cors()` now sets `credentials: true` (required for the session
+cookie to travel cross-origin) — safe only because `CORS_ORIGINS` is never `*`, and the two are a
+matched pair; enabling one without the other would be a real vulnerability.
+
+**Rate limiting**, previously postponed pending `/auth/*` existing, is now in place (in-memory,
+per-IP, `express-rate-limit`): `POST /api/auth/register` and `/login` (30/15min each — a ceiling
+that comfortably fits normal use and the automated test suite, while still bounding credential-
+stuffing/enumeration) and `POST /api/auth/refresh` (60/15min — deliberately higher, since it's
+called silently far more often than a human logs in: every unauthenticated page load 401s on
+`GET /api/auth/me`, and the frontend tries one silent refresh before giving up, per ADR-0018 —
+verified against a real multi-step browser E2E run staying comfortably under the ceiling).
+**Known limitation:** the in-memory store doesn't coordinate across multiple instances — fine for
+a single Railway instance today; a shared store (e.g. Redis) would be needed if this API is ever
+scaled horizontally. The public catalog remains unrate-limited, as before.
+
+**CSRF:** evaluated, not ignored (see the ADR). No separate CSRF token is issued. The combination
+already in place — `SameSite` (Lax locally, None+Secure cross-site in staging), a strict CORS
+origin allowlist with `credentials: true`, and every mutating endpoint requiring a JSON body
+(which forces a CORS preflight for any cross-origin request, and a disallowed origin fails that
+preflight before the browser ever sends the real request) — already defeats classic
+form-submission CSRF. Revisit if a mutating endpoint using a "simple" request content type
+(`text/plain`, `application/x-www-form-urlencoded`) is ever added, since that specific combination
+wouldn't force a preflight.
 
 ## Logging
 
@@ -262,27 +395,35 @@ then `prisma.$disconnect()`, then exit.
 
 Vitest + Supertest, exercising the Express `app` directly (`src/app.ts`, separated from
 `src/server.ts` specifically so tests don't need a bound port). **Runs against the local dev
-database** (already seeded with deterministic fixture data), not a separate test database — this
-API performs no writes, so there's no mutation to isolate; a fully separate test-database
-lifecycle is more infrastructure than a read-only stage justifies. Revisit once write endpoints
-(admin, Etapa 3+) need tests that mutate state.
+database** (already seeded with deterministic fixture data), same as before. The catalog tests are
+still purely read-only against that fixture data; the new auth/profile/favorites tests do write
+(there's no seed data for users) — each test file creates its own uniquely-suffixed accounts (a
+per-run random id in the email) and deletes them in `afterAll`, safe to re-run repeatedly without
+a `migrate reset` between runs.
 
 ```
 npm run test -w apps/api
 ```
 
-21 tests: listing, pagination, every filter, search (with a genuine typo-tolerance assertion),
-every sort mode, every validation-error case (`400`), detail (`200` and `404`), and a payload-
-shape assertion that listing rows don't leak `variants`/`images` arrays.
+49 tests: the original 21 (listing, pagination, filters, search, sort, validation, detail) plus
+28 new — registration (success, duplicate email, invalid input, role can't be client-supplied,
+password is actually hashed), login (success, wrong password, unknown email — same generic
+message), `auth/me` (authenticated/unauthenticated), logout (clears the session, idempotent),
+refresh (rotates the session, a replayed pre-rotation token is rejected), profile (read, update,
+forbidden fields silently stripped, validation), and favorites (list, add, duplicate-add is
+idempotent, remove, duplicate-remove is idempotent, 404 on an unknown product, cross-customer
+isolation).
 
 ## Environment variables (this stage)
 
-| Variable       | Required | Default                 | Notes                                   |
-| -------------- | -------- | ----------------------- | --------------------------------------- |
-| `DATABASE_URL` | yes      | —                       | See `ENVIRONMENT.md`                    |
-| `PORT`         | no       | `3001`                  |                                         |
-| `NODE_ENV`     | no       | `development`           | `development` \| `test` \| `production` |
-| `CORS_ORIGINS` | no       | `http://localhost:5173` | Comma-separated                         |
+| Variable       | Required | Default                 | Notes                                                            |
+| -------------- | -------- | ----------------------- | ---------------------------------------------------------------- |
+| `DATABASE_URL` | yes      | —                       | See `ENVIRONMENT.md`                                             |
+| `PORT`         | no       | `3001`                  |                                                                  |
+| `NODE_ENV`     | no       | `development`           | `development` \| `test` \| `production`                          |
+| `APP_ENV`      | no       | `development`           | `development` \| `staging` \| `production`                       |
+| `CORS_ORIGINS` | no       | `http://localhost:5173` | Comma-separated                                                  |
+| `JWT_SECRET`   | **yes**  | —                       | Min 32 chars, every environment — `openssl rand -hex 32` locally |
 
 Validated with Zod at startup (`src/lib/env.ts`) — a missing/malformed var fails fast with a
 clear message before the server starts listening, not on the first request that happens to need

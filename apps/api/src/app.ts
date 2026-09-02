@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { env } from "./lib/env.js";
 import { ApiError } from "./lib/api-error.js";
 import { apiRouter } from "./routes/index.js";
@@ -28,12 +29,19 @@ export function createApp(): Express {
         }
         callback(new ApiError(403, "CORS_FORBIDDEN", `Origin "${origin}" is not allowed.`));
       },
+      // Required for the auth cookie to travel on cross-origin requests
+      // (Vercel frontend → Railway API) — see
+      // docs/adr/0018-authentication-session-strategy.md. Safe only
+      // because origin is never "*" above; the two are a matched pair.
+      credentials: true,
     }),
   );
   app.use(requestLogger);
-
-  // No express.json() — every Etapa 1 endpoint is GET and accepts no
-  // request body. Add it when the first POST/PUT endpoint is built.
+  app.use(cookieParser());
+  // 16kb: every body this API accepts is a login/register/profile form,
+  // not a file upload — bounds request size without touching any
+  // legitimate use.
+  app.use(express.json({ limit: "16kb" }));
 
   app.use("/api", apiRouter);
 

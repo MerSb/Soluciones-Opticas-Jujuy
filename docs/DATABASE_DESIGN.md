@@ -1,4 +1,4 @@
-# Database Design — Etapa 1
+# Database Design — Etapa 1 + 2
 
 Status: approved. Schema lives in [`prisma/schema.prisma`](../prisma/schema.prisma). This
 document is the narrative reference; individual decisions are in [`adr/`](adr/). Which database
@@ -14,10 +14,13 @@ each environment points at is documented in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 | `ProductVariant` | A purchasable color/material option of a product, with its own SKU and stock | `product_variants` |
 | `ProductImage`   | A photo of a specific variant                                                | `product_images`   |
 | `Branch`         | A physical store location                                                    | `branches`         |
+| `User`           | A customer (or, eventually, admin) account — Etapa 2                         | `users`            |
+| `RefreshToken`   | A rotating session-refresh credential, hashed at rest — Etapa 2              | `refresh_tokens`   |
+| `Favorite`       | A customer's saved product — Etapa 2                                         | `favorites`        |
 
-Deliberately absent: `users`, `user_measurements`, `favorites`, `recommendation_rules`, `orders`,
-`payments`, `fiscal_invoices`, `audit_logs`. These are Etapa 2+/future-phase concerns — see
-`ARCHITECTURE.md` §Phased scope.
+Still deliberately absent: `user_measurements` (the future `current_frame_*` optical profile —
+see below), `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`, `audit_logs`. These
+remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope.
 
 ## Relationships
 
@@ -26,8 +29,20 @@ Brand    (1) ──── (N) Product
 Category (1) ──── (N) Product
 Product  (1) ──── (N) ProductVariant
 Variant  (1) ──── (N) ProductImage
-Branch                                  — standalone, no relations in Etapa 1
+Branch                                  — standalone, no relations
+User     (1) ──── (N) RefreshToken
+User     (1) ──── (N) Favorite ──── (1) Product
 ```
+
+- **RefreshToken → User**, **Favorite → User**: `onDelete: Cascade` — neither has standalone
+  meaning without the account they belong to. No account-deletion feature exists yet; this is
+  forward-safe shape, not something currently exercised.
+- **Favorite → Product**: `onDelete: Cascade` — if a product is ever hard-deleted (not the normal
+  `deletedAt` soft-delete every other catalog entity uses), an orphaned favorite pointing at
+  nothing would be worse than the favorite silently disappearing. `favorites.service.ts` also
+  filters out favorites of a soft-deleted product at read time, independent of this FK.
+- `@@unique([userId, productId])` on `Favorite` — a customer can favorite a given product only
+  once, enforced by the database, not just application logic.
 
 - **Product → Brand / Category**: required (`NOT NULL`), `onDelete: Restrict`. A brand or
   category in use by any product cannot be deleted — this is reference/lookup data shared across
@@ -45,10 +60,11 @@ recommendation engine needs to run numeric tolerance comparisons against them di
 ## `current_frame_*` vs. product measurements
 
 Product/frame measurements above describe a **catalog item**. A completely separate, future
-`user_measurements` table (Etapa 2) will describe a **customer's own, currently-owned frame**,
-using `current_frame_*` naming (ADR-0012) — never `preferred_*`, and never the same table or
-model as the fields here. This schema does not implement that table; this section exists only to
-make the boundary explicit while both concepts are fresh.
+`user_measurements`/`CustomerOpticalProfile` table (a later phase) will describe a **customer's
+own, currently-owned frame**, using `current_frame_*` naming (ADR-0012) — never `preferred_*`, and
+never the same table or model as the fields here. The boundary held through this phase's `User`
+model too: it carries no measurement, prescription, or preference fields at all — those belong on
+a future, separate 1:1-related entity, not accumulated directly onto `User` as they're built.
 
 ## Important constraints
 
@@ -128,6 +144,14 @@ files entirely and would drift staging/production out of sync with what's in Git
 gitignored. **Never edit an already-applied migration's SQL.** If a mistake ships, write a new
 migration that corrects it; editing history breaks the checksum Prisma uses to detect drift.
 
+**Verified in practice:** the `add_users_favorites` migration (adding `users`, `refresh_tokens`,
+`favorites`) followed exactly this workflow — `db:migrate:new` proposed a
+`DROP INDEX "products_name_trgm_idx"` alongside the real new-table SQL, exactly as ADR-0014
+predicts for any schema change once the index is no longer declared in `schema.prisma`; that one
+statement was removed by hand before `db:migrate:deploy`, and the index and the
+`product_variants_stock_check` constraint were both confirmed still present against the real
+local database afterward.
+
 ## Seed policy
 
 `prisma/seed.ts` — local development only, wired to `npm run db:seed` (`prisma db seed`) and
@@ -137,6 +161,15 @@ stock" question), 7 variants, 7 images, 2 branches — all explicitly fictional,
 addressed as placeholder data, never real customer/business data. Top-level entities are
 `upsert`ed by slug/id, so re-running the seed against an already-seeded database doesn't error;
 nested variants/images are only created the first time each product is created.
+
+**No seeded users.** `prisma/seed.ts` was deliberately left untouched by the authentication phase
+— no fixture customer/admin account was added to it. A seeded, reusable, known password is
+exactly the "default admin credential intended for deployment" risk the auth brief explicitly
+warns against, and nothing about local development or the automated test suite actually needs
+one: manual browser verification registers a real throwaway account through the real `/register`
+flow, and every API test creates and cleans up its own uniquely-suffixed account per run (see
+`API.md` "Testing"). If a fixture account is ever genuinely needed later, it belongs in a
+dedicated, clearly-commented test-fixture path — not a reusable password checked into this repo.
 
 **Never seed staging or production automatically.** No script in this repo does or will target a
 non-local `DATABASE_URL` for seeding.

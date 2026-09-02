@@ -11,8 +11,9 @@ services:
       POSTGRES_PASSWORD: soluciones_opticas
       POSTGRES_DB: soluciones_opticas_dev
     ports:
-      # Host 5433 (not 5432 — already occupied by another local service).
-      - "127.0.0.1:5433:5432"
+      # Host 5437 (not 5432 or 5433 — both already occupied by other
+      # local projects on this machine).
+      - "127.0.0.1:5437:5432"
     volumes:
       - soluciones_opticas_pg_data:/var/lib/postgresql/data
     healthcheck:

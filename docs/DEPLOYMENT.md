@@ -93,12 +93,13 @@ above, staging deploys from `dev`, so this branch needs to reach `dev` first:
 
 In the Railway API service's **Variables** tab, set:
 
-| Variable       | Value                                                                                                                         |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL` | The Postgres connection string copied in step 2. Paste it only here.                                                          |
-| `NODE_ENV`     | `production`                                                                                                                  |
-| `APP_ENV`      | `staging`                                                                                                                     |
-| `CORS_ORIGINS` | The Vercel staging URL (set this after step 6 below produces it) — exact origin, comma-separated if more than one, never `*`. |
+| Variable       | Value                                                                                                                                                                                           |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | The Postgres connection string copied in step 2. Paste it only here.                                                                                                                            |
+| `NODE_ENV`     | `production`                                                                                                                                                                                    |
+| `APP_ENV`      | `staging`                                                                                                                                                                                       |
+| `CORS_ORIGINS` | The Vercel staging URL (set this after step 6 below produces it) — exact origin, comma-separated if more than one, never `*`.                                                                   |
+| `JWT_SECRET`   | A real generated secret, 32+ chars (`openssl rand -hex 32`). Generate a fresh one for staging — never reuse the local dev `.env` value. See `docs/adr/0018-authentication-session-strategy.md`. |
 
 `PORT` does not need to be set — Railway injects it, and `apps/api/src/lib/env.ts` already reads
 `process.env.PORT` dynamically.
@@ -197,6 +198,12 @@ Run once both services are live, against the real deployed URLs (not localhost):
   real response, not just by reading `app.ts`.
 - A forced API error (e.g. an invalid product slug) returns a generic client-facing message —
   never a stack trace, SQL, `DATABASE_URL`, or filesystem path.
+- Register/login/logout work end-to-end against the real deployed API, and the session survives
+  a page reload — confirms the `SameSite=None`/`Secure` cross-site cookie actually round-trips
+  between the real Vercel and Railway origins, not just in the local `SameSite=Lax` case (see
+  `docs/adr/0018-authentication-session-strategy.md`).
+- Adding/removing a favorite while authenticated persists across a reload (confirms the real
+  staging Postgres, not just the local dev database).
 - Every app route loads on direct navigation and on refresh (Vercel's SPA rewrite), including a
   genuinely unmatched path resolving to the real `NotFoundPage`.
 - Hero and storefront images load from the deployed frontend, at the expected responsive sizes.

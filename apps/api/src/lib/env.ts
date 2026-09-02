@@ -25,6 +25,16 @@ const envSchema = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
+  // Required in every environment, including local dev — a short/missing
+  // secret fails fast here rather than producing forgeable sessions. See
+  // docs/adr/0018-authentication-session-strategy.md. Generate a real
+  // local value with `openssl rand -hex 32`; never commit one.
+  JWT_SECRET: z
+    .string()
+    .min(
+      32,
+      "JWT_SECRET must be at least 32 characters — generate one with `openssl rand -hex 32`.",
+    ),
 });
 
 export const env = envSchema.parse(process.env);

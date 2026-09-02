@@ -21,4 +21,20 @@ export class ApiError extends Error {
   static validation(message: string, details?: unknown): ApiError {
     return new ApiError(400, "VALIDATION_ERROR", message, details);
   }
+
+  static unauthenticated(message: string): ApiError {
+    return new ApiError(401, "UNAUTHENTICATED", message);
+  }
+
+  static forbidden(message: string): ApiError {
+    return new ApiError(403, "FORBIDDEN", message);
+  }
+
+  static conflict(message: string): ApiError {
+    return new ApiError(409, "CONFLICT", message);
+  }
+
+  static rateLimited(message: string): ApiError {
+    return new ApiError(429, "RATE_LIMITED", message);
+  }
 }

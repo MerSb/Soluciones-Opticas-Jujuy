@@ -7,6 +7,7 @@ import { StatusMessage } from "../components/ui/StatusMessage";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { WhatsAppButton } from "../components/ui/WhatsAppButton";
 import { ProductGallery } from "../components/products/ProductGallery";
+import { FavoriteButton } from "../components/products/FavoriteButton";
 import { VariantSelector } from "../components/products/VariantSelector";
 import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
@@ -107,10 +108,17 @@ export function ProductDetailPage() {
           <ProductGallery images={selectedVariant.images} />
 
           <div>
-            <p className="text-sm uppercase tracking-wide text-text-muted">{product.brand.name}</p>
-            <h1 className="mt-1 font-display text-2xl font-semibold text-text sm:text-3xl">
-              {product.name}
-            </h1>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm uppercase tracking-wide text-text-muted">
+                  {product.brand.name}
+                </p>
+                <h1 className="mt-1 font-display text-2xl font-semibold text-text sm:text-3xl">
+                  {product.name}
+                </h1>
+              </div>
+              <FavoriteButton slug={product.slug} variant="labeled" className="shrink-0" />
+            </div>
 
             <p className="mt-4 text-2xl font-bold text-primary">
               {formatPrice(selectedVariant.price)}

@@ -1,8 +1,11 @@
 // Etapa 1 — institutional site + real, database-backed catalog.
+// Etapa 2 (this addition) — customer authentication + favorites, per
+// ADR-0005 (single users table + role enum), ADR-0006 (self-rolled JWT,
+// access + rotating refresh), ADR-0011 (nullable auth_provider columns).
 //
-// Future entities (users, user_measurements, favorites, recommendation_rules,
-// orders, payments, fiscal_invoices, audit_logs) intentionally do not exist
-// yet. See docs/ARCHITECTURE.md and docs/adr/ for why, and for the
+// Future entities (user_measurements, recommendation_rules, orders,
+// payments, fiscal_invoices, audit_logs) intentionally do not exist yet.
+// See docs/ARCHITECTURE.md and docs/adr/ for why, and for the
 // conventions applied below (slug immutability, current_frame_* naming,
 // Cloudinary public_id storage, product_variants from day one).
 
@@ -76,6 +79,7 @@ model Product {
   brand    Brand            @relation(fields: [brandId], references: [id], onDelete: Restrict)
   category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
+  favorites Favorite[]
 
   @@index([brandId])
   @@index([categoryId])
@@ -158,4 +162,83 @@ model Branch {
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@map("branches")
+}
+
+/// CUSTOMER | ADMIN today — the minimum useful model for this phase.
+/// ADR-0005 approves a richer eventual set (customer | staff | admin |
+/// super_admin); adding more values later is an additive enum change,
+/// not a rewrite, so it isn't pre-built here (per this phase's own
+/// "start minimal" direction).
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+model User {
+  id    String @id @default(uuid()) @db.Uuid
+  email String @unique
+
+  /// Nullable per ADR-0011: OAuth-only users (not implemented yet) will
+  /// never have one. A local-auth user always has one — enforced in
+  /// application code (the register flow), not the schema, since the
+  /// schema must stay valid for the future OAuth case too.
+  passwordHash String? @map("password_hash")
+
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+  phone     String?
+
+  role Role @default(CUSTOMER)
+
+  /// Both nullable per ADR-0011 — present from this migration so a
+  /// future OAuth strategy is an additive change, not a users-table
+  /// migration. Unused by any code path in this phase.
+  authProvider   String? @map("auth_provider")
+  authProviderId String? @map("auth_provider_id")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  favorites     Favorite[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+/// Opaque, rotating refresh credential per ADR-0006 — never a JWT itself
+/// (nothing to decode; a database lookup is the whole point, so reuse
+/// after rotation or logout can actually be detected/revoked). Only a
+/// SHA-256 hash of the raw token is stored, same reasoning as password
+/// hashing: a database read alone must never be enough to impersonate a
+/// session.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Favorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// A customer can favorite a given product only once — enforced by the
+  /// database, not just application logic (§21 of the auth/favorites
+  /// brief).
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("favorites")
 }
