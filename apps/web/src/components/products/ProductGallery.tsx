@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ProductImageDto } from "@soluciones-opticas/shared";
-import { ProductImagePlaceholder } from "./ProductImagePlaceholder";
+import { ProductImage } from "./ProductImage";
+import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 
-// Real thumbnail switching (keyboard-accessible, aria-selected tabs),
-// even though every image is currently the same branded placeholder —
-// see ProductImagePlaceholder. The interaction is real and ready; only
-// the pixels are pending Cloudinary delivery-URL support.
+// Real thumbnail switching (keyboard-accessible, aria-selected tabs)
+// over real Cloudinary-delivered images — each thumbnail is its own
+// `ProductImage`, so a demo/broken publicId on one thumbnail falls back
+// to the placeholder independently, never breaking the whole gallery.
 export function ProductGallery({ images }: { images: ProductImageDto[] }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -17,8 +18,15 @@ export function ProductGallery({ images }: { images: ProductImageDto[] }) {
 
   return (
     <div>
-      <ProductImagePlaceholder className="aspect-square w-full rounded-lg" />
-      {selected && <p className="sr-only">{selected.alt}</p>}
+      <ProductImage
+        publicId={selected?.publicId ?? null}
+        alt={selected?.alt ?? ""}
+        widths={CLOUDINARY_WIDTHS.detailMain}
+        sizes="(min-width: 1024px) 50vw, 100vw"
+        aspectRatio="1 / 1"
+        className="w-full rounded-lg"
+        eager
+      />
 
       {images.length > 1 && (
         <div role="tablist" aria-label="Imágenes del producto" className="mt-3 flex gap-2">
@@ -33,7 +41,13 @@ export function ProductGallery({ images }: { images: ProductImageDto[] }) {
                 index === selectedIndex ? "border-primary" : "border-border"
               }`}
             >
-              <ProductImagePlaceholder className="h-full w-full" />
+              <ProductImage
+                publicId={image.publicId}
+                alt={image.alt}
+                widths={CLOUDINARY_WIDTHS.detailThumbnail}
+                aspectRatio="1 / 1"
+                className="h-full w-full"
+              />
               <span className="sr-only">{image.alt}</span>
             </button>
           ))}

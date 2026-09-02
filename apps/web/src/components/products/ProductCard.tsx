@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
 import type { ProductListItem } from "@soluciones-opticas/shared";
-import { ProductImagePlaceholder } from "./ProductImagePlaceholder";
+import { ProductImage } from "./ProductImage";
 import { ColorSwatchList } from "./ColorSwatchList";
 import { FavoriteButton } from "./FavoriteButton";
 import { formatPrice } from "../../lib/format-price";
+import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 
 // Deliberately does NOT show availability — see docs/API.md "Known
 // limitations". GET /api/products (the listing endpoint this card reads)
@@ -23,13 +24,18 @@ export function ProductCard({ product }: { product: ProductListItem }) {
     <div className="group relative overflow-hidden rounded-lg border border-border bg-surface-muted shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary hover:shadow-elevated focus-within:border-primary">
       <FavoriteButton slug={product.slug} className="absolute right-3 top-3 z-10" />
       <Link to={`/products/${product.slug}`} className="block">
-        {/* Always the placeholder for now — see the module comment above.
-            `product.image` (a Cloudinary public_id) is deliberately unused
-            here until URL-building exists; that's the one line that
-            changes when it does. Card-level microinteraction (§15): a
-            subtle 1.02 scale on hover, matching every other product/brand
-            image treatment sitewide. */}
-        <ProductImagePlaceholder className="aspect-[4/3] w-full transition-transform duration-300 group-hover:scale-[1.02]" />
+        {/* Card-level microinteraction (§15): a subtle 1.02 scale on
+            hover, matching every other product/brand image treatment
+            sitewide. Falls back to the branded placeholder when there's
+            no image, no Cloudinary config, or the asset fails to load. */}
+        <ProductImage
+          publicId={product.image?.publicId ?? null}
+          alt={product.image?.alt ?? product.name}
+          widths={CLOUDINARY_WIDTHS.card}
+          sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
+          aspectRatio="4 / 3"
+          className="w-full transition-transform duration-300 group-hover:scale-[1.02]"
+        />
         <div className="p-4">
           <p className="text-xs uppercase tracking-wide text-text-muted">{product.brand.name}</p>
           <h3 className="mt-1 font-display text-base font-semibold text-text">{product.name}</h3>
