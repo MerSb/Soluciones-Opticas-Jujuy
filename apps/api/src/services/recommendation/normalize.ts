@@ -119,8 +119,9 @@ export function normalizeColor(raw: string | null | undefined): ColorFamily | nu
   return "MULTICOLOR";
 }
 
-// No normalizeStyle(): Product has no style metadata at all today (no
-// column represents it) — there is nothing to normalize a style
-// preference *against*. See §19 of the brief and the "Style preference
-// limitation" section of the ADR. preferredStyles is read from the
-// profile but never reaches the scoring core.
+// No normalizeStyle(): unlike shape/material/color, `Product.styles`
+// and `CustomerOpticalProfile.preferredStyles` are both typed as the
+// same `StylePreference[]` enum (added by the Admin + Product Catalog
+// Management phase) — there is no free text on either side to
+// reconcile, so scoring.ts compares the two arrays directly. See
+// docs/adr/0021-admin-catalog-management.md.

@@ -40,6 +40,7 @@ describe("PromotionsSection", () => {
               brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
               category: { name: "Promociones", slug: "promociones" },
               shape: "aviator",
+              styles: [],
               price: 38000,
               frameMeasurements: {
                 lensWidth: 58,

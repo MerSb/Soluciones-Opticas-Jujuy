@@ -122,6 +122,22 @@ migrate status` should report no pending migrations, and a manual query
 (`SELECT indexname FROM pg_indexes WHERE indexname = 'products_name_trgm_idx';`) should return a
 row.
 
+### 5b. Creating the first Admin account (staging/production)
+
+There is no seeded admin user and no admin-registration endpoint — see
+`docs/adr/0021-admin-catalog-management.md` "Admin bootstrap". Against the real deployed site:
+
+1. Register a normal account through the public `/register` page, with a real password only that
+   person knows.
+2. From a machine with the Railway `DATABASE_URL` available (same access level as step 5 above),
+   run:
+   ```
+   DATABASE_URL="<railway-connection-string>" node scripts/promote-to-admin.mjs <that-email>
+   ```
+3. That person must log in again (or refresh) after being promoted — `authenticate` is stateless
+   and trusts the access token's role claim, so a token issued before the promotion still reads as
+   `CUSTOMER` until a fresh login re-signs it.
+
 ### 6. Create the Vercel project
 
 1. Open [vercel.com](https://vercel.com) and log in (or create an account).

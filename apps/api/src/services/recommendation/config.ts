@@ -9,16 +9,25 @@
 // Dimensions get the largest share: they're the most objective signal
 // (a measured fact printed on a real frame, not stated taste) and this
 // catalog already populates them on every seeded product. Shape is the
-// next-strongest signal (a clear, binary stated preference). Material
-// and color are weighted equally — both are per-variant preference
-// signals of similar structure, and this catalog doesn't yet have
-// enough variety in either to justify treating one as more
-// discriminating than the other.
+// next-strongest signal (a clear, binary stated preference). Material,
+// color, and style are weighted equally — all three are preference
+// signals of similar structure (material/color per-variant, style
+// per-product), and this catalog doesn't yet have enough variety in any
+// of them to justify treating one as more discriminating than another.
+//
+// STYLE was added by the Admin + Product Catalog Management phase, once
+// `Product.styles` gave `preferredStyles` something to compare against
+// (previously accepted but never scored — see normalize.ts's prior
+// comment, now removed, and docs/adr/0021). Adding it took 5 points from
+// DIMENSIONS (45 → 40) rather than growing the total past 100, so the
+// score/coverage percentages stay directly comparable to every
+// pre-existing test fixture and prior production score.
 export const CATEGORY_WEIGHTS = {
   SHAPE: 25,
   MATERIAL: 15,
   COLOR: 15,
-  DIMENSIONS: 45,
+  STYLE: 15,
+  DIMENSIONS: 30,
 } as const;
 
 // -------- Dimension sub-weights (must sum to CATEGORY_WEIGHTS.DIMENSIONS) --------
@@ -28,18 +37,21 @@ export const CATEGORY_WEIGHTS = {
 // and temple length matter for comfort/fit but are secondary. Lens
 // height is the field this project added beyond the optical-profile
 // brief's own list (ADR-0012/ADR-0019 precedent) and is the least
-// commonly known/reported of the four — smallest weight.
+// commonly known/reported of the four — smallest weight. Rescaled
+// proportionally (20/10/10/5 → 13/7/7/3, sum 30) when STYLE was added
+// above, keeping each dimension's *relative* share the same.
 export const DIMENSION_WEIGHTS = {
-  LENS_WIDTH: 20,
-  BRIDGE_WIDTH: 10,
-  TEMPLE_LENGTH: 10,
-  LENS_HEIGHT: 5,
+  LENS_WIDTH: 13,
+  BRIDGE_WIDTH: 7,
+  TEMPLE_LENGTH: 7,
+  LENS_HEIGHT: 3,
 } as const;
 
 export const TOTAL_POSSIBLE_WEIGHT =
   CATEGORY_WEIGHTS.SHAPE +
   CATEGORY_WEIGHTS.MATERIAL +
   CATEGORY_WEIGHTS.COLOR +
+  CATEGORY_WEIGHTS.STYLE +
   CATEGORY_WEIGHTS.DIMENSIONS;
 
 // -------- Dimension tolerance bands --------

@@ -72,6 +72,19 @@ model Product {
   lensHeight   Float? @map("lens_height")
   frameWidth   Float? @map("frame_width")
 
+  /// Added by the Admin + Product Catalog Management phase, closing the
+  /// gap the recommendation engine (ADR-0020) documented from day one:
+  /// `CustomerOpticalProfile.preferredStyles` existed but had nothing on
+  /// the product side to compare against, so it never contributed a
+  /// point to any score. Reuses `StylePreference` verbatim — the same
+  /// enum the customer side already uses — so, unlike shape/material/
+  /// color, no free-text normalization layer is needed: this is a real
+  /// enum-to-enum comparison from the start. Multi-valued (not single),
+  /// matching `preferredStyles`' own cardinality: a product can
+  /// reasonably read as both "classic" and "elegant" at once. See
+  /// docs/adr/0021-admin-catalog-management.md for the full decision.
+  styles StylePreference[] @default([]) @map("styles")
+
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")

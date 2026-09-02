@@ -2,6 +2,7 @@ import type {
   ProductImageDto,
   RecommendationDto,
   RecommendationsResponseDto,
+  StylePreference,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import {
@@ -39,6 +40,7 @@ interface CandidateProductRow {
   name: string;
   slug: string;
   shape: string | null;
+  styles: StylePreference[];
   basePrice: number;
   lensWidth: number | null;
   bridgeWidth: number | null;
@@ -70,6 +72,7 @@ async function loadCandidateProducts(): Promise<CandidateProductRow[]> {
       name: true,
       slug: true,
       shape: true,
+      styles: true,
       basePrice: true,
       lensWidth: true,
       bridgeWidth: true,
@@ -159,6 +162,7 @@ export async function getRecommendations(
         brand: product.brand,
         category: product.category,
         shape: product.shape,
+        styles: product.styles,
         price: bestVariantRow.priceOverride ?? product.basePrice,
         frameMeasurements: {
           lensWidth: product.lensWidth,

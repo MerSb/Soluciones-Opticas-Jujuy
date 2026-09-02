@@ -17,27 +17,30 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                   | Purpose                                                                  | Auth                                 |
-| ------ | ---------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
-| GET    | `/api/health`          | Liveness check                                                           | Public                               |
-| GET    | `/api/products`        | Catalog listing — search, filter, sort, paginate                         | Public                               |
-| GET    | `/api/products/:slug`  | Product detail                                                           | Public                               |
-| GET    | `/api/brands`          | Brand listing with product counts                                        | Public                               |
-| GET    | `/api/categories`      | Category listing with product counts                                     | Public                               |
-| GET    | `/api/branches`        | Branch listing                                                           | Public                               |
-| POST   | `/api/auth/register`   | Create a customer account, starts a session                              | Public (rate-limited)                |
-| POST   | `/api/auth/login`      | Starts a session                                                         | Public (rate-limited)                |
-| POST   | `/api/auth/refresh`    | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
-| POST   | `/api/auth/logout`     | Ends the session                                                         | Public (no-op if already logged out) |
-| GET    | `/api/auth/me`         | The authenticated user's safe profile                                    | Required                             |
-| GET    | `/api/profile`         | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
-| PATCH  | `/api/profile`         | Update `firstName`/`lastName`/`phone` only                               | Required                             |
-| GET    | `/api/favorites`       | The authenticated customer's favorited products                          | Required                             |
-| POST   | `/api/favorites/:slug` | Add a favorite (idempotent)                                              | Required                             |
-| DELETE | `/api/favorites/:slug` | Remove a favorite (idempotent)                                           | Required                             |
-| GET    | `/api/optical-profile` | The authenticated customer's frame measurements + style preferences      | Required                             |
-| PATCH  | `/api/optical-profile` | Update any subset of measurements/preferences                            | Required                             |
-| GET    | `/api/recommendations` | Ranked, explained product recommendations for the authenticated customer | Required                             |
+| Method | Path                     | Purpose                                                                  | Auth                                 |
+| ------ | ------------------------ | ------------------------------------------------------------------------ | ------------------------------------ |
+| GET    | `/api/health`            | Liveness check                                                           | Public                               |
+| GET    | `/api/products`          | Catalog listing — search, filter, sort, paginate                         | Public                               |
+| GET    | `/api/products/:slug`    | Product detail                                                           | Public                               |
+| GET    | `/api/brands`            | Brand listing with product counts                                        | Public                               |
+| GET    | `/api/categories`        | Category listing with product counts                                     | Public                               |
+| GET    | `/api/branches`          | Branch listing                                                           | Public                               |
+| POST   | `/api/auth/register`     | Create a customer account, starts a session                              | Public (rate-limited)                |
+| POST   | `/api/auth/login`        | Starts a session                                                         | Public (rate-limited)                |
+| POST   | `/api/auth/refresh`      | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
+| POST   | `/api/auth/logout`       | Ends the session                                                         | Public (no-op if already logged out) |
+| GET    | `/api/auth/me`           | The authenticated user's safe profile                                    | Required                             |
+| GET    | `/api/profile`           | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
+| PATCH  | `/api/profile`           | Update `firstName`/`lastName`/`phone` only                               | Required                             |
+| GET    | `/api/favorites`         | The authenticated customer's favorited products                          | Required                             |
+| POST   | `/api/favorites/:slug`   | Add a favorite (idempotent)                                              | Required                             |
+| DELETE | `/api/favorites/:slug`   | Remove a favorite (idempotent)                                           | Required                             |
+| GET    | `/api/optical-profile`   | The authenticated customer's frame measurements + style preferences      | Required                             |
+| PATCH  | `/api/optical-profile`   | Update any subset of measurements/preferences                            | Required                             |
+| GET    | `/api/recommendations`   | Ranked, explained product recommendations for the authenticated customer | Required                             |
+| \*     | `/api/admin/brands*`     | Admin brand CRUD + soft-delete/restore — see "Admin" below               | Required (`Role.ADMIN`)              |
+| \*     | `/api/admin/categories*` | Admin category CRUD + soft-delete/restore — see "Admin" below            | Required (`Role.ADMIN`)              |
+| \*     | `/api/admin/products*`   | Admin product/variant/image CRUD — see "Admin" below                     | Required (`Role.ADMIN`)              |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
@@ -61,14 +64,17 @@ over plain http); staging/production use `SameSite=None`/`Secure` (Vercel and Ra
 different sites, and `SameSite=None` requires `Secure`).
 
 `authenticate` (who are you?) and `authorize(...roles)` (are you allowed?) are separate
-middleware — every `Required`-auth route above uses `authenticate`; no route currently needs
-`authorize` (no admin-only endpoint exists yet).
+middleware — every `Required`-auth route above uses `authenticate`; every `/api/admin/*` route
+additionally uses `authorize("ADMIN")`, applied once at the top of that router rather than
+per-route (ADR-0021).
 
 ## Roles
 
 `Role` — `CUSTOMER | ADMIN` today (see ADR-0005 for the eventual richer set and why it isn't
 pre-built). Public registration can never create anything but `CUSTOMER` — `RegisterRequest` has
-no `role` field at all, and Zod strips any extra field a client sends anyway.
+no `role` field at all, and Zod strips any extra field a client sends anyway. The only way an
+`ADMIN` account is created is `scripts/promote-to-admin.mjs <email>`, run by a trusted operator
+against an account that already registered normally — see ADR-0021 "Admin bootstrap".
 
 ## `POST /api/auth/register`
 
@@ -229,12 +235,58 @@ guaranteed to match — a candidate can be missing data the customer _did_ provi
 recorded lens width), which lowers that one product's `matchEvidence` below the customer's own
 `profileCoverage`.
 
+Since the Admin + Product Catalog Management phase, `Product.styles` (`StylePreference[]`, same
+enum as `preferredStyles`) is a real scored signal (`CATEGORY_WEIGHTS.STYLE`) — see
+`docs/adr/0021-admin-catalog-management.md` for why it was added and how the weights were
+rebalanced to make room for it without changing `TOTAL_POSSIBLE_WEIGHT`.
+
 No optical profile (or an entirely empty one) → `200` with `{ recommendations: [], profileCoverage:
 0, confidenceLevel: "LOW", profileIncomplete: true }` — never a `404`/`500`, never a misleading
 full result set. `reasons` only ever explains _earned_ signals — never a "why this didn't match"
 message. Ranking is fully deterministic: `score` DESC, then `profileCoverage` (of the specific
 match) DESC, then product id ASC — no randomness, verified by a test asserting identical output
 across repeated identical requests.
+
+## Admin
+
+`/api/admin/*` — every route requires `authenticate` + `authorize("ADMIN")`. See
+`docs/adr/0021-admin-catalog-management.md` for the full design reasoning; this section is the
+endpoint reference.
+
+| Method                        | Path                                                          | Notes                                                                                            |
+| ----------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| GET                           | `/api/admin/brands`                                           | All brands, active and soft-deleted alike                                                        |
+| POST                          | `/api/admin/brands`                                           | `{ name, description?, logoPublicId? }`                                                          |
+| GET                           | `/api/admin/brands/:id`                                       |                                                                                                  |
+| PATCH                         | `/api/admin/brands/:id`                                       | No `slug` field accepted (ADR-0013)                                                              |
+| DELETE                        | `/api/admin/brands/:id`                                       | Soft-delete; `409` if it still backs an active product                                           |
+| POST                          | `/api/admin/brands/:id/restore`                               |                                                                                                  |
+| GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                 | Same shape as brands                                                                             |
+| GET                           | `/api/admin/products`                                         | `?page&limit&q&includeDeleted` — paginated                                                       |
+| POST                          | `/api/admin/products`                                         | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                    |
+| GET                           | `/api/admin/products/:id`                                     | Soft-deleted products are still fetchable directly                                               |
+| PATCH                         | `/api/admin/products/:id`                                     | No `slug` field accepted                                                                         |
+| DELETE                        | `/api/admin/products/:id`                                     | Soft-delete                                                                                      |
+| POST                          | `/api/admin/products/:id/restore`                             |                                                                                                  |
+| POST                          | `/api/admin/products/:id/variants`                            | `{ color?, material?, sku, stock?, priceOverride? }`; duplicate `sku` → `409`                    |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId`                 |                                                                                                  |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId`                 | **Hard** delete (cascades its images) — see ADR-0021                                             |
+| POST                          | `/api/admin/products/:id/variants/:variantId/images`          | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary? }` — metadata only, see "Image storage" below |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId` |                                                                                                  |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId` | Hard delete                                                                                      |
+
+**Image storage:** there is still no real file-upload integration (no Cloudinary SDK, no
+credentialed external resource created this phase — that was an explicit stop-and-report
+checkpoint, not an oversight). `cloudinaryPublicId` is a plain string an operator pastes in after
+uploading through Cloudinary's own console, exactly like `prisma/seed.ts` already does. Only one
+image per variant can be `isPrimary: true` at a time — setting a new one unsets the previous
+automatically.
+
+**Every Admin mutation is immediately visible** to the public catalog and the recommendation
+engine — they read the same `Product`/`ProductVariant`/`ProductImage` rows, no cache or sync step
+in between (verified live and by `apps/api/test/admin/products.test.ts`'s two regression tests: an
+Admin shape edit re-ranks a real recommendation, and an Admin stock edit is immediately reflected
+in `bestVariant` selection, preserving the stock hard-partition policy from `fbe882d`).
 
 ## `GET /api/products`
 
@@ -268,6 +320,7 @@ All validated with Zod; an invalid value returns `400 VALIDATION_ERROR` with per
       "brand": { "name": "Andina Eyewear", "slug": "andina-eyewear" },
       "category": { "name": "Anteojos de Sol", "slug": "anteojos-de-sol" },
       "shape": "aviator",
+      "styles": ["CLASSIC"],
       "price": 45000,
       "frameMeasurements": {
         "lensWidth": 58,
@@ -502,17 +555,22 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-131 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
-tests, plus 67 for the recommendation engine — 39 pure unit tests over the normalization/scoring
-core (`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data
-case, dimension tolerance bands, best-variant selection including the hard stock-availability
-partition, an all-variants-out-of-stock product staying recommendable, style never scoring,
-determinism, score bounds, ranking tiebreaks, coverage/tier boundary values immediately below/at/
-above each threshold) and 10 API integration tests (`test/recommendations.test.ts`: auth required,
-empty result for no profile, ranked real results once the profile has data, every reason has
-code/message/strength, every recommendation carries `matchEvidence`/`evidenceLevel`, a real
-single-signal profile scoring 100 with low (not high) evidence, `limit` respected and validated,
-cross-customer isolation, stable output across repeated requests).
+154 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
+tests, 70 for the recommendation engine (42 pure unit tests over the normalization/scoring core —
+`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data case,
+dimension tolerance bands, best-variant selection including the hard stock-availability partition,
+an all-variants-out-of-stock product staying recommendable, style-signal matching/non-matching/
+inapplicable cases, determinism, score bounds, ranking tiebreaks, coverage/tier boundary values
+immediately below/at/above each threshold — plus 10 `test/recommendations.test.ts` API integration
+tests: auth required, empty result for no profile, ranked real results once the profile has data,
+every reason has code/message/strength, every recommendation carries `matchEvidence`/
+`evidenceLevel`, a real single-signal profile scoring 100 with low (not high) evidence, `limit`
+respected and validated, cross-customer isolation, stable output across repeated requests), and 20
+Admin tests (`test/admin/`: auth/role guard on every resource, slug generation and immutability,
+in-use guard on brand/category soft-delete, product/variant/image CRUD including cross-product
+404s and the one-primary-image-per-variant invariant, and the two live regressions — an Admin
+shape edit re-ranking a real recommendation, and an Admin stock edit preserving the stock
+hard-partition policy).
 
 ## Environment variables (this stage)
 

@@ -26,6 +26,7 @@
     "db:seed": "prisma db seed",
     "db:seed:staging": "tsx prisma/seed-staging.ts",
     "db:reset:local": "node --env-file=.env scripts/assert-local-db.mjs && prisma migrate reset",
+    "admin:promote": "node --env-file=.env scripts/promote-to-admin.mjs",
     "dev:api": "npm run dev -w apps/api",
     "test:api": "npm run test -w apps/api",
     "typecheck:api": "npm run typecheck -w apps/api",

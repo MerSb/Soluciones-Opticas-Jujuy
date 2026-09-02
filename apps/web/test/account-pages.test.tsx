@@ -118,6 +118,7 @@ describe("FavoritesPage", () => {
               brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
               category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
               shape: "aviator",
+              styles: [],
               price: 45000,
               frameMeasurements: {
                 lensWidth: null,

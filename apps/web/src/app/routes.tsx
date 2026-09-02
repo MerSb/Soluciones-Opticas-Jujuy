@@ -125,6 +125,63 @@ export const routes: RouteObject[] = [
           },
         ],
       },
+      {
+        path: "admin",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { AdminRoute } = await import("../components/auth/AdminRoute");
+          return { Component: AdminRoute };
+        },
+        children: [
+          {
+            lazy: async () => {
+              const { AdminLayout } = await import("../pages/admin/AdminLayout");
+              return { Component: AdminLayout };
+            },
+            children: [
+              { index: true, element: <Navigate to="/admin/products" replace /> },
+              {
+                path: "products",
+                lazy: async () => {
+                  const { AdminProductsPage } = await import("../pages/admin/AdminProductsPage");
+                  return { Component: AdminProductsPage };
+                },
+              },
+              {
+                path: "products/new",
+                lazy: async () => {
+                  const { AdminNewProductPage } =
+                    await import("../pages/admin/AdminNewProductPage");
+                  return { Component: AdminNewProductPage };
+                },
+              },
+              {
+                path: "products/:id",
+                lazy: async () => {
+                  const { AdminProductDetailPage } =
+                    await import("../pages/admin/AdminProductDetailPage");
+                  return { Component: AdminProductDetailPage };
+                },
+              },
+              {
+                path: "brands",
+                lazy: async () => {
+                  const { AdminBrandsPage } = await import("../pages/admin/AdminBrandsPage");
+                  return { Component: AdminBrandsPage };
+                },
+              },
+              {
+                path: "categories",
+                lazy: async () => {
+                  const { AdminCategoriesPage } =
+                    await import("../pages/admin/AdminCategoriesPage");
+                  return { Component: AdminCategoriesPage };
+                },
+              },
+            ],
+          },
+        ],
+      },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

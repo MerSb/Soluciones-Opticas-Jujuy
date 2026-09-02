@@ -4,6 +4,8 @@
 // contracts" and ADR-0015 for why this lives here instead of duplicated
 // or redeclared in each app.
 
+import type { StylePreference } from "./optical-profile.js";
+
 export interface FrameMeasurements {
   lensWidth: number | null;
   bridgeWidth: number | null;
@@ -34,6 +36,7 @@ export interface ProductListItem {
   brand: BrandRef;
   category: CategoryRef;
   shape: string | null;
+  styles: StylePreference[];
   price: number;
   frameMeasurements: FrameMeasurements;
   colors: string[];
@@ -56,6 +59,7 @@ export interface ProductDetail {
   brand: BrandRef;
   category: CategoryRef;
   shape: string | null;
+  styles: StylePreference[];
   price: number;
   frameMeasurements: FrameMeasurements;
   variants: ProductVariantDto[];

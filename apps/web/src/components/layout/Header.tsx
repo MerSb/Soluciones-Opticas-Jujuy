@@ -108,6 +108,14 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
+          {currentUser?.role === "ADMIN" && (
+            <Link
+              to="/admin/products"
+              className="hidden text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
+            >
+              Administración
+            </Link>
+          )}
           <Link
             to={accountLink.to}
             className="hidden text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
@@ -200,6 +208,17 @@ export function Header() {
                 </li>
               );
             })}
+            {currentUser?.role === "ADMIN" && (
+              <li>
+                <Link
+                  to="/admin/products"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="block rounded-md px-3 py-2 text-base text-text"
+                >
+                  Administración
+                </Link>
+              </li>
+            )}
             <li>
               <Link
                 to={accountLink.to}

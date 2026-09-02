@@ -11,3 +11,7 @@ export const paginationSchema = z.object({
 export const slugParamSchema = z.object({
   slug: z.string().trim().min(1).max(200),
 });
+
+export const idParamSchema = z.object({
+  id: z.string().uuid(),
+});

@@ -6,18 +6,18 @@ each environment points at is documented in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 
 ## Entity overview
 
-| Entity                   | Represents                                                                                                         | Table                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------- |
-| `Brand`                  | An eyewear brand (Ray-Ban, etc.)                                                                                   | `brands`                    |
-| `Category`               | A catalog category (sunglasses, optical, sport…)                                                                   | `categories`                |
-| `Product`                | A frame _model_ — the thing with a name, a shape, and frame measurements                                           | `products`                  |
-| `ProductVariant`         | A purchasable color/material option of a product, with its own SKU and stock                                       | `product_variants`          |
-| `ProductImage`           | A photo of a specific variant                                                                                      | `product_images`            |
-| `Branch`                 | A physical store location                                                                                          | `branches`                  |
-| `User`                   | A customer (or, eventually, admin) account — Etapa 2                                                               | `users`                     |
-| `RefreshToken`           | A rotating session-refresh credential, hashed at rest — Etapa 2                                                    | `refresh_tokens`            |
-| `Favorite`               | A customer's saved product — Etapa 2                                                                               | `favorites`                 |
-| `CustomerOpticalProfile` | A customer's current-frame measurements + style preferences — see [ADR-0019](adr/0019-optical-profile-taxonomy.md) | `customer_optical_profiles` |
+| Entity                   | Represents                                                                                                                                                                              | Table                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `Brand`                  | An eyewear brand (Ray-Ban, etc.)                                                                                                                                                        | `brands`                    |
+| `Category`               | A catalog category (sunglasses, optical, sport…)                                                                                                                                        | `categories`                |
+| `Product`                | A frame _model_ — the thing with a name, a shape, frame measurements, and (since [ADR-0021](adr/0021-admin-catalog-management.md)) a `styles` array scored by the recommendation engine | `products`                  |
+| `ProductVariant`         | A purchasable color/material option of a product, with its own SKU and stock                                                                                                            | `product_variants`          |
+| `ProductImage`           | A photo of a specific variant                                                                                                                                                           | `product_images`            |
+| `Branch`                 | A physical store location                                                                                                                                                               | `branches`                  |
+| `User`                   | A customer (or, eventually, admin) account — Etapa 2                                                                                                                                    | `users`                     |
+| `RefreshToken`           | A rotating session-refresh credential, hashed at rest — Etapa 2                                                                                                                         | `refresh_tokens`            |
+| `Favorite`               | A customer's saved product — Etapa 2                                                                                                                                                    | `favorites`                 |
+| `CustomerOpticalProfile` | A customer's current-frame measurements + style preferences — see [ADR-0019](adr/0019-optical-profile-taxonomy.md)                                                                      | `customer_optical_profiles` |
 
 Still deliberately absent: `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`,
 `audit_logs`. These remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope. (The

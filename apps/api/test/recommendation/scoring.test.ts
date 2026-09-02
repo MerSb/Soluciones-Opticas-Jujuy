@@ -15,6 +15,7 @@ function makeProduct(overrides: Partial<CandidateProductInput> = {}): CandidateP
     id: "p1",
     name: "Test Product",
     shape: "aviator",
+    styles: [],
     lensWidth: 52,
     bridgeWidth: 18,
     templeLength: 140,
@@ -292,18 +293,41 @@ describe("scoreProduct — variant awareness", () => {
   });
 });
 
-describe("scoreProduct — style is never scored (no catalog signal exists)", () => {
-  it("preferredStyles never changes the score, regardless of value", () => {
-    const withoutStyle = scoreProduct(
-      makeProduct({ shape: "aviator" }),
-      makeProfile({ preferredShapes: ["AVIATOR"] }),
+describe("scoreProduct — style (Product.styles vs. preferredStyles, both StylePreference[])", () => {
+  it("is inapplicable when the product has no styles set, even if the customer stated a preference", () => {
+    const result = scoreProduct(
+      makeProduct({ shape: "aviator", styles: [] }),
+      makeProfile({ preferredShapes: ["AVIATOR"], preferredStyles: ["CLASSIC"] }),
     )!;
-    const withStyle = scoreProduct(
-      makeProduct({ shape: "aviator" }),
-      makeProfile({ preferredShapes: ["AVIATOR"], preferredStyles: ["CLASSIC", "MODERN", "BOLD"] }),
+    expect(result.score).toBe(100); // only shape applies — style contributes nothing either way
+  });
+
+  it("is inapplicable when the customer stated no style preference, even if the product has styles", () => {
+    const result = scoreProduct(
+      makeProduct({ shape: "aviator", styles: ["CLASSIC"] }),
+      makeProfile({ preferredShapes: ["AVIATOR"], preferredStyles: [] }),
     )!;
-    expect(withStyle.score).toBe(withoutStyle.score);
-    expect(withStyle.reasons.some((r) => r.code.includes("STYLE"))).toBe(false);
+    expect(result.score).toBe(100);
+  });
+
+  it("matches when any of the customer's preferred styles overlaps any of the product's styles", () => {
+    const result = scoreProduct(
+      makeProduct({ shape: "aviator", styles: ["CLASSIC", "ELEGANT"] }),
+      makeProfile({ preferredShapes: ["AVIATOR"], preferredStyles: ["URBAN", "ELEGANT"] }),
+    )!;
+    expect(result.score).toBe(100);
+    expect(result.reasons.some((r) => r.code === "PREFERRED_STYLE")).toBe(true);
+  });
+
+  it("does not match when the two style lists share nothing, lowering the score rather than excluding the signal", () => {
+    const result = scoreProduct(
+      makeProduct({ shape: "aviator", styles: ["URBAN"] }),
+      makeProfile({ preferredShapes: ["AVIATOR"], preferredStyles: ["CLASSIC"] }),
+    )!;
+    // Shape (25) matched, style (15) applicable but missed: 25/40 applicable.
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.score).toBeLessThan(100);
+    expect(result.reasons.some((r) => r.code === "PREFERRED_STYLE")).toBe(false);
   });
 });
 
@@ -409,6 +433,7 @@ describe("calculateProfileCoverage / coverageToConfidenceLevel / scoreToTier", (
         preferredShapes: ["AVIATOR"],
         preferredMaterials: ["METAL"],
         preferredColors: ["NEGRO"],
+        preferredStyles: ["CLASSIC"],
         currentFrameLensWidth: 52,
         currentFrameBridgeWidth: 18,
         currentFrameTempleLength: 140,
@@ -491,6 +516,7 @@ describe("score vs. evidence — the two must never be conflated", () => {
     const result = scoreProduct(
       makeProduct({
         shape: "aviator",
+        styles: ["CLASSIC"],
         lensWidth: 52,
         bridgeWidth: 18,
         templeLength: 140,
@@ -500,6 +526,7 @@ describe("score vs. evidence — the two must never be conflated", () => {
         preferredShapes: ["AVIATOR"],
         preferredMaterials: ["METAL"],
         preferredColors: ["NEGRO"],
+        preferredStyles: ["CLASSIC"],
         currentFrameLensWidth: 52,
         currentFrameBridgeWidth: 18,
         currentFrameTempleLength: 140,

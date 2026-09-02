@@ -38,6 +38,7 @@ export interface CandidateProductInput {
   id: string;
   name: string;
   shape: string | null;
+  styles: StylePreference[];
   lensWidth: number | null;
   bridgeWidth: number | null;
   templeLength: number | null;
@@ -53,11 +54,6 @@ export interface CustomerProfileInput {
   preferredShapes: FrameShape[];
   preferredMaterials: FrameMaterial[];
   preferredColors: ColorFamily[];
-  // Accepted but never scored in V1 — Product has no style metadata to
-  // compare against. Kept in the input type so callers don't need a
-  // separate "profile minus style" shape, not because it does anything
-  // here. See normalize.ts's own comment on why no normalizeStyle()
-  // exists.
   preferredStyles: StylePreference[];
 }
 
@@ -95,6 +91,33 @@ function scorePreferenceSignal<T extends string>(
     return emptyResult();
   }
   const matched = preferred.includes(candidateValue);
+  return {
+    earned: matched ? weight : 0,
+    applicable: weight,
+    reasons: matched ? [{ code, message, strength: "STRONG" }] : [],
+  };
+}
+
+// Multi-valued preference signal — unlike shape/material/color (one
+// candidate value vs. a preferred list), style is a list on *both*
+// sides (a product can read as both "classic" and "elegant"; a customer
+// can like both too). Applicable only when both lists are non-empty;
+// matched when they overlap at all — deliberately binary (full weight
+// or none), same as the other preference signals, not a fractional
+// credit per extra shared style: V1 keeps every preference signal's
+// scoring rule uniform rather than inventing a partial-credit scheme
+// for just this one.
+function scoreStyleSignal(
+  weight: number,
+  preferred: StylePreference[],
+  candidateStyles: StylePreference[],
+  code: string,
+  message: string,
+): WeightedResult {
+  if (preferred.length === 0 || candidateStyles.length === 0) {
+    return emptyResult();
+  }
+  const matched = candidateStyles.some((style) => preferred.includes(style));
   return {
     earned: matched ? weight : 0,
     applicable: weight,
@@ -141,6 +164,14 @@ function scoreProductLevelSignals(
     "La forma coincide con una de tus preferencias.",
   );
 
+  const styleResult = scoreStyleSignal(
+    CATEGORY_WEIGHTS.STYLE,
+    profile.preferredStyles,
+    product.styles,
+    "PREFERRED_STYLE",
+    "El estilo coincide con tu preferencia.",
+  );
+
   const lensWidth = scoreDimensionSignal(
     DIMENSION_WEIGHTS.LENS_WIDTH,
     profile.currentFrameLensWidth,
@@ -170,7 +201,7 @@ function scoreProductLevelSignals(
     "La altura del lente es similar a la de tu armazón actual.",
   );
 
-  return [shapeResult, lensWidth, bridgeWidth, templeLength, lensHeight].reduce(
+  return [shapeResult, styleResult, lensWidth, bridgeWidth, templeLength, lensHeight].reduce(
     mergeResults,
     emptyResult(),
   );
@@ -290,6 +321,7 @@ export function calculateProfileCoverage(profile: CustomerProfileInput): number 
   if (profile.preferredShapes.length > 0) applicable += CATEGORY_WEIGHTS.SHAPE;
   if (profile.preferredMaterials.length > 0) applicable += CATEGORY_WEIGHTS.MATERIAL;
   if (profile.preferredColors.length > 0) applicable += CATEGORY_WEIGHTS.COLOR;
+  if (profile.preferredStyles.length > 0) applicable += CATEGORY_WEIGHTS.STYLE;
   if (profile.currentFrameLensWidth !== null) applicable += DIMENSION_WEIGHTS.LENS_WIDTH;
   if (profile.currentFrameBridgeWidth !== null) applicable += DIMENSION_WEIGHTS.BRIDGE_WIDTH;
   if (profile.currentFrameTempleLength !== null) applicable += DIMENSION_WEIGHTS.TEMPLE_LENGTH;

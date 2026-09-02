@@ -8,6 +8,7 @@ import type {
   ProductDetail,
   ProductImageDto,
   ProductListItem,
+  StylePreference,
 } from "@soluciones-opticas/shared";
 
 interface CoreProductRow {
@@ -15,6 +16,7 @@ interface CoreProductRow {
   name: string;
   slug: string;
   shape: string | null;
+  styles: string[];
   basePrice: number;
   lensWidth: number | null;
   bridgeWidth: number | null;
@@ -30,6 +32,7 @@ interface RawSearchRow {
   name: string;
   slug: string;
   shape: string | null;
+  styles: string[];
   basePrice: number;
   lensWidth: number | null;
   bridgeWidth: number | null;
@@ -65,6 +68,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
       name: true,
       slug: true,
       shape: true,
+      styles: true,
       basePrice: true,
       lensWidth: true,
       bridgeWidth: true,
@@ -98,6 +102,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
     brand: product.brand,
     category: product.category,
     shape: product.shape,
+    styles: product.styles as StylePreference[],
     price: product.basePrice.toNumber(),
     frameMeasurements: {
       lensWidth: product.lensWidth,
@@ -175,6 +180,7 @@ async function filterProducts(
         name: true,
         slug: true,
         shape: true,
+        styles: true,
         basePrice: true,
         lensWidth: true,
         bridgeWidth: true,
@@ -248,7 +254,7 @@ async function searchProducts(
   const orderByClause = toRawOrderBy(query.sort);
 
   const rows = await prisma.$queryRaw<RawSearchRow[]>`
-    SELECT p.id, p.name, p.slug, p.shape,
+    SELECT p.id, p.name, p.slug, p.shape, p.styles,
            p.base_price::float8 AS "basePrice",
            p.lens_width::float8 AS "lensWidth",
            p.bridge_width::float8 AS "bridgeWidth",
@@ -280,6 +286,7 @@ async function searchProducts(
       name: row.name,
       slug: row.slug,
       shape: row.shape,
+      styles: row.styles,
       basePrice: row.basePrice,
       lensWidth: row.lensWidth,
       bridgeWidth: row.bridgeWidth,
@@ -359,6 +366,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
     brand: row.brand,
     category: row.category,
     shape: row.shape,
+    styles: row.styles as StylePreference[],
     price: row.basePrice,
     frameMeasurements: {
       lensWidth: row.lensWidth,

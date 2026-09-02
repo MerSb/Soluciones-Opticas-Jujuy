@@ -112,6 +112,7 @@ describe("FavoriteButton", () => {
                     brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
                     category: { name: "Sol", slug: "sol" },
                     shape: null,
+                    styles: [],
                     price: 1,
                     frameMeasurements: {
                       lensWidth: null,

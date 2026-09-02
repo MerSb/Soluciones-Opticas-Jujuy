@@ -14,6 +14,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
           name: true,
           slug: true,
           shape: true,
+          styles: true,
           basePrice: true,
           lensWidth: true,
           bridgeWidth: true,
@@ -62,6 +63,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
         brand: favorite.product.brand,
         category: favorite.product.category,
         shape: favorite.product.shape,
+        styles: favorite.product.styles,
         price: favorite.product.basePrice.toNumber(),
         frameMeasurements: {
           lensWidth: favorite.product.lensWidth,
