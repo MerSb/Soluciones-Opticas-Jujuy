@@ -12,6 +12,7 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { generateUniqueSlug } from "../lib/slug.js";
 import { MAX_IMAGE_BYTES } from "../lib/image-validation.js";
+import { computeIsComplete } from "../lib/product-completeness.js";
 import * as imageProvider from "./image-provider.service.js";
 import type {
   AdminProductsListQuery,
@@ -81,6 +82,14 @@ const PRODUCT_LIST_SELECT = {
   brand: { select: { id: true, name: true, slug: true } },
   category: { select: { id: true, name: true, slug: true } },
   _count: { select: { variants: true } },
+  // Real Catalog Readiness: a second, independently-filtered look at
+  // the same `variants` relation — `_count` above counts *all*
+  // variants (the existing "Variantes" column), this one fetches at
+  // most one variant that itself has an image, just to know whether
+  // any exist (`take: 1`, cheap, still batched by Prisma — no N+1).
+  // Both can coexist because `_count.select` and a top-level relation
+  // select are different selection targets, not the same key.
+  variants: { where: { images: { some: {} } }, select: { id: true }, take: 1 },
 } as const;
 
 type ProductDetailRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_DETAIL_SELECT }>;
@@ -133,6 +142,7 @@ function toProductDetailDto(row: ProductDetailRow): AdminProductDetail {
       frameWidth: row.frameWidth,
     },
     variants: row.variants.map(toVariantDto),
+    isComplete: computeIsComplete(row.variants),
     deletedAt: row.deletedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -150,6 +160,14 @@ function toProductListItemDto(row: ProductListRow): AdminProductListItem {
     styles: row.styles as StylePreference[],
     basePrice: row.basePrice.toNumber(),
     variantCount: row._count.variants,
+    // `row.variants` here is the filtered take-1 lookup added to
+    // PRODUCT_LIST_SELECT above (variants with at least one image) —
+    // non-empty means complete. Not computeIsComplete(row.variants):
+    // that helper expects each variant's own `images` array to check
+    // its length, but this list query only fetches variant `id`s (the
+    // filtering already happened in the `where`), so a plain
+    // length check is the correct match for this shape.
+    isComplete: row.variants.length > 0,
     deletedAt: row.deletedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -373,9 +391,49 @@ function toSkuConflictOrRethrow(error: unknown, sku: string | undefined): unknow
 // per-variant favorite exists in this schema. Removing a variant here
 // is a real, permanent removal, not a soft hide. See
 // docs/adr/0021-admin-catalog-management.md "Variant/image deletion".
+//
+// Real Catalog Readiness §11/§12: deleting a variant used to leave its
+// images' Cloudinary assets orphaned forever — the DB cascade removed
+// the ProductImage *rows*, but nothing ever told the provider. Fixed by
+// deleting every remote asset first, one at a time (not Promise.all —
+// see below), and only deleting the variant from DB once all of them
+// are confirmed gone.
+//
+// There is no real distributed transaction between Cloudinary and
+// Postgres, and this doesn't invent one. The chosen semantics, in the
+// same spirit as deleteImage's own single-asset ordering:
+//   - every image's remote asset is attempted in sequence; the first
+//     failure stops the loop immediately and rethrows (502, from
+//     deleteRemoteAsset) — the variant (and every image, including
+//     ones already deleted remotely in this same call) stays
+//     completely untouched in DB.
+//   - this IS safe to retry even after a partial failure: an image
+//     already removed from Cloudinary makes deleteRemoteAsset's next
+//     call against it a no-op ("not found" is treated as success — see
+//     lib/cloudinary.ts's destroyRemoteAsset), so a second attempt
+//     picks up exactly where the first one stopped.
+//   - the one narrow, openly-documented gap (not hidden): between a
+//     partial success and the caller's retry, a DB row can briefly
+//     reference an image that's already gone from Cloudinary. This is
+//     the exact same class of gap deleteImage already accepts for its
+//     own DB-delete-after-remote-success step — logged loudly if it's
+//     ever the *last* step that fails, never silently swallowed.
 export async function deleteVariant(productId: string, variantId: string): Promise<void> {
-  await requireVariantOfProduct(productId, variantId);
-  await prisma.productVariant.delete({ where: { id: variantId } });
+  const variant = await requireVariantOfProduct(productId, variantId);
+
+  for (const image of variant.images) {
+    await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
+  }
+
+  try {
+    await prisma.productVariant.delete({ where: { id: variantId } });
+  } catch (error) {
+    console.error(
+      "CRITICAL: Cloudinary assets deleted but the variant row survived — orphaned reference(s)",
+      { variantId, imageIds: variant.images.map((image) => image.id), error },
+    );
+    throw error;
+  }
 }
 
 // -------- images (metadata only — see "Image storage" in the ADR) --------

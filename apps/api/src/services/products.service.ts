@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { computeInStock } from "../lib/product-availability.js";
+import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import { normalizeShape } from "./recommendation/normalize.js";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
 import type {
@@ -64,8 +65,11 @@ export async function listProducts(query: ProductsListQuery): Promise<Paginated<
 }
 
 export async function getProductBySlug(slug: string): Promise<ProductDetail | null> {
+  // An incomplete product (no variant, or a variant with no image) must
+  // 404 exactly like a nonexistent one — never reveal that it exists as
+  // some kind of draft (Real Catalog Readiness).
   const product = await prisma.product.findUnique({
-    where: { slug, deletedAt: null },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
     select: {
       name: true,
       slug: true,
@@ -144,23 +148,37 @@ async function filterProducts(
 ): Promise<{ rows: CoreProductRow[]; total: number }> {
   const hasVariantFilter = Boolean(query.color || query.material);
 
+  // COMPLETE_PRODUCT_WHERE and the color/material filter both constrain
+  // `variants`, but they're independent conditions — a color match and
+  // the "some variant has an image" check don't need to be the same
+  // variant. Combined via `AND` (each entry its own `some` subquery)
+  // rather than merged into one `variants: { some: {...} } }` object,
+  // which would wrongly require a single variant to satisfy both at
+  // once and would silently drop one of the two conditions anyway (an
+  // object spread collision, since both would set the same `variants`
+  // key).
   const where: Prisma.ProductWhereInput = {
     deletedAt: null,
     ...(query.brand ? { brand: { slug: query.brand } } : {}),
     ...(query.category ? { category: { slug: query.category } } : {}),
     ...(query.shape ? { shape: query.shape } : {}),
-    // `some` compiles to a WHERE EXISTS subquery — a product with N
-    // matching variants is still returned once, never duplicated.
-    ...(hasVariantFilter
-      ? {
-          variants: {
-            some: {
-              ...(query.color ? { color: query.color } : {}),
-              ...(query.material ? { material: query.material } : {}),
+    AND: [
+      COMPLETE_PRODUCT_WHERE,
+      // `some` compiles to a WHERE EXISTS subquery — a product with N
+      // matching variants is still returned once, never duplicated.
+      ...(hasVariantFilter
+        ? [
+            {
+              variants: {
+                some: {
+                  ...(query.color ? { color: query.color } : {}),
+                  ...(query.material ? { material: query.material } : {}),
+                },
+              },
             },
-          },
-        }
-      : {}),
+          ]
+        : []),
+    ],
     ...(query.minPrice !== undefined || query.maxPrice !== undefined
       ? {
           basePrice: {
@@ -234,7 +252,21 @@ async function searchProducts(
   limit: number,
   offset: number,
 ): Promise<{ rows: CoreProductRow[]; total: number }> {
-  const conditions: Prisma.Sql[] = [Prisma.sql`p.deleted_at IS NULL`, Prisma.sql`p.name % ${q}`];
+  const conditions: Prisma.Sql[] = [
+    Prisma.sql`p.deleted_at IS NULL`,
+    // Same completeness rule as COMPLETE_PRODUCT_WHERE
+    // (lib/product-completeness.ts), expressed as SQL since this path
+    // never goes through Prisma's query builder — a static condition
+    // (no user input), so no parameterization is needed here, but kept
+    // as a Prisma.sql fragment for consistent composition with
+    // Prisma.join below.
+    Prisma.sql`EXISTS (
+      SELECT 1 FROM product_variants v
+      JOIN product_images pi ON pi.variant_id = v.id
+      WHERE v.product_id = p.id
+    )`,
+    Prisma.sql`p.name % ${q}`,
+  ];
 
   if (query.brand) conditions.push(Prisma.sql`b.slug = ${query.brand}`);
   if (query.category) conditions.push(Prisma.sql`c.slug = ${query.category}`);
@@ -509,12 +541,15 @@ function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
   };
 }
 
-// Returns null when the target product itself doesn't exist (or is
-// soft-deleted) — the controller maps that to a 404, same convention
-// as getProductBySlug.
+// Returns null when the target product itself doesn't exist, is
+// soft-deleted, or is incomplete (no variant, or a variant with no
+// image) — the controller maps that to a 404, same convention as
+// getProductBySlug. An incomplete product's own "related products"
+// must never be reachable either — that would leak that the product
+// exists.
 export async function getRelatedProducts(slug: string): Promise<ProductListItem[] | null> {
   const target = await prisma.product.findUnique({
-    where: { slug, deletedAt: null },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
     select: {
       id: true,
       brandId: true,
@@ -527,7 +562,7 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
   if (!target) return null;
 
   const candidates = await prisma.product.findMany({
-    where: { deletedAt: null, id: { not: target.id } },
+    where: { deletedAt: null, id: { not: target.id }, ...COMPLETE_PRODUCT_WHERE },
     select: {
       id: true,
       name: true,

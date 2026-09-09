@@ -367,6 +367,165 @@ describe("admin products", () => {
     });
   });
 
+  // Real Catalog Readiness §11/§12: deleteVariant used to leave every
+  // orphaned Cloudinary asset behind — the DB cascade removed the
+  // ProductImage *rows*, but nothing ever told the provider. These
+  // cover the fix: every image's remote asset must be deleted before
+  // the variant (and its images) leave the DB, and a provider failure
+  // — even a partial one, with several images — must leave everything
+  // in DB completely untouched (safe to retry), never a false success.
+  describe("variant delete — cloudinary cleanup", () => {
+    it("deletes a variant with no images without ever calling the provider", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Variant Delete No Images`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-VDEL-NOIMG-${RUN_ID}` });
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}`,
+      );
+      expect(response.status).toBe(204);
+      expect(imageProvider.deleteRemoteAsset).not.toHaveBeenCalled();
+
+      const stillThere = await prisma.productVariant.findUnique({ where: { id: variant.body.id } });
+      expect(stillThere).toBeNull();
+    });
+
+    it("deletes the remote asset before deleting a variant with one image", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Variant Delete One Image`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-VDEL-ONE-${RUN_ID}` });
+      await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-one", alt: "Foto" });
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}`,
+      );
+      expect(response.status).toBe(204);
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledWith("test/variant-delete-one");
+
+      const stillThere = await prisma.productVariant.findUnique({ where: { id: variant.body.id } });
+      expect(stillThere).toBeNull();
+    });
+
+    it("deletes every remote asset before deleting a variant with multiple images", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Variant Delete Multi Image`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-VDEL-MULTI-${RUN_ID}` });
+      await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-multi-a", alt: "Foto A" });
+      await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-multi-b", alt: "Foto B" });
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}`,
+      );
+      expect(response.status).toBe(204);
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledWith("test/variant-delete-multi-a");
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledWith("test/variant-delete-multi-b");
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledTimes(2);
+
+      const stillThere = await prisma.productVariant.findUnique({ where: { id: variant.body.id } });
+      expect(stillThere).toBeNull();
+    });
+
+    it("never deletes the variant when the provider fails on its only image — no false success", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Variant Delete Provider Fail`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-VDEL-FAIL-${RUN_ID}` });
+      const image = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-fail", alt: "Foto" });
+
+      vi.mocked(imageProvider.deleteRemoteAsset).mockRejectedValueOnce(
+        new Error("simulated Cloudinary outage"),
+      );
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}`,
+      );
+      expect(response.status).toBe(500);
+
+      const variantStillThere = await prisma.productVariant.findUnique({
+        where: { id: variant.body.id },
+      });
+      expect(variantStillThere).not.toBeNull();
+      const imageStillThere = await prisma.productImage.findUnique({
+        where: { id: image.body.id },
+      });
+      expect(imageStillThere).not.toBeNull();
+    });
+
+    it("a partial failure (one image deleted remotely, the next fails) leaves the variant and both images untouched in DB", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Variant Delete Partial Fail`,
+        brandId,
+        categoryId,
+        basePrice: 5000,
+      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-VDEL-PARTIAL-${RUN_ID}` });
+      const imageA = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-partial-a", alt: "Foto A" });
+      const imageB = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/variant-delete-partial-b", alt: "Foto B" });
+
+      // First image's remote delete succeeds, the second fails — the
+      // implementation must stop immediately (never delete the variant
+      // from DB), even though one asset is by now genuinely gone from
+      // Cloudinary. This documented, narrow gap (see deleteVariant's own
+      // comment) is exactly why the DB row must stay put: it's still the
+      // only record of what's left to clean up on retry.
+      vi.mocked(imageProvider.deleteRemoteAsset)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("simulated Cloudinary outage"));
+
+      const response = await adminAgent.delete(
+        `/api/admin/products/${product.body.id}/variants/${variant.body.id}`,
+      );
+      expect(response.status).toBe(500);
+      expect(imageProvider.deleteRemoteAsset).toHaveBeenCalledTimes(2);
+
+      const variantStillThere = await prisma.productVariant.findUnique({
+        where: { id: variant.body.id },
+      });
+      expect(variantStillThere).not.toBeNull();
+      const bothImagesStillThere = await prisma.productImage.findMany({
+        where: { id: { in: [imageA.body.id, imageB.body.id] } },
+      });
+      expect(bothImagesStillThere).toHaveLength(2);
+    });
+  });
+
   // The actual "upload succeeded, DB write failed" orphan-cleanup path
   // (§25) needs a genuine Prisma failure *after* requireVariantOfProduct
   // already passed — not reproducible through the HTTP layer without
@@ -403,10 +562,15 @@ describe("admin products", () => {
         lensWidth: 52,
         basePrice: 9000,
       });
-      await adminAgent.post(`/api/admin/products/${product.body.id}/variants`).send({
-        sku: `TEST-SKU-RECO-${RUN_ID}`,
-        stock: 5,
-      });
+      const variant = await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants`)
+        .send({ sku: `TEST-SKU-RECO-${RUN_ID}`, stock: 5 });
+      // Real Catalog Readiness: recommendations only ever consider
+      // *complete* products (variant + image) — without this, the
+      // product below would never appear in `before`/`after` at all.
+      await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/reco-regression", alt: "Foto de prueba" });
 
       const before = await recoAgent.get("/api/recommendations?limit=20");
       const beforeMatch = before.body.recommendations.find(
@@ -462,6 +626,11 @@ describe("admin products", () => {
       const weakInStock = await adminAgent
         .post(`/api/admin/products/${product.body.id}/variants`)
         .send({ color: "Negro", material: "Acetato", sku: `TEST-SKU-STOCK-B-${RUN_ID}`, stock: 3 });
+      // Real Catalog Readiness: recommendations only ever consider
+      // *complete* products (variant + image).
+      await adminAgent
+        .post(`/api/admin/products/${product.body.id}/variants/${weakInStock.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/stock-regression", alt: "Foto de prueba" });
 
       const before = await stockAgent.get("/api/recommendations?limit=20");
       const beforeMatch = before.body.recommendations.find(

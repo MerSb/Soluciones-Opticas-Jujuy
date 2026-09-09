@@ -131,6 +131,10 @@ export interface AdminProductListItem {
   styles: StylePreference[];
   basePrice: number;
   variantCount: number;
+  /** Real Catalog Readiness: at least one variant with at least one
+   * image. Independent of stock — a complete product can still be out
+   * of stock. */
+  isComplete: boolean;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -147,6 +151,10 @@ export interface AdminProductDetail {
   basePrice: number;
   frameMeasurements: FrameMeasurements;
   variants: AdminVariantDto[];
+  /** Real Catalog Readiness: at least one variant with at least one
+   * image. Independent of stock — a complete product can still be out
+   * of stock. */
+  isComplete: boolean;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
