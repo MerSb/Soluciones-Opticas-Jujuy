@@ -8,6 +8,7 @@ import { FormField } from "../../components/forms/FormField";
 import { PreferenceChipGroup } from "../../components/optical-profile/PreferenceChipGroup";
 import { FRAME_SHAPE_OPTIONS, STYLE_PREFERENCE_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { ApiClientError } from "../../services/api-client";
+import type { AdminVariantDto } from "@soluciones-opticas/shared";
 import {
   useAdminBrandsQuery,
   useAdminCategoriesQuery,
@@ -34,6 +35,23 @@ function parseMeasurement(raw: string): number | null {
   if (raw.trim() === "") return null;
   const value = Number(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+// Real Catalog Readiness §5 — plain-language, specific about what's
+// actually missing (never "entity"/"asset"/"relation"). Mirrors the
+// backend's own completeness rule (computeIsComplete /
+// COMPLETE_PRODUCT_WHERE): at least one variant, and at least one image
+// on some variant.
+function completenessHelpText(variants: AdminVariantDto[]): string {
+  const hasVariant = variants.length > 0;
+  const hasImage = variants.some((variant) => variant.images.length > 0);
+  if (!hasVariant && !hasImage) {
+    return "Agregá una variante y al menos una imagen para publicar el producto.";
+  }
+  if (!hasVariant) {
+    return "Agregá al menos una variante para que el producto pueda mostrarse.";
+  }
+  return "Agregá al menos una imagen para que el producto pueda mostrarse.";
 }
 
 export function AdminProductDetailPage() {
@@ -120,7 +138,14 @@ export function AdminProductDetailPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="font-display text-lg font-semibold text-text">{product.name}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-lg font-semibold text-text">{product.name}</h2>
+            {!product.deletedAt && !product.isComplete && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                Incompleto
+              </span>
+            )}
+          </div>
           <p className="text-sm text-text-muted">Slug: {product.slug} (no editable)</p>
         </div>
         {product.deletedAt ? (
@@ -135,7 +160,11 @@ export function AdminProductDetailPage() {
         ) : (
           <button
             type="button"
-            onClick={() => deleteProduct.mutate(product.id)}
+            onClick={() => {
+              if (window.confirm(`¿Eliminar "${product.name}"? Vas a poder restaurarlo después.`)) {
+                deleteProduct.mutate(product.id);
+              }
+            }}
             disabled={deleteProduct.isPending}
             className="rounded-md border border-danger px-4 py-2 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-60"
           >
@@ -143,6 +172,12 @@ export function AdminProductDetailPage() {
           </button>
         )}
       </div>
+
+      {!product.deletedAt && !product.isComplete && (
+        <p className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-text">
+          {completenessHelpText(product.variants)}
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6" noValidate>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -156,7 +191,7 @@ export function AdminProductDetailPage() {
             label="Precio base (ARS)"
             type="number"
             inputMode="decimal"
-            min="0"
+            min="0.01"
             step="0.01"
             value={basePrice}
             onChange={(e) => setBasePrice(e.target.value)}
@@ -220,39 +255,42 @@ export function AdminProductDetailPage() {
 
         <div>
           <h3 className="font-display text-base font-semibold text-text">
-            Medidas del armazón (mm, opcional)
+            Medidas del armazón (opcional)
           </h3>
+          <p className="mt-1 text-sm text-text-muted">
+            Estas medidas suelen estar impresas en la parte interna de la patilla del armazón.
+          </p>
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <FormField
-              label="Ancho del lente"
+              label="Ancho del lente (mm)"
               type="number"
               inputMode="decimal"
               value={measurements.lensWidth}
               onChange={(e) => setMeasurements((m) => ({ ...m, lensWidth: e.target.value }))}
             />
             <FormField
-              label="Ancho del puente"
+              label="Ancho del puente (mm)"
               type="number"
               inputMode="decimal"
               value={measurements.bridgeWidth}
               onChange={(e) => setMeasurements((m) => ({ ...m, bridgeWidth: e.target.value }))}
             />
             <FormField
-              label="Largo de patilla"
+              label="Largo de patilla (mm)"
               type="number"
               inputMode="decimal"
               value={measurements.templeLength}
               onChange={(e) => setMeasurements((m) => ({ ...m, templeLength: e.target.value }))}
             />
             <FormField
-              label="Altura del lente"
+              label="Altura del lente (mm)"
               type="number"
               inputMode="decimal"
               value={measurements.lensHeight}
               onChange={(e) => setMeasurements((m) => ({ ...m, lensHeight: e.target.value }))}
             />
             <FormField
-              label="Ancho del armazón"
+              label="Ancho del armazón (mm)"
               type="number"
               inputMode="decimal"
               value={measurements.frameWidth}

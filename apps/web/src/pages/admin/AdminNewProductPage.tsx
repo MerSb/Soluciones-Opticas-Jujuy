@@ -125,7 +125,7 @@ export function AdminNewProductPage() {
           label="Precio base (ARS)"
           type="number"
           inputMode="decimal"
-          min="0"
+          min="0.01"
           step="0.01"
           value={basePrice}
           onChange={(e) => setBasePrice(e.target.value)}

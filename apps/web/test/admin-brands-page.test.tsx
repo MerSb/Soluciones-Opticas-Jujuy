@@ -6,6 +6,7 @@ import { renderWithProviders } from "./test-utils";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const EXISTING_BRAND = {
@@ -63,5 +64,41 @@ describe("AdminBrandsPage", () => {
     expect(await screen.findByText("Nueva Marca")).toBeInTheDocument();
     // The create form clears after a successful submit.
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue(""));
+  });
+
+  it("requires confirmation before deleting a brand, and never deletes if cancelled", async () => {
+    const user = userEvent.setup();
+    let deleteCalled = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((rawUrl: string | URL, init?: RequestInit) => {
+        const url = String(rawUrl);
+        const method = init?.method ?? "GET";
+        if (url.includes("/api/admin/brands") && method === "GET") {
+          return Promise.resolve({ ok: true, status: 200, json: async () => [EXISTING_BRAND] });
+        }
+        if (url.includes("/api/admin/brands/") && method === "DELETE") {
+          deleteCalled = true;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ ...EXISTING_BRAND, deletedAt: "2026-02-01T00:00:00.000Z" }),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled request: ${method} ${url}`));
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderWithProviders(<AdminBrandsPage />);
+    await user.click(await screen.findByRole("button", { name: "Eliminar" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("Andina Eyewear"));
+    expect(deleteCalled).toBe(false);
+
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    await waitFor(() => expect(deleteCalled).toBe(true));
   });
 });

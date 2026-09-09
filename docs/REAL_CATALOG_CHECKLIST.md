@@ -31,15 +31,18 @@ Por cada color/variante disponible:
 
 ## Qué es obligatorio y qué es opcional
 
-Lo único que realmente hace falta para cargar un producto es: **nombre, marca, categoría, precio**,
-y **al menos una variante con su código y stock**. Todo lo demás (forma, estilo, medidas, color,
-material, fotos) es opcional y se puede agregar o corregir después sin perder nada de lo ya
-cargado.
+Para que un producto se **vea en el catálogo público** hacen falta dos cosas, ni una más: **al
+menos una variante** (un color/versión con su código) y **al menos una foto** en alguna de sus
+variantes. Sin eso, el producto queda guardado y editable en el panel — nunca se pierde nada —
+pero todavía no aparece para los clientes, y el panel lo marca claramente como "Incompleto" hasta
+que se complete. Forma, estilo, medidas, color, material y stock son todos opcionales — un
+producto puede publicarse sin ninguno de ellos, y agregarlos o corregirlos después nunca hace
+perder lo que ya estaba cargado.
 
 **Nunca inventamos estos datos.** Si no nos pasás el precio, el stock o una medida, ese campo queda
-vacío en el sistema — no se completa con un valor de prueba ni se estima. Un campo vacío en el
-panel de administración se ve claramente marcado como "incompleto", nunca como si fuera un dato
-real.
+vacío en el sistema — no se completa con un valor de prueba ni se estima. Un producto sin ninguna
+variante o sin ninguna foto se ve marcado como "Incompleto" en el panel de administración, nunca
+como si fuera un dato real ni como si ya estuviera listo.
 
 ## Por qué pedimos forma, estilo, medidas, color y material
 

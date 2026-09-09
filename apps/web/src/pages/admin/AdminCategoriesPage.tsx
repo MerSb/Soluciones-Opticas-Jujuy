@@ -164,7 +164,15 @@ function CategoryRow({ category }: { category: AdminCategoryDto }) {
           ) : (
             <button
               type="button"
-              onClick={() => deleteCategory.mutate(category.id)}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `¿Eliminar la categoría "${category.name}"? Vas a poder restaurarla después.`,
+                  )
+                ) {
+                  deleteCategory.mutate(category.id);
+                }
+              }}
               disabled={deleteCategory.isPending}
               className="text-sm font-medium text-danger hover:underline disabled:opacity-60"
             >

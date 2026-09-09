@@ -324,6 +324,12 @@ in `bestVariant` selection, preserving the stock hard-partition policy from `fbe
 
 ## `GET /api/products`
 
+Only _complete_ products are ever returned — see "Product completeness" in
+`docs/REAL_CATALOG_READINESS.md`: at least one variant, and at least one image on some variant.
+Independent of stock (an out-of-stock but complete product is still returned, just with
+`inStock: false` on its variants). Applies identically to this listing, `GET /api/products/:slug`,
+related products, and recommendations.
+
 ### Query parameters
 
 | Param                  | Type         | Notes                                                                          |

@@ -7,6 +7,7 @@ import type {
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { computeInStock } from "../lib/product-availability.js";
+import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import {
   calculateProfileCoverage,
   coverageToConfidenceLevel,
@@ -123,15 +124,21 @@ function toCandidateProductRow(product: {
   };
 }
 
-// Candidate set (§43): every non-deleted product, exactly the same
-// `deletedAt: null` filter every other catalog query already uses —
-// this schema has no separate "published"/"active" status field, so
-// there is nothing else to exclude on. One query for products, with
-// Prisma batching the nested variant/image `select`s (verified — see
-// docs/adr/0020-recommendation-engine-v1.md "Performance"), not N+1.
+// Candidate set (§43): every non-deleted, *complete* product (Real
+// Catalog Readiness — COMPLETE_PRODUCT_WHERE) — a product missing a
+// variant or an image is never a valid candidate here, same rule as the
+// public catalog itself. Note this can't be derived from
+// CANDIDATE_PRODUCT_SELECT's own `variants.images` (that's filtered to
+// `isPrimary: true, take: 1` for display purposes, so a variant with
+// only non-primary images would wrongly read as "no image" if checked
+// client-side); the completeness condition is applied at the `where`
+// level instead, against the real, unfiltered relation. One query for
+// products, with Prisma batching the nested variant/image `select`s
+// (verified — see docs/adr/0020-recommendation-engine-v1.md
+// "Performance"), not N+1.
 async function loadCandidateProducts(): Promise<CandidateProductRow[]> {
   const products = await prisma.product.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
     select: CANDIDATE_PRODUCT_SELECT,
   });
   return products.map(toCandidateProductRow);
@@ -139,9 +146,12 @@ async function loadCandidateProducts(): Promise<CandidateProductRow[]> {
 
 // Same shape, one row — used by the per-product recommendation endpoint
 // so it never has to load the entire catalog just to score one item.
+// An incomplete product 404s here too (via the caller returning null),
+// same as products.service.ts's getProductBySlug — never reveals that
+// an incomplete product exists.
 async function loadCandidateProductBySlug(slug: string): Promise<CandidateProductRow | null> {
   const product = await prisma.product.findUnique({
-    where: { slug, deletedAt: null },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
     select: CANDIDATE_PRODUCT_SELECT,
   });
   return product ? toCandidateProductRow(product) : null;
