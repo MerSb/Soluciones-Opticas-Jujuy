@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LoginRequest, RegisterRequest, SafeUserDto } from "@soluciones-opticas/shared";
 import { apiGet, apiPost, ApiClientError } from "../api-client";
 import { favoritesQueryKey } from "./favorites";
+import { recommendationsQueryKey } from "./recommendations";
 
 // Stable, shared key — represents "who is currently signed in," read by
 // the Header, ProtectedRoute, and the favorite button alike, so there is
@@ -47,9 +48,13 @@ export function useLogoutMutation() {
     mutationFn: () => apiPost<void>("/api/auth/logout"),
     onSuccess: () => {
       queryClient.setQueryData(authMeQueryKey, null);
-      // Another customer's favorites must never flash on screen for the
-      // next person to sign in on this device.
+      // Another customer's favorites — or personalized recommendations,
+      // profile-dependent and cached under this same prefix for both
+      // the "Para vos" list and Product Detail V2's per-product
+      // compatibility score — must never flash on screen for the next
+      // person to sign in on this device.
       queryClient.removeQueries({ queryKey: favoritesQueryKey });
+      queryClient.removeQueries({ queryKey: recommendationsQueryKey });
     },
   });
 }
