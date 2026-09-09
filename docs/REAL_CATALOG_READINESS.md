@@ -43,6 +43,30 @@ quiere.
 No se creó ningún campo `draft`/`published` nuevo — la completitud se calcula al vuelo desde las
 relaciones que ya existen (`variants`, `images`), nunca se persiste como un flag propio.
 
+### Stock — confirmado por el negocio: se administra por variante
+
+Decisión de negocio confirmada formalmente: **el stock real se controla por variante, no por
+producto.**
+
+```
+Producto: ELEVE Roma
+  Variante Negro         stock: 3
+  Variante Habano        stock: 2
+  Variante Transparente  stock: 0
+```
+
+- Cada variante representa un color/presentación concreto del producto (`ProductVariant.color`),
+  y tiene su propio `stock` independiente de las demás variantes del mismo producto.
+- `stock: 0` en una variante es un valor **válido**, no un error ni un estado transitorio — solo
+  significa que esa variante puntual no tiene disponibilidad en este momento.
+- `stock: 0` en **todas** las variantes de un producto **no** lo vuelve incompleto. Completitud
+  (variante + imagen) y disponibilidad (`computeInStock()`) son dimensiones independientes — ver
+  "Completitud ≠ disponibilidad" arriba. Un producto completo con stock 0 en todas sus variantes
+  permanece visible en el catálogo público, solo marcado sin disponibilidad.
+- No existe ni se necesita un campo de stock a nivel `Product` — el modelo actual
+  (`ProductVariant.stock`, con su propio `CHECK (stock >= 0)`) ya representa exactamente esta
+  decisión. **No requiere ningún cambio de schema ni migración.**
+
 ## Comportamiento público
 
 Aplicado consistentemente a los cuatro puntos de entrada del catálogo público:
@@ -219,11 +243,13 @@ ficticios para pruebas locales."` en su `description`.
 - `prisma/seed-staging.ts`: todo lo ficticio (marcas, productos, texto alternativo de imágenes)
   lleva el prefijo literal `"[DEMO] "` en el nombre — visible en la UI real, no solo en
   comentarios. Es el marcador deliberado para reconocer datos ficticios de staging.
-- **Categorías pendientes de confirmación de negocio, no asumidas como definitivas**: "Anteojos de
-  Sol", "Anteojos Recetados", "Deportivos" existen en `seed-staging.ts` sin el prefijo `[DEMO]`
-  (tratadas como si ya estuvieran confirmadas), pero el negocio todavía no las confirmó
-  formalmente como las categorías finales del catálogo real. Esto sigue sin resolverse — no le
-  corresponde a este milestone decidirlo.
+- **Categorías confirmadas por el negocio**: "Promociones", "Anteojos de Sol", "Anteojos
+  Recetados" y "Deportivos" son las cuatro categorías del catálogo real, confirmadas
+  formalmente por el cliente. Ya no son una duda ni un pendiente de negocio. Existen en
+  `seed-staging.ts` sin el prefijo `[DEMO]` precisamente porque no son ficticias — son
+  categorías reales, a diferencia de las marcas/productos de esa misma semilla. No se insertó
+  nada nuevo ni se ejecutó ningún seed para confirmar esto — es una actualización de
+  documentación únicamente.
 
 ## Admin del cliente
 
@@ -268,5 +294,7 @@ Sin cambios respecto a lo ya documentado en `docs/ADMIN_DASHBOARD_V2.md`: limpie
 admin por nombre mutable (`brands/categories/products.test.ts`), y el flake preexistente de
 concurrencia entre archivos de test (`related-products.test.ts`/`recommendations.test.ts` vs.
 `admin/products.test.ts`). Tampoco se tocó: historial de precio, reordenamiento de imágenes,
-límite de tamaño de archivo enforced en Cloudinary, nuevos roles, un sistema draft/published
-persistente, ni la confirmación definitiva de categorías — todo explícitamente fuera de alcance.
+límite de tamaño de archivo enforced en Cloudinary, nuevos roles, ni un sistema draft/published
+persistente — todo explícitamente fuera de alcance. La confirmación definitiva de categorías
+(Promociones, Anteojos de Sol, Anteojos Recetados, Deportivos) ya **no** es una duda de negocio
+pendiente — ver "Datos demo" arriba.
