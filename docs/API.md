@@ -17,30 +17,32 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                     | Purpose                                                                  | Auth                                 |
-| ------ | ------------------------ | ------------------------------------------------------------------------ | ------------------------------------ |
-| GET    | `/api/health`            | Liveness check                                                           | Public                               |
-| GET    | `/api/products`          | Catalog listing — search, filter, sort, paginate                         | Public                               |
-| GET    | `/api/products/:slug`    | Product detail                                                           | Public                               |
-| GET    | `/api/brands`            | Brand listing with product counts                                        | Public                               |
-| GET    | `/api/categories`        | Category listing with product counts                                     | Public                               |
-| GET    | `/api/branches`          | Branch listing                                                           | Public                               |
-| POST   | `/api/auth/register`     | Create a customer account, starts a session                              | Public (rate-limited)                |
-| POST   | `/api/auth/login`        | Starts a session                                                         | Public (rate-limited)                |
-| POST   | `/api/auth/refresh`      | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
-| POST   | `/api/auth/logout`       | Ends the session                                                         | Public (no-op if already logged out) |
-| GET    | `/api/auth/me`           | The authenticated user's safe profile                                    | Required                             |
-| GET    | `/api/profile`           | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
-| PATCH  | `/api/profile`           | Update `firstName`/`lastName`/`phone` only                               | Required                             |
-| GET    | `/api/favorites`         | The authenticated customer's favorited products                          | Required                             |
-| POST   | `/api/favorites/:slug`   | Add a favorite (idempotent)                                              | Required                             |
-| DELETE | `/api/favorites/:slug`   | Remove a favorite (idempotent)                                           | Required                             |
-| GET    | `/api/optical-profile`   | The authenticated customer's frame measurements + style preferences      | Required                             |
-| PATCH  | `/api/optical-profile`   | Update any subset of measurements/preferences                            | Required                             |
-| GET    | `/api/recommendations`   | Ranked, explained product recommendations for the authenticated customer | Required                             |
-| \*     | `/api/admin/brands*`     | Admin brand CRUD + soft-delete/restore — see "Admin" below               | Required (`Role.ADMIN`)              |
-| \*     | `/api/admin/categories*` | Admin category CRUD + soft-delete/restore — see "Admin" below            | Required (`Role.ADMIN`)              |
-| \*     | `/api/admin/products*`   | Admin product/variant/image CRUD — see "Admin" below                     | Required (`Role.ADMIN`)              |
+| Method | Path                          | Purpose                                                                  | Auth                                 |
+| ------ | ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
+| GET    | `/api/health`                 | Liveness check                                                           | Public                               |
+| GET    | `/api/products`               | Catalog listing — search, filter, sort, paginate                         | Public                               |
+| GET    | `/api/products/:slug`         | Product detail                                                           | Public                               |
+| GET    | `/api/products/:slug/related` | Up to 4 related products (deterministic weighted ranking)                | Public                               |
+| GET    | `/api/brands`                 | Brand listing with product counts                                        | Public                               |
+| GET    | `/api/categories`             | Category listing with product counts                                     | Public                               |
+| GET    | `/api/branches`               | Branch listing                                                           | Public                               |
+| POST   | `/api/auth/register`          | Create a customer account, starts a session                              | Public (rate-limited)                |
+| POST   | `/api/auth/login`             | Starts a session                                                         | Public (rate-limited)                |
+| POST   | `/api/auth/refresh`           | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
+| POST   | `/api/auth/logout`            | Ends the session                                                         | Public (no-op if already logged out) |
+| GET    | `/api/auth/me`                | The authenticated user's safe profile                                    | Required                             |
+| GET    | `/api/profile`                | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
+| PATCH  | `/api/profile`                | Update `firstName`/`lastName`/`phone` only                               | Required                             |
+| GET    | `/api/favorites`              | The authenticated customer's favorited products                          | Required                             |
+| POST   | `/api/favorites/:slug`        | Add a favorite (idempotent)                                              | Required                             |
+| DELETE | `/api/favorites/:slug`        | Remove a favorite (idempotent)                                           | Required                             |
+| GET    | `/api/optical-profile`        | The authenticated customer's frame measurements + style preferences      | Required                             |
+| PATCH  | `/api/optical-profile`        | Update any subset of measurements/preferences                            | Required                             |
+| GET    | `/api/recommendations`        | Ranked, explained product recommendations for the authenticated customer | Required                             |
+| GET    | `/api/recommendations/:slug`  | Personalized match for one product (Product Detail V2)                   | Required                             |
+| \*     | `/api/admin/brands*`          | Admin brand CRUD + soft-delete/restore — see "Admin" below               | Required (`Role.ADMIN`)              |
+| \*     | `/api/admin/categories*`      | Admin category CRUD + soft-delete/restore — see "Admin" below            | Required (`Role.ADMIN`)              |
+| \*     | `/api/admin/products*`        | Admin product/variant/image CRUD — see "Admin" below                     | Required (`Role.ADMIN`)              |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
@@ -247,6 +249,29 @@ message. Ranking is fully deterministic: `score` DESC, then `profileCoverage` (o
 match) DESC, then product id ASC — no randomness, verified by a test asserting identical output
 across repeated identical requests.
 
+## `GET /api/recommendations/:slug`
+
+Customer Experience V2, Product Detail V2's personalized-match section. Requires authentication.
+Same scoring core (`scoreProduct`) and DTO builder (`toRecommendationDto`) as the list endpoint
+above — extracted specifically so the two can never disagree about the same product (verified by a
+test asserting byte-identical output between them for the same customer/product pair).
+
+```json
+{
+  "recommendation": { "...": "same shape as one entry in GET /api/recommendations, or null" },
+  "profileCoverage": 70,
+  "confidenceLevel": "HIGH",
+  "profileIncomplete": false
+}
+```
+
+`recommendation: null` covers two distinct cases, told apart by `profileIncomplete`: an empty/
+unusable profile (`profileIncomplete: true` — nothing to compare at all), or a real, usable profile
+that simply has nothing comparable about _this specific_ product (`profileIncomplete: false` — the
+underlying `scoreProduct` returned `null`, e.g. this product has no shape/material/color/style/
+dimension overlap with anything the customer stated). Never an error in either case — a 200 either
+way. Unknown/deleted product slug → `404`.
+
 ## Admin
 
 `/api/admin/*` — every route requires `authenticate` + `authorize("ADMIN")`. See
@@ -395,6 +420,33 @@ public catalog data (brief §6). Unknown slug → `404 NOT_FOUND`, never `200` w
 `description` was listed as a _potential_ field in the brief but doesn't exist as a column on
 `Product` — omitted rather than invented, per "do not invent fields." Add the column first if the
 client wants per-product descriptive copy.
+
+## `GET /api/products/:slug/related`
+
+Customer Experience V2's "También puede interesarte" section. Public, no authentication.
+
+```json
+{ "data": [{ "...": "same shape as a GET /api/products listing row (ProductListItem)" }] }
+```
+
+Deterministic **weighted score**, not a sequential exclusive-filter cascade ("same category, else
+same brand, ..."), specifically so a small catalog still returns useful results even when no
+single signal is shared by many products:
+
+| Signal                  | Weight                                                          |
+| ----------------------- | --------------------------------------------------------------- |
+| Same category           | 40                                                              |
+| Same brand              | 25                                                              |
+| Same shape (normalized) | 15                                                              |
+| Any style in common     | 15                                                              |
+| Price proximity         | up to 15, degrading linearly to 0 at a 50%+ relative difference |
+| In stock                | +10 bonus                                                       |
+
+Ranked by total score descending, tiebroken by product id ascending (never random, never insertion
+order). Always excludes the product itself and soft-deleted products. Returns at most 4. `404` for
+an unknown/deleted target product. See `apps/api/src/services/products.service.ts`'s
+`getRelatedProducts` for the exact implementation and
+`docs/CUSTOMER_EXPERIENCE_V2.md` for the full reasoning.
 
 ## `GET /api/brands`, `GET /api/categories`
 
@@ -573,31 +625,42 @@ a `migrate reset` between runs.
 npm run test -w apps/api
 ```
 
-180 tests: the original 21 catalog tests, 28 auth/profile/favorites tests, 15 optical-profile
-tests, 70 for the recommendation engine (42 pure unit tests over the normalization/scoring core —
-`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data case,
-dimension tolerance bands, best-variant selection including the hard stock-availability partition,
-an all-variants-out-of-stock product staying recommendable, style-signal matching/non-matching/
-inapplicable cases, determinism, score bounds, ranking tiebreaks, coverage/tier boundary values
-immediately below/at/above each threshold — plus 10 `test/recommendations.test.ts` API integration
-tests: auth required, empty result for no profile, ranked real results once the profile has data,
-every reason has code/message/strength, every recommendation carries `matchEvidence`/
-`evidenceLevel`, a real single-signal profile scoring 100 with low (not high) evidence, `limit`
-respected and validated, cross-customer isolation, stable output across repeated requests), 26
-Admin tests (`test/admin/`: auth/role guard on every resource, slug generation and immutability,
-in-use guard on brand/category soft-delete, product/variant/image CRUD including cross-product
-404s and the one-primary-image-per-variant invariant, the image-upload signature endpoint's own
-auth/404/shape checks, provider-then-database delete ordering including a simulated remote
-failure, and the two live catalog/recommendation regressions — an Admin shape edit re-ranking a
-real recommendation, and an Admin stock edit preserving the stock hard-partition policy), 15
-Cloudinary-related tests split across three files with no real network call (7
-`test/lib/cloudinary.test.ts` — signature shape, idempotent delete, provider mocked one layer
-deep; 8 `test/services/image-provider.service.test.ts` — public_id scoping, freshness, ApiError
-translation; 1 `test/services/admin-products-orphan-cleanup.test.ts` — forces a DB failure after a
-successful "upload" and asserts best-effort remote cleanup is attempted), and 5
-`test/security/csrf.test.ts` tests guarding the bodyless-POST CSRF fix (a bare/form-content-typed
-request is rejected, a genuine `application/json` one still works, GET/PATCH/DELETE are
-unaffected).
+191 tests across 20 files. By area:
+
+- **Public catalog** (`test/products.test.ts`, `test/brands.test.ts`, `test/categories.test.ts`,
+  `test/branches.test.ts`, `test/health.test.ts`, `test/related-products.test.ts`): 27 tests,
+  including the 6 `GET /api/products/:slug/related` tests (404 for an unknown product,
+  self-exclusion, max 4, a same-brand product ranking above unrelated ones, the public
+  `ProductListItem` shape including `inStock` with no exact stock count leaked, deterministic
+  output).
+- **Auth/profile/favorites** (`test/auth.test.ts`, `test/profile.test.ts`,
+  `test/favorites.test.ts`): 28 tests.
+- **Optical profile**: 15 tests.
+- **Recommendation engine**: 75 tests — 42 pure unit tests over the normalization/scoring core
+  (`test/recommendation/`: every synonym/accent/hyphen/compound-color case, every missing-data
+  case, dimension tolerance bands, best-variant selection including the hard stock-availability
+  partition, style-signal matching/non-matching/inapplicable cases, determinism, score bounds,
+  ranking tiebreaks, coverage/tier boundary values immediately below/at/above each threshold), 18
+  more in `test/recommendation/normalize.test.ts`, and 15 `test/recommendations.test.ts` API
+  integration tests covering both `GET /api/recommendations` and `GET /api/recommendations/:slug`:
+  auth required, empty result for no profile, ranked real results once the profile has data, every
+  reason has code/message/strength, `matchEvidence`/`evidenceLevel`, a real single-signal profile
+  scoring 100 with low (not high) evidence, `limit` respected and validated, cross-customer
+  isolation, stable/deterministic output, 404 for an unknown product, and byte-identical output
+  between the list and single-product endpoints for the same product.
+- **Admin** (`test/admin/`): 25 tests — auth/role guard on every resource, slug generation and
+  immutability, in-use guard on brand/category soft-delete, product/variant/image CRUD including
+  cross-product 404s and the one-primary-image-per-variant invariant, the image-upload signature
+  endpoint's own auth/404/shape checks, provider-then-database delete ordering including a
+  simulated remote failure, and the two live catalog/recommendation regressions — an Admin shape
+  edit re-ranking a real recommendation, and an Admin stock edit preserving the stock
+  hard-partition policy.
+- **Cloudinary provider boundary**, no real network call (`test/lib/cloudinary.test.ts`,
+  `test/services/`): 16 tests — signature shape, idempotent delete, `ApiError` translation, and a
+  forced DB failure after a successful "upload" asserting best-effort remote cleanup.
+- **CSRF** (`test/security/csrf.test.ts`): 5 tests guarding the bodyless-POST fix (a bare/form-
+  content-typed request is rejected, a genuine `application/json` one still works, GET/PATCH/
+  DELETE are unaffected).
 
 ## Environment variables (this stage)
 
@@ -620,27 +683,13 @@ Found while building the Product Catalog UI (`apps/web`) against this contract �
 implemented around silently. Each was handled on the frontend without inventing data or an
 inefficient workaround; a proper fix is a future, approved backend change, not applied here.
 
-### No listing-level availability signal
+### ~~No listing-level availability signal~~ — resolved (Customer Experience V2)
 
-**Limitation:** `GET /api/products` (`ProductListItem`) has no stock/availability field — only
-`GET /api/products/:slug`'s per-variant `inStock` does. The catalog grid can't show "Disponible" /
-"Sin stock" on a product card without either fetching every product's detail just to populate a
-grid (defeats the point of a lean listing DTO) or fabricating a static label.
-
-**User impact:** none today — the frontend simply doesn't show availability on cards, only on the
-detail page, where the data genuinely exists. A shopper sees availability one click later than
-they might ideally.
-
-**Minimal API change:** add a computed `inStock: boolean` to `ProductListItem` — "true if any
-variant has `stock > 0`" — set in `products.service.ts`'s `attachListingExtras`, which already
-batches variant data per page (the same query that already produces `colors`), so this is
-additional projection on an existing query, not a new one.
-
-**Backwards compatibility:** fully additive — new field, nothing removed or renamed, no existing
-consumer affected.
-
-**Tests required:** a listing case with a mixed-stock product (some variants in stock, some not)
-asserting the aggregate is `true`; a case with every variant out of stock asserting `false`.
+`ProductListItem` now carries a computed `inStock: boolean` (true if any variant has `stock > 0`,
+never exact counts) — exactly the additive change predicted above, implemented in
+`lib/product-availability.ts` and reused by the catalog listing, favorites, and recommendations
+services so the rule can't drift between them. `ProductCard` shows a "Sin stock" badge when false.
+See the Customer Experience V2 docs for the full change.
 
 ### No facets endpoint for shape/material/color
 

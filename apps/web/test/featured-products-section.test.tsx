@@ -39,6 +39,7 @@ describe("FeaturedProductsSection", () => {
               category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
               shape: "aviator",
               styles: [],
+              inStock: true,
               price: 45000,
               frameMeasurements: {
                 lensWidth: 58,

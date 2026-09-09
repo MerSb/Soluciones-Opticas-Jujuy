@@ -47,3 +47,19 @@ export function useProductQuery(slug: string | undefined) {
 export function isNotFoundError(error: unknown): boolean {
   return error instanceof ApiClientError && error.status === 404;
 }
+
+// Product Detail V2's "También puede interesarte" section — public, no
+// auth needed, matches useProductQuery's own not-found handling so a
+// slug that stops existing mid-session doesn't retry forever.
+export function useRelatedProductsQuery(slug: string | undefined) {
+  return useQuery({
+    queryKey: ["products", "detail", slug, "related"],
+    queryFn: () => apiGet<{ data: ProductListItem[] }>(`/api/products/${slug}/related`),
+    select: (response) => response.data,
+    enabled: Boolean(slug),
+    retry: (failureCount, error) => {
+      if (error instanceof ApiClientError && error.status === 404) return false;
+      return failureCount < 1;
+    },
+  });
+}

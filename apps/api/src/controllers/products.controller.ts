@@ -18,3 +18,12 @@ export const getProduct = asyncHandler(async (_req: Request, res: Response) => {
   }
   res.json(product);
 });
+
+export const getRelatedProducts = asyncHandler(async (_req: Request, res: Response) => {
+  const { slug } = res.locals.params as { slug: string };
+  const related = await productsService.getRelatedProducts(slug);
+  if (!related) {
+    throw ApiError.notFound(`No product found with slug "${slug}".`);
+  }
+  res.json({ data: related });
+});

@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { computeInStock } from "../lib/product-availability.js";
+import { normalizeShape } from "./recommendation/normalize.js";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
 import type {
   BrandRef,
@@ -332,6 +334,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
     select: {
       productId: true,
       color: true,
+      stock: true,
       images: {
         where: { isPrimary: true },
         take: 1,
@@ -343,6 +346,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
 
   const colorsByProduct = new Map<string, Set<string>>();
   const imageByProduct = new Map<string, ProductImageDto>();
+  const variantsByProduct = new Map<string, { stock: number }[]>();
 
   for (const variant of variants) {
     if (variant.color) {
@@ -358,6 +362,9 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
         isPrimary: true,
       });
     }
+    const productVariants = variantsByProduct.get(variant.productId) ?? [];
+    productVariants.push({ stock: variant.stock });
+    variantsByProduct.set(variant.productId, productVariants);
   }
 
   return rows.map((row) => ({
@@ -377,5 +384,204 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
     },
     colors: Array.from(colorsByProduct.get(row.id) ?? []).sort(),
     image: imageByProduct.get(row.id) ?? null,
+    inStock: computeInStock(variantsByProduct.get(row.id) ?? []),
   }));
+}
+
+// -------- related products (Customer Experience V2) --------
+//
+// A deterministic weighted score, not sequential exclusive filters
+// ("same category, else same brand, ..."): with a catalog this small,
+// a strict cascade often returns zero or one result once the first
+// tier is exhausted. Scoring every signal at once and ranking by total
+// gives a graceful blend even when no single signal is shared by many
+// products. No ML, no randomness — same inputs always produce the same
+// ranked list.
+const RELATED_WEIGHTS = {
+  CATEGORY: 40,
+  BRAND: 25,
+  SHAPE: 15,
+  STYLE: 15,
+  PRICE: 15,
+  IN_STOCK_BONUS: 10,
+} as const;
+
+// Price closeness degrades linearly from full credit at an identical
+// price to zero once the two prices differ by 50% or more of the
+// target's own price — a plain, explainable curve, not a statistical
+// model.
+const PRICE_FULL_CREDIT_TOLERANCE = 0;
+const PRICE_ZERO_CREDIT_RATIO = 0.5;
+
+const MAX_RELATED_PRODUCTS = 4;
+
+interface RelatedCandidateRow {
+  id: string;
+  name: string;
+  slug: string;
+  shape: string | null;
+  styles: string[];
+  basePrice: number;
+  brandId: string;
+  categoryId: string;
+  lensWidth: number | null;
+  bridgeWidth: number | null;
+  templeLength: number | null;
+  lensHeight: number | null;
+  frameWidth: number | null;
+  brand: BrandRef;
+  category: CategoryRef;
+  variants: {
+    color: string | null;
+    stock: number;
+    images: { cloudinaryPublicId: string; alt: string }[];
+  }[];
+}
+
+function scoreRelatedCandidate(
+  candidate: RelatedCandidateRow,
+  target: {
+    brandId: string;
+    categoryId: string;
+    shape: string | null;
+    styles: string[];
+    basePrice: number;
+  },
+): number {
+  let score = 0;
+
+  if (candidate.categoryId === target.categoryId) score += RELATED_WEIGHTS.CATEGORY;
+  if (candidate.brandId === target.brandId) score += RELATED_WEIGHTS.BRAND;
+
+  const targetShape = normalizeShape(target.shape);
+  const candidateShape = normalizeShape(candidate.shape);
+  if (targetShape && candidateShape && targetShape === candidateShape) {
+    score += RELATED_WEIGHTS.SHAPE;
+  }
+
+  if (target.styles.length > 0 && candidate.styles.some((style) => target.styles.includes(style))) {
+    score += RELATED_WEIGHTS.STYLE;
+  }
+
+  if (target.basePrice > 0) {
+    const relativeDifference = Math.abs(candidate.basePrice - target.basePrice) / target.basePrice;
+    const priceCreditRatio = Math.max(
+      0,
+      1 -
+        (relativeDifference - PRICE_FULL_CREDIT_TOLERANCE) /
+          (PRICE_ZERO_CREDIT_RATIO - PRICE_FULL_CREDIT_TOLERANCE),
+    );
+    score += RELATED_WEIGHTS.PRICE * Math.min(1, priceCreditRatio);
+  }
+
+  if (computeInStock(candidate.variants)) score += RELATED_WEIGHTS.IN_STOCK_BONUS;
+
+  return score;
+}
+
+function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
+  const colors = Array.from(
+    new Set(row.variants.map((v) => v.color).filter((c): c is string => Boolean(c))),
+  ).sort();
+  const withImage = row.variants.find((v) => v.images[0]);
+  const primaryImage = withImage?.images[0];
+
+  return {
+    name: row.name,
+    slug: row.slug,
+    brand: row.brand,
+    category: row.category,
+    shape: row.shape,
+    styles: row.styles as StylePreference[],
+    price: row.basePrice,
+    frameMeasurements: {
+      lensWidth: row.lensWidth,
+      bridgeWidth: row.bridgeWidth,
+      templeLength: row.templeLength,
+      lensHeight: row.lensHeight,
+      frameWidth: row.frameWidth,
+    },
+    colors,
+    image: primaryImage
+      ? { publicId: primaryImage.cloudinaryPublicId, alt: primaryImage.alt, isPrimary: true }
+      : null,
+    inStock: computeInStock(row.variants),
+  };
+}
+
+// Returns null when the target product itself doesn't exist (or is
+// soft-deleted) — the controller maps that to a 404, same convention
+// as getProductBySlug.
+export async function getRelatedProducts(slug: string): Promise<ProductListItem[] | null> {
+  const target = await prisma.product.findUnique({
+    where: { slug, deletedAt: null },
+    select: {
+      id: true,
+      brandId: true,
+      categoryId: true,
+      shape: true,
+      styles: true,
+      basePrice: true,
+    },
+  });
+  if (!target) return null;
+
+  const candidates = await prisma.product.findMany({
+    where: { deletedAt: null, id: { not: target.id } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      shape: true,
+      styles: true,
+      basePrice: true,
+      brandId: true,
+      categoryId: true,
+      lensWidth: true,
+      bridgeWidth: true,
+      templeLength: true,
+      lensHeight: true,
+      frameWidth: true,
+      brand: { select: { name: true, slug: true } },
+      category: { select: { name: true, slug: true } },
+      variants: {
+        select: {
+          color: true,
+          stock: true,
+          images: {
+            where: { isPrimary: true },
+            take: 1,
+            orderBy: { sortOrder: "asc" },
+            select: { cloudinaryPublicId: true, alt: true },
+          },
+        },
+      },
+    },
+  });
+
+  const targetForScoring = {
+    brandId: target.brandId,
+    categoryId: target.categoryId,
+    shape: target.shape,
+    styles: target.styles as string[],
+    basePrice: target.basePrice.toNumber(),
+  };
+
+  const rows: RelatedCandidateRow[] = candidates.map((c) => ({
+    ...c,
+    basePrice: c.basePrice.toNumber(),
+  }));
+
+  const ranked = rows
+    .map((row) => ({ row, score: scoreRelatedCandidate(row, targetForScoring) }))
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      // Deterministic tiebreak — never random, never insertion order
+      // left to the database, same principle as the recommendation
+      // engine's own ranking (ADR-0020).
+      return a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0;
+    })
+    .slice(0, MAX_RELATED_PRODUCTS);
+
+  return ranked.map(({ row }) => relatedCandidateToListItem(row));
 }

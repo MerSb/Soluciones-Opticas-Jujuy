@@ -6,13 +6,10 @@ import { FavoriteButton } from "./FavoriteButton";
 import { formatPrice } from "../../lib/format-price";
 import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 
-// Deliberately does NOT show availability — see docs/API.md "Known
-// limitations". GET /api/products (the listing endpoint this card reads)
-// doesn't expose a stock signal today, only GET /api/products/:slug's
-// per-variant `inStock` does. Showing availability here would mean
-// either a fake static label or fetching every product's detail just to
-// render a grid, neither of which is honest or efficient — flagged as a
-// minimal, backward-compatible API addition for later, not invented now.
+// Common to every context this card appears in (catalog, favorites,
+// related, recommendations) — per Customer Experience V2, an
+// improvement that's genuinely universal belongs directly on
+// ProductCard rather than as a per-context wrapper concern.
 export function ProductCard({ product }: { product: ProductListItem }) {
   const sizeSummary = buildSizeSummary(product.frameMeasurements);
 
@@ -23,6 +20,11 @@ export function ProductCard({ product }: { product: ProductListItem }) {
     // wraps both in a plain positioned <div> instead.
     <div className="group relative overflow-hidden rounded-lg border border-border bg-surface-muted shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary hover:shadow-elevated focus-within:border-primary">
       <FavoriteButton slug={product.slug} className="absolute right-3 top-3 z-10" />
+      {!product.inStock && (
+        <span className="absolute left-3 top-3 z-10 rounded-full bg-surface/90 px-2.5 py-1 text-xs font-medium text-text-muted shadow-soft">
+          Sin stock
+        </span>
+      )}
       <Link to={`/products/${product.slug}`} className="block">
         {/* Card-level microinteraction (§15): a subtle 1.02 scale on
             hover, matching every other product/brand image treatment

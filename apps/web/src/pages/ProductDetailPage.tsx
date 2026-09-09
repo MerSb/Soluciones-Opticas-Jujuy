@@ -10,8 +10,23 @@ import { ProductGallery } from "../components/products/ProductGallery";
 import { FavoriteButton } from "../components/products/FavoriteButton";
 import { VariantSelector } from "../components/products/VariantSelector";
 import { MeasurementsTable } from "../components/products/MeasurementsTable";
+import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
+import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
 import { formatPrice } from "../lib/format-price";
+import { buildProductInquiryMessage } from "../lib/whatsapp";
+import { buildCloudinaryUrl } from "../lib/cloudinary";
+import { STYLE_PREFERENCE_OPTIONS } from "../lib/optical-profile-taxonomy";
+
+// `product.shape`/`variant.material` are free text (never a forced
+// enum — see ADR-0019/ADR-0020's normalization reasoning, which is a
+// backend scoring concern, not a display one). Capitalized as-is
+// rather than guessed at against the recommendation engine's own
+// synonym table — showing exactly what was entered is more honest than
+// a display-only remapping that could silently disagree with it.
+function capitalizeFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 export function ProductDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -63,7 +78,7 @@ export function ProductDetailPage() {
     );
   }
 
-  if (!product) return null;
+  if (!product || !slug) return null;
 
   // Defensive, not expected in practice — every product in the schema
   // ships with at least one variant (ADR-0004) — but TypeScript can't
@@ -83,9 +98,18 @@ export function ProductDetailPage() {
   const selectedVariant: ProductVariantDto =
     product.variants.find((variant) => variant.id === selectedVariantId) ?? firstVariant;
 
-  const whatsappMessage = selectedVariant.color
-    ? `Hola, quisiera consultar por ${product.name}, color ${selectedVariant.color}.`
-    : `Hola, quisiera consultar por el modelo ${product.name}.`;
+  const primaryImage =
+    selectedVariant.images.find((image) => image.isPrimary) ?? selectedVariant.images[0];
+  const ogImage = primaryImage
+    ? (buildCloudinaryUrl(primaryImage.publicId, { width: 1200 }) ?? undefined)
+    : undefined;
+
+  const whatsappMessage = buildProductInquiryMessage({
+    productName: product.name,
+    brandName: product.brand.name,
+    color: selectedVariant.color,
+    productUrl: typeof window !== "undefined" ? window.location.href : null,
+  });
 
   return (
     <>
@@ -93,6 +117,7 @@ export function ProductDetailPage() {
         title={product.name}
         description={`${product.name} de ${product.brand.name} — ${formatPrice(product.price)}. Disponible en Soluciones Ópticas.`}
         canonicalPath={`/products/${product.slug}`}
+        ogImage={ogImage}
       />
       <Container className="py-12">
         <Breadcrumbs
@@ -134,6 +159,39 @@ export function ProductDetailPage() {
               </span>
             </p>
 
+            {/* Product attributes — only ever the ones that actually
+                have data (§1: never render null/undefined/""/[]). */}
+            {(product.shape || selectedVariant.material || product.styles.length > 0) && (
+              <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                {product.shape && (
+                  <div className="flex gap-1.5">
+                    <dt className="text-text-muted">Forma:</dt>
+                    <dd className="text-text">{capitalizeFirst(product.shape)}</dd>
+                  </div>
+                )}
+                {selectedVariant.material && (
+                  <div className="flex gap-1.5">
+                    <dt className="text-text-muted">Material:</dt>
+                    <dd className="text-text">{capitalizeFirst(selectedVariant.material)}</dd>
+                  </div>
+                )}
+                {product.styles.length > 0 && (
+                  <div className="flex gap-1.5">
+                    <dt className="text-text-muted">Estilo:</dt>
+                    <dd className="text-text">
+                      {product.styles
+                        .map(
+                          (style) =>
+                            STYLE_PREFERENCE_OPTIONS.find((option) => option.value === style)
+                              ?.label ?? style,
+                        )
+                        .join(", ")}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
+
             {product.variants.length > 1 && (
               <div className="mt-6">
                 <VariantSelector
@@ -151,8 +209,12 @@ export function ProductDetailPage() {
             <div className="mt-8">
               <WhatsAppButton message={whatsappMessage}>Consultar por WhatsApp</WhatsAppButton>
             </div>
+
+            <ProductMatchSection slug={slug} />
           </div>
         </div>
+
+        <RelatedProductsSection slug={slug} />
       </Container>
     </>
   );

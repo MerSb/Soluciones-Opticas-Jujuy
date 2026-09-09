@@ -41,6 +41,7 @@ describe("PromotionsSection", () => {
               category: { name: "Promociones", slug: "promociones" },
               shape: "aviator",
               styles: [],
+              inStock: true,
               price: 38000,
               frameMeasurements: {
                 lensWidth: 58,

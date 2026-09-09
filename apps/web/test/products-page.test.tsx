@@ -10,6 +10,7 @@ const BASE_PRODUCT = {
   category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
   shape: "aviator",
   styles: [],
+  inStock: true,
   frameMeasurements: {
     lensWidth: 58,
     bridgeWidth: 14,
