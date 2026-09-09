@@ -91,9 +91,21 @@ export function AdminProductsPage() {
                       <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs text-text-muted">
                         Eliminado
                       </span>
-                    ) : (
+                    ) : product.isComplete ? (
                       <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
                         Activo
+                      </span>
+                    ) : (
+                      // Real Catalog Readiness §4: "Activo" alone used to
+                      // imply "ready to show customers," which isn't true
+                      // for a product with no variant or no image yet —
+                      // this state is now called out explicitly instead of
+                      // being indistinguishable from a finished product.
+                      <span
+                        className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
+                        title="Todavía no tiene variante y/o imagen — no es visible en el catálogo público."
+                      >
+                        Incompleto
                       </span>
                     )}
                   </td>

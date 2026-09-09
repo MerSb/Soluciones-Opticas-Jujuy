@@ -189,7 +189,15 @@ function BrandRow({ brand }: { brand: AdminBrandDto }) {
           ) : (
             <button
               type="button"
-              onClick={() => deleteBrand.mutate(brand.id)}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `¿Eliminar la marca "${brand.name}"? Vas a poder restaurarla después.`,
+                  )
+                ) {
+                  deleteBrand.mutate(brand.id);
+                }
+              }}
               disabled={deleteBrand.isPending}
               className="text-sm font-medium text-danger hover:underline disabled:opacity-60"
             >

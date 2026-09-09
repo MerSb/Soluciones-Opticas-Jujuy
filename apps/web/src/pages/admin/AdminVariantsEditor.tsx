@@ -148,11 +148,24 @@ export function AdminVariantsEditor({
   );
 }
 
+// Real Catalog Readiness §9 — explains the irreversible, cascading
+// consequences in plain language (never mentions Cloudinary/providers)
+// before the variant (and everything it carries) is gone for good.
+function confirmDeleteVariant(imageCount: number): boolean {
+  const message =
+    imageCount > 0
+      ? `Esta variante tiene ${imageCount} ${imageCount === 1 ? "imagen cargada" : "imágenes cargadas"}. Al eliminarla también se eliminarán sus imágenes y stock. Esta acción no se puede deshacer.`
+      : "Al eliminar esta variante también se eliminará su información de stock. Esta acción no se puede deshacer.";
+  return window.confirm(message);
+}
+
 function VariantCard({ productId, variant }: { productId: string; variant: AdminVariantDto }) {
   const updateVariant = useUpdateVariantMutation(productId);
   const deleteVariant = useDeleteVariantMutation(productId);
   const [stock, setStock] = useState(variant.stock.toString());
 
+  const updateError =
+    updateVariant.error instanceof ApiClientError ? updateVariant.error.message : undefined;
   const deleteError =
     deleteVariant.error instanceof ApiClientError ? deleteVariant.error.message : undefined;
 
@@ -183,11 +196,15 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
             disabled={updateVariant.isPending || Number(stock) === variant.stock}
             className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
           >
-            Guardar stock
+            {updateVariant.isPending ? "Guardando…" : "Guardar stock"}
           </button>
           <button
             type="button"
-            onClick={() => deleteVariant.mutate(variant.id)}
+            onClick={() => {
+              if (confirmDeleteVariant(variant.images.length)) {
+                deleteVariant.mutate(variant.id);
+              }
+            }}
             disabled={deleteVariant.isPending}
             className="text-sm font-medium text-danger hover:underline disabled:opacity-60"
           >
@@ -195,7 +212,16 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
           </button>
         </div>
       </div>
-      {deleteError && <p className="mt-1 text-xs text-danger">{deleteError}</p>}
+      {updateError && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          No pudimos guardar el stock: {updateError}
+        </p>
+      )}
+      {deleteError && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          {deleteError}
+        </p>
+      )}
 
       <ImagesEditor productId={productId} variantId={variant.id} images={variant.images} />
     </div>
@@ -246,7 +272,11 @@ function ImagesEditor({
             )}
             <button
               type="button"
-              onClick={() => deleteImage.mutate(image.id)}
+              onClick={() => {
+                if (window.confirm("¿Eliminar esta imagen? Esta acción no se puede deshacer.")) {
+                  deleteImage.mutate(image.id);
+                }
+              }}
               disabled={deleteImage.isPending}
               className="mt-1 block text-xs font-medium text-danger hover:underline disabled:opacity-60"
             >
