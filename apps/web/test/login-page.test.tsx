@@ -96,6 +96,18 @@ describe("LoginPage", () => {
     expect(passwordField).toHaveAttribute("type", "password");
   });
 
+  it("swaps the illustration caption once a password is typed, and back once it's cleared", async () => {
+    renderLogin();
+    expect(screen.getByText("¡Hola de nuevo!")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Contraseña"), "a");
+    expect(screen.getByText("Shh, no estamos mirando 👀")).toBeInTheDocument();
+    expect(screen.queryByText("¡Hola de nuevo!")).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Contraseña"));
+    expect(screen.getByText("¡Hola de nuevo!")).toBeInTheDocument();
+  });
+
   it("redirects back to the page a guest came from after login, and finishes the intended favorite", async () => {
     const calledPaths: string[] = [];
     vi.stubGlobal(
