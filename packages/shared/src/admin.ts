@@ -204,3 +204,34 @@ export interface UploadSignatureDto {
   allowedFormats: string;
   maxFileSizeBytes: number;
 }
+
+// Admin Dashboard V2 — apps/api's GET /api/admin/dashboard produces
+// this. Every metric is a count, never a full row dump; alerts are
+// small, fixed-size samples (never the full offending set) meant for a
+// quick operational glance, not a report. See
+// docs/ADMIN_DASHBOARD_V2.md for the exact definition behind each
+// field.
+export interface AdminDashboardMetrics {
+  activeProducts: number;
+  outOfStockProducts: number;
+  productsWithoutImages: number;
+  activeBrands: number;
+  activeCategories: number;
+  /** All non-soft-deleted users, every role included — "usuarios
+   * registrados en el sistema," not a customer-only commercial metric. */
+  registeredUsers: number;
+}
+
+export interface AdminDashboardAlertProduct {
+  id: string;
+  name: string;
+  brandName: string;
+}
+
+export interface AdminDashboardResponse {
+  metrics: AdminDashboardMetrics;
+  alerts: {
+    outOfStock: AdminDashboardAlertProduct[];
+    withoutImages: AdminDashboardAlertProduct[];
+  };
+}

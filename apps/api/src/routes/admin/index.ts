@@ -3,6 +3,7 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { authorize } from "../../middleware/authorize.js";
 import { adminBrandsRouter } from "./brands.routes.js";
 import { adminCategoriesRouter } from "./categories.routes.js";
+import { adminDashboardRouter } from "./dashboard.routes.js";
 import { adminProductsRouter } from "./products.routes.js";
 
 export const adminRouter = Router();
@@ -18,3 +19,4 @@ adminRouter.use(authenticate, authorize("ADMIN"));
 adminRouter.use("/brands", adminBrandsRouter);
 adminRouter.use("/categories", adminCategoriesRouter);
 adminRouter.use("/products", adminProductsRouter);
+adminRouter.use("/dashboard", adminDashboardRouter);
