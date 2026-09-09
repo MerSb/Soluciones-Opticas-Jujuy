@@ -300,6 +300,7 @@ endpoint reference.
 | POST                          | `/api/admin/products/:id/variants/:variantId/images`             | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary? }` — persists metadata _after_ the browser already uploaded directly to Cloudinary |
 | PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId`    |                                                                                                                                       |
 | DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId`    | Hard delete — deletes the remote Cloudinary asset first, then the DB row (see below)                                                  |
+| GET                           | `/api/admin/dashboard`                                           | `/admin`'s landing page data — KPIs + small operational alerts. See `docs/ADMIN_DASHBOARD_V2.md` for exact metric/alert definitions   |
 
 **Image upload:** real, signed direct-to-Cloudinary upload — see
 `docs/adr/0022-cloudinary-image-pipeline.md` and `docs/IMAGE_PIPELINE.md` for the full
