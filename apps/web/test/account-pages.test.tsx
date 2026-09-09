@@ -99,8 +99,11 @@ describe("FavoritesPage", () => {
     });
     renderAccount("/account/favorites");
 
-    expect(await screen.findByText("Todavía no tenés favoritos")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ver catálogo" })).toHaveAttribute("href", "/products");
+    expect(await screen.findByText("Aún no guardaste productos favoritos.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Explorar anteojos" })).toHaveAttribute(
+      "href",
+      "/products",
+    );
   });
 
   it("lists favorited products using the real catalog product card", async () => {
@@ -119,6 +122,7 @@ describe("FavoritesPage", () => {
               category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
               shape: "aviator",
               styles: [],
+              inStock: true,
               price: 45000,
               frameMeasurements: {
                 lensWidth: null,
@@ -140,6 +144,64 @@ describe("FavoritesPage", () => {
       "href",
       "/products/andina-aviador",
     );
+    expect(screen.getByRole("link", { name: "Ver producto" })).toHaveAttribute(
+      "href",
+      "/products/andina-aviador",
+    );
+    expect(screen.getByRole("link", { name: /consultar por whatsapp/i })).toHaveAttribute(
+      "target",
+      "_blank",
+    );
+    // Two controls both read/write the same favorite state: the card's
+    // own icon-only heart overlay (ProductCard, unchanged) and the new
+    // explicit labeled button this page adds alongside "Ver producto"/
+    // WhatsApp — both expose the same accessible name once a product is
+    // favorited.
+    expect(screen.getAllByRole("button", { name: /quitar de favoritos/i }).length).toBe(2);
+  });
+
+  it("removes a favorite and shows the empty state once none remain", async () => {
+    let favorites: unknown[] = [
+      {
+        id: "f1",
+        createdAt: new Date().toISOString(),
+        product: {
+          name: "Andina Aviador",
+          slug: "andina-aviador",
+          brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
+          category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
+          shape: "aviator",
+          styles: [],
+          inStock: true,
+          price: 45000,
+          frameMeasurements: {
+            lensWidth: null,
+            bridgeWidth: null,
+            templeLength: null,
+            lensHeight: null,
+            frameWidth: null,
+          },
+          colors: ["Negro"],
+          image: null,
+        },
+      },
+    ];
+    mockFetch({
+      "/api/auth/me": { ok: true, json: async () => ME },
+      "/api/favorites": () => ({ ok: true, json: async () => favorites }),
+      "DELETE /api/favorites/andina-aviador": () => {
+        favorites = [];
+        return { ok: true, status: 204, json: async () => undefined };
+      },
+    });
+    renderAccount("/account/favorites");
+
+    const [, labeledRemoveButton] = await screen.findAllByRole("button", {
+      name: /quitar de favoritos/i,
+    });
+    await userEvent.click(labeledRemoveButton!);
+
+    expect(await screen.findByText("Aún no guardaste productos favoritos.")).toBeInTheDocument();
   });
 });
 

@@ -113,6 +113,7 @@ describe("FavoriteButton", () => {
                     category: { name: "Sol", slug: "sol" },
                     shape: null,
                     styles: [],
+                    inStock: true,
                     price: 1,
                     frameMeasurements: {
                       lensWidth: null,

@@ -42,30 +42,67 @@ const PRODUCT_DETAIL = {
   ],
 };
 
-// ProductDetailPage now also renders a FavoriteButton, which fires its
-// own GET /api/auth/me (and, once "authenticated", GET /api/favorites)
-// alongside the product fetch — a blanket "return the product for every
-// call" mock would hand that unrelated data back for those too. This
-// dispatches by path so each endpoint gets a shape it can actually
-// parse, matching how the real API actually responds per-route.
-function mockFetch(productResponse: {
-  ok: boolean;
-  status?: number;
-  json: () => Promise<unknown>;
-}) {
+// ProductDetailPage now also renders a FavoriteButton (GET /api/auth/me,
+// then GET /api/favorites once "authenticated"), a RelatedProductsSection
+// (GET /api/products/:slug/related, always — public, no auth needed),
+// and a ProductMatchSection (GET /api/recommendations/:slug, only once
+// authenticated) — a blanket "return the product for every call" mock
+// would hand that unrelated data back for those too. This dispatches by
+// path so each endpoint gets a shape it can actually parse, matching how
+// the real API actually responds per-route.
+function mockFetch(
+  productResponse: { ok: boolean; status?: number; json: () => Promise<unknown> },
+  overrides: {
+    authenticated?: boolean;
+    related?: { ok: boolean; status?: number; json: () => Promise<unknown> };
+    recommendation?: { ok: boolean; status?: number; json: () => Promise<unknown> };
+  } = {},
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string | URL) => {
       const path = new URL(url).pathname;
       if (path === "/api/auth/me") {
-        return {
-          ok: false,
-          status: 401,
-          json: async () => ({ error: { code: "UNAUTHENTICATED", message: "Not logged in." } }),
-        };
+        return overrides.authenticated
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                id: "u1",
+                email: "ana@example.com",
+                firstName: "Ana",
+                lastName: "Gómez",
+                phone: null,
+                role: "CUSTOMER",
+              }),
+            }
+          : {
+              ok: false,
+              status: 401,
+              json: async () => ({
+                error: { code: "UNAUTHENTICATED", message: "Not logged in." },
+              }),
+            };
       }
       if (path === "/api/favorites") {
         return { ok: true, status: 200, json: async () => [] };
+      }
+      if (path.endsWith("/related")) {
+        return overrides.related ?? { ok: true, status: 200, json: async () => ({ data: [] }) };
+      }
+      if (path.startsWith("/api/recommendations/")) {
+        return (
+          overrides.recommendation ?? {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              recommendation: null,
+              profileCoverage: 0,
+              confidenceLevel: "LOW",
+              profileIncomplete: true,
+            }),
+          }
+        );
       }
       return productResponse;
     }),
@@ -143,5 +180,143 @@ describe("ProductDetailPage", () => {
       "/products",
     );
     expect(screen.queryByText(/not_found|500|internal/i)).not.toBeInTheDocument();
+  });
+
+  it("shows shape, material, and style attributes when present", async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ({ ...PRODUCT_DETAIL, styles: ["CLASSIC", "URBAN"] }),
+    });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(screen.getByText("Aviator")).toBeInTheDocument();
+    expect(screen.getByText("Metal")).toBeInTheDocument();
+    expect(screen.getByText("Clásico, Urbano")).toBeInTheDocument();
+  });
+
+  it("never renders the attributes row when shape/material/styles are all absent", async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ({
+        ...PRODUCT_DETAIL,
+        shape: null,
+        styles: [],
+        variants: PRODUCT_DETAIL.variants.map((v) => ({ ...v, material: null })),
+      }),
+    });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(screen.queryByText("Forma:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Material:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Estilo:")).not.toBeInTheDocument();
+  });
+
+  it("renders related products once loaded, excluding nothing the API didn't already exclude", async () => {
+    mockFetch(
+      { ok: true, json: async () => PRODUCT_DETAIL },
+      {
+        related: {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              {
+                name: "Andina Redondo",
+                slug: "andina-redondo",
+                brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
+                category: { name: "Anteojos Recetados", slug: "anteojos-recetados" },
+                shape: "round",
+                styles: [],
+                inStock: true,
+                price: 41000,
+                frameMeasurements: {
+                  lensWidth: null,
+                  bridgeWidth: null,
+                  templeLength: null,
+                  lensHeight: null,
+                  frameWidth: null,
+                },
+                colors: [],
+                image: null,
+              },
+            ],
+          }),
+        },
+      },
+    );
+    renderProductDetail("andina-aviador");
+
+    expect(await screen.findByText("También puede interesarte")).toBeInTheDocument();
+    expect(await screen.findByText("Andina Redondo")).toBeInTheDocument();
+  });
+
+  it("renders no related-products section when the API returns none", async () => {
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(screen.queryByText("También puede interesarte")).not.toBeInTheDocument();
+  });
+
+  it("shows nothing from the personalized-match section for a guest", async () => {
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL }, { authenticated: false });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(screen.queryByText("Tu compatibilidad con este modelo")).not.toBeInTheDocument();
+    expect(screen.queryByText(/completá tus medidas/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a profile-completion CTA when authenticated with an incomplete profile", async () => {
+    mockFetch({ ok: true, json: async () => PRODUCT_DETAIL }, { authenticated: true });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(await screen.findByText(/completá tus medidas y preferencias/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Completar mi perfil" })).toHaveAttribute(
+      "href",
+      "/account/optical-profile",
+    );
+  });
+
+  it("shows the real compatibility score and reasons when authenticated with a usable match", async () => {
+    mockFetch(
+      { ok: true, json: async () => PRODUCT_DETAIL },
+      {
+        authenticated: true,
+        recommendation: {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            recommendation: {
+              product: PRODUCT_DETAIL,
+              score: 82,
+              tier: "HIGH",
+              matchEvidence: 70,
+              evidenceLevel: "HIGH",
+              reasons: [
+                {
+                  code: "PREFERRED_SHAPE",
+                  message: "La forma coincide con una de tus preferencias.",
+                  strength: "STRONG",
+                },
+              ],
+              bestVariant: { id: "v1", color: "Negro", material: "Metal", inStock: true },
+            },
+            profileCoverage: 70,
+            confidenceLevel: "HIGH",
+            profileIncomplete: false,
+          }),
+        },
+      },
+    );
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+
+    expect(await screen.findByText("Tu compatibilidad con este modelo")).toBeInTheDocument();
+    expect(screen.getByText(/82%/)).toBeInTheDocument();
+    expect(screen.getByText("La forma coincide con una de tus preferencias.")).toBeInTheDocument();
   });
 });
