@@ -139,7 +139,13 @@ export const routes: RouteObject[] = [
               return { Component: AdminLayout };
             },
             children: [
-              { index: true, element: <Navigate to="/admin/products" replace /> },
+              {
+                index: true,
+                lazy: async () => {
+                  const { AdminDashboardPage } = await import("../pages/admin/AdminDashboardPage");
+                  return { Component: AdminDashboardPage };
+                },
+              },
               {
                 path: "products",
                 lazy: async () => {

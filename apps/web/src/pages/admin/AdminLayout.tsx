@@ -3,6 +3,7 @@ import { Container } from "../../components/ui/Container";
 import { useCurrentUserQuery, useLogoutMutation } from "../../services/queries/auth";
 
 const NAV_ITEMS = [
+  { to: "/admin", label: "Dashboard", end: true },
   { to: "/admin/products", label: "Productos" },
   { to: "/admin/brands", label: "Marcas" },
   { to: "/admin/categories", label: "Categorías" },
@@ -43,6 +44,7 @@ export function AdminLayout() {
             <li key={item.to}>
               <NavLink
                 to={item.to}
+                end={item.end}
                 className={({ isActive }) =>
                   `inline-block border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
                     isActive
