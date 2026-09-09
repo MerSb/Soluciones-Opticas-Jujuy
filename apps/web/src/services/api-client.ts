@@ -31,9 +31,18 @@ let refreshInFlight: Promise<boolean> | null = null;
 
 function refreshSession(): Promise<boolean> {
   if (!refreshInFlight) {
+    // Content-Type is required even for this bodyless POST — the API's
+    // requireJsonContentType middleware (added for the Cloudinary/
+    // staging-readiness CSRF re-evaluation) rejects any POST without a
+    // genuine application/json Content-Type, and this call bypasses
+    // apiPost (which already sets it), so it needs it explicitly. A
+    // real regression caught live during Customer Experience V2
+    // verification: every guest page load's silent-refresh attempt was
+    // failing with 415 instead of a clean "no valid session" 401.
     refreshInFlight = fetch(new URL("/api/auth/refresh", env.apiBaseUrl), {
       method: "POST",
       credentials: "include",
+      headers: { "Content-Type": "application/json" },
     })
       .then((response) => response.ok)
       .catch(() => false)
