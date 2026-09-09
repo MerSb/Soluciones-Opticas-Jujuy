@@ -40,15 +40,29 @@ export function SeoHead({ title, description, canonicalPath, ogImage }: SeoHeadP
       meta.setAttribute("content", content);
     }
 
+    // Every optional tag is removed, not just left stale, when the next
+    // page doesn't provide it — otherwise a plain SPA navigation (no
+    // full reload) from a page that does (e.g. a product) to one that
+    // doesn't (e.g. "Mis favoritos") would keep describing/previewing
+    // the previous page.
+    function clearMeta(selector: string) {
+      document.querySelector(selector)?.remove();
+    }
+
     if (description) {
       setMeta('meta[name="description"]', "name", "description", description);
       setMeta('meta[property="og:description"]', "property", "og:description", description);
+    } else {
+      clearMeta('meta[name="description"]');
+      clearMeta('meta[property="og:description"]');
     }
 
     setMeta('meta[property="og:title"]', "property", "og:title", fullTitle);
     setMeta('meta[property="og:type"]', "property", "og:type", "website");
     if (ogImage) {
       setMeta('meta[property="og:image"]', "property", "og:image", ogImage);
+    } else {
+      clearMeta('meta[property="og:image"]');
     }
 
     if (canonicalPath) {
@@ -63,6 +77,9 @@ export function SeoHead({ title, description, canonicalPath, ogImage }: SeoHeadP
       link.setAttribute("href", absoluteUrl);
 
       setMeta('meta[property="og:url"]', "property", "og:url", absoluteUrl);
+    } else {
+      document.querySelector('link[rel="canonical"]')?.remove();
+      clearMeta('meta[property="og:url"]');
     }
   }, [title, description, canonicalPath, ogImage]);
 
