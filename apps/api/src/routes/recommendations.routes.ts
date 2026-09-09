@@ -1,8 +1,12 @@
 import { Router } from "express";
-import { getRecommendations } from "../controllers/recommendations.controller.js";
+import {
+  getRecommendationForProduct,
+  getRecommendations,
+} from "../controllers/recommendations.controller.js";
 import { authenticate } from "../middleware/authenticate.js";
-import { validateQuery } from "../middleware/validate.js";
+import { validateParams, validateQuery } from "../middleware/validate.js";
 import { recommendationsQuerySchema } from "../schemas/recommendations.schema.js";
+import { slugParamSchema } from "../schemas/common.schema.js";
 
 export const recommendationsRouter = Router();
 
@@ -16,4 +20,14 @@ recommendationsRouter.get(
   authenticate,
   validateQuery(recommendationsQuerySchema),
   getRecommendations,
+);
+
+// Customer Experience V2, Product Detail V2's personalized-match
+// section — same auth/ownership rule as above, scored against one
+// product instead of the whole catalog.
+recommendationsRouter.get(
+  "/:slug",
+  authenticate,
+  validateParams(slugParamSchema),
+  getRecommendationForProduct,
 );

@@ -1,6 +1,7 @@
 import type { FavoriteDto, ProductImageDto } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
+import { computeInStock } from "../lib/product-availability.js";
 
 export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
   const favorites = await prisma.favorite.findMany({
@@ -26,6 +27,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
           variants: {
             select: {
               color: true,
+              stock: true,
               images: {
                 where: { isPrimary: true },
                 take: 1,
@@ -74,6 +76,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
         },
         colors: Array.from(colors).sort(),
         image,
+        inStock: computeInStock(favorite.product.variants),
       },
     };
   });

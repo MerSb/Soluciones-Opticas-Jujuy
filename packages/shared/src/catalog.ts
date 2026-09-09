@@ -41,6 +41,15 @@ export interface ProductListItem {
   frameMeasurements: FrameMeasurements;
   colors: string[];
   image: ProductImageDto | null;
+  /**
+   * Aggregate, not per-variant: true when at least one variant has
+   * stock > 0. Never exposes exact counts on a listing — that stays
+   * inventory data (see ProductDetail/ProductVariantDto's own
+   * per-variant `inStock`), this is only "can a customer currently buy
+   * something here at all." Additive field (Customer Experience V2) —
+   * every existing consumer of ProductListItem still works unchanged.
+   */
+  inStock: boolean;
 }
 
 export interface ProductVariantDto {

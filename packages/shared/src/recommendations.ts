@@ -65,3 +65,23 @@ export interface RecommendationsResponseDto {
   /** True when profileCoverage is 0 — nothing to compare against yet. */
   profileIncomplete: boolean;
 }
+
+// GET /api/recommendations/:slug — same profile, same scoring core, same
+// DTO shape as the list response (RecommendationDto, reused verbatim via
+// apps/api's toRecommendationDto), just scored against one product
+// instead of the whole catalog (Customer Experience V2, Product Detail
+// V2's personalized-match section).
+export interface ProductRecommendationResponseDto {
+  /**
+   * `null` covers two distinct cases, told apart by `profileIncomplete`:
+   * an empty/unusable profile (nothing to compare at all), or a real
+   * profile with nothing comparable about *this specific* product
+   * (missing every dimension/preference this product could have
+   * matched on). Never an error — a customer with no profile, or a
+   * product this engine can't compare yet, both get a real 200.
+   */
+  recommendation: RecommendationDto | null;
+  profileCoverage: number;
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  profileIncomplete: boolean;
+}

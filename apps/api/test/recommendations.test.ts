@@ -146,3 +146,54 @@ describe("GET /api/recommendations", () => {
     expect(first.body).toEqual(second.body);
   });
 });
+
+// Customer Experience V2 — Product Detail V2's personalized-match
+// section. Same profile, same scoring core, same DTO shape as the list
+// endpoint above; these tests focus on what's actually new (routing by
+// slug, 404 handling, and — most importantly — that the two endpoints
+// never disagree about the same product).
+describe("GET /api/recommendations/:slug", () => {
+  it("requires authentication", async () => {
+    const response = await request(app).get("/api/recommendations/andina-aviador");
+    expect(response.status).toBe(401);
+  });
+
+  it("404s for a product that doesn't exist", async () => {
+    const response = await agentA.get("/api/recommendations/does-not-exist");
+    expect(response.status).toBe(404);
+  });
+
+  it("returns profileIncomplete: true with recommendation: null for a customer with no optical profile", async () => {
+    const response = await agentB.get("/api/recommendations/andina-aviador");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      recommendation: null,
+      profileCoverage: 0,
+      confidenceLevel: "LOW",
+      profileIncomplete: true,
+    });
+  });
+
+  it("matches the exact score/tier/matchEvidence/evidenceLevel/reasons the list endpoint returns for the same product — never a second interpretation of the engine's output", async () => {
+    // agentA already has preferredShapes: ["AVIATOR"], preferredColors:
+    // ["NEGRO"] set earlier in this file.
+    const listResponse = await agentA.get("/api/recommendations?limit=20");
+    const fromList = listResponse.body.recommendations.find(
+      (r: { product: { slug: string } }) => r.product.slug === "andina-aviador",
+    );
+    expect(fromList).toBeDefined();
+
+    const singleResponse = await agentA.get("/api/recommendations/andina-aviador");
+    expect(singleResponse.status).toBe(200);
+    expect(singleResponse.body.profileIncomplete).toBe(false);
+    expect(singleResponse.body.recommendation).toEqual(fromList);
+    expect(singleResponse.body.profileCoverage).toBe(listResponse.body.profileCoverage);
+    expect(singleResponse.body.confidenceLevel).toBe(listResponse.body.confidenceLevel);
+  });
+
+  it("produces stable, deterministic output across repeated requests", async () => {
+    const first = await agentA.get("/api/recommendations/andina-aviador");
+    const second = await agentA.get("/api/recommendations/andina-aviador");
+    expect(first.body).toEqual(second.body);
+  });
+});
