@@ -336,7 +336,9 @@ export interface AdminLensTypeDto {
   treatments: AdminLensTreatmentRef[];
   /** Every option, soft-deleted ones included, in display order. */
   options: AdminLensOptionDto[];
-  /** Non-deleted options — the number any promotional copy may use. */
+  /** Non-deleted options (out-of-stock ones included). Public promotional
+   * copy counts only active *and* available options — see
+   * docs/LENS_CONFIGURATOR.md. */
   activeOptionCount: number;
   /** Non-deleted products explicitly compatible with this type. */
   productCount: number;

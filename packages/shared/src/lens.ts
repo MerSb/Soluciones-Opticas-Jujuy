@@ -43,7 +43,8 @@ export interface PublicLensTypeDto {
   treatments: LensTreatmentRef[];
   /** Active (non-deleted) options only, in display order. Empty when the
    * type has no varieties — then no option may be chosen. Promotional
-   * counts ("N variedades") are `options.length`, never hardcoded. */
+   * counts ("N variedades disponibles") are the options with
+   * `available: true` — active and currently available — never hardcoded. */
   options: PublicLensOptionDto[];
   /** False when every option of a type that has options is out of stock. */
   available: boolean;

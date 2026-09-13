@@ -39,8 +39,10 @@ same as every existing DTO.
 
 Nothing hardcodes tint names or how many exist. A type with active options requires the customer
 to pick one; a type without options forbids one. Promotional copy ("N variedades disponibles") is
-derived from the count of active options, and `LensType.isFeatured` flags a line for promotion —
-no product duplication, no competitor comparison.
+derived from live data: N counts only options that are active (not soft-deleted) **and** currently
+available under the public availability rule (stock not tracked, or stock > 0) — an out-of-stock
+variety is never advertised. `LensType.isFeatured` flags a line for promotion — no product
+duplication, no competitor comparison.
 
 ### Treatments are informative in V1
 
