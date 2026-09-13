@@ -36,6 +36,11 @@ Slugs inmutables (ADR-0013). Todo el catálogo de cristales usa soft delete.
   Independiente de `ProductVariant.stock`. No se descuenta nada hasta Orders/Payments.
 - **Compatibilidad**: la decide el admin por producto. No se infiere por categoría ni por variedad.
 - **Tratamientos**: informativos e incluidos en la línea. No se compran ni se activan por separado.
+- **Antirreflejo estándar** (confirmado por el cliente): el antirreflejo se comercializa como
+  característica estándar/incluida, no como adicional seleccionable. Se representa como un
+  `LensTreatment` "Antirreflejo" asociado a cada `LensType` que lo incluya; se muestra en "Incluye",
+  sin precio propio, sin `priceDelta`, sin stock y sin efecto en el quote. No hay seed: el admin
+  crea el tratamiento y lo asocia con los datos reales. No requirió cambios de modelo ni de código.
 - **Promoción**: `isFeatured` resalta la línea. "N variedades disponibles" = cantidad real de
   variedades activas y disponibles (`availableOptionCount`), nunca un número fijo. Sin
   comparaciones con competidores.

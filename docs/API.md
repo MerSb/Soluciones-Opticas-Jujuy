@@ -478,6 +478,24 @@ See [`LENS_CONFIGURATOR.md`](LENS_CONFIGURATOR.md) and
   `PUT /api/admin/products/:id/lens-types` (`{ lensTypeIds }`, replaces the full set).
   `AdminProductDetail` now includes `lensTypes`.
 
+## Shipping — Shipping V1 Phase A (admin only)
+
+See [`SHIPPING.md`](SHIPPING.md) and [ADR-0024](adr/0024-shipping-boundary.md). All under
+`authenticate` + `authorize("ADMIN")`; **no public shipping endpoint exists yet** (Checkout, Phase C,
+will add one that returns availability and `customerShippingPrice`, never the carrier cost).
+
+- `GET|POST /api/admin/shipping/package-profiles`, `PATCH|DELETE /api/admin/shipping/package-profiles/:id`,
+  `POST .../:id/restore`, `POST .../:id/default` — package profiles (grams/cm, integers > 0); at
+  most one active default (create with `isDefault: true` or the `/default` endpoint).
+- `POST /api/admin/shipping/simulations` `{ destinationPostalCode, destinationProvinceCode }` —
+  rate-limited (30/min per admin). Returns `AdminShippingSimulationResult`: `status`
+  (`QUOTED | FAILED | NOT_COVERED | NOT_CONFIGURED`), `missingConfiguration`
+  (`ORIGIN_POSTAL_CODE | PACKAGE_PROFILE | PROVIDER`), `customerShippingPrice` (0 under
+  `FREE_NATIONAL_V1`), `providerShippingCost` / `absorbedShippingCost` (`null` when unknown — never
+  0 by default), origin, package snapshot, destination, `quoteLogId`. Postal codes accept 4 digits
+  or CPA (normalized); province is one of the 24 ISO 3166-2:AR letters. Any cost/total in the body
+  is ignored.
+
 ## `GET /api/brands`, `GET /api/categories`
 
 ```json
