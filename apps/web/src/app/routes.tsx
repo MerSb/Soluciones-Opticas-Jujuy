@@ -207,6 +207,13 @@ export const routes: RouteObject[] = [
                   return { Component: AdminLensTreatmentsPage };
                 },
               },
+              {
+                path: "shipping",
+                lazy: async () => {
+                  const { AdminShippingPage } = await import("../pages/admin/AdminShippingPage");
+                  return { Component: AdminShippingPage };
+                },
+              },
             ],
           },
         ],
