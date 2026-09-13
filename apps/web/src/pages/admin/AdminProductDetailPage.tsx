@@ -18,6 +18,7 @@ import {
   useUpdateProductMutation,
 } from "../../services/queries/admin";
 import { AdminVariantsEditor } from "./AdminVariantsEditor";
+import { AdminProductLensTypesSection } from "./AdminProductLensTypesSection";
 
 interface MeasurementsState {
   lensWidth: string;
@@ -343,6 +344,10 @@ export function AdminProductDetailPage() {
 
       <div className="mt-12">
         <AdminVariantsEditor productId={product.id} variants={product.variants} />
+      </div>
+
+      <div className="mt-12">
+        <AdminProductLensTypesSection product={product} />
       </div>
     </div>
   );

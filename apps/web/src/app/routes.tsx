@@ -184,6 +184,29 @@ export const routes: RouteObject[] = [
                   return { Component: AdminCategoriesPage };
                 },
               },
+              {
+                path: "lens-types",
+                lazy: async () => {
+                  const { AdminLensTypesPage } = await import("../pages/admin/AdminLensTypesPage");
+                  return { Component: AdminLensTypesPage };
+                },
+              },
+              {
+                path: "lens-types/:id",
+                lazy: async () => {
+                  const { AdminLensTypeDetailPage } =
+                    await import("../pages/admin/AdminLensTypeDetailPage");
+                  return { Component: AdminLensTypeDetailPage };
+                },
+              },
+              {
+                path: "lens-treatments",
+                lazy: async () => {
+                  const { AdminLensTreatmentsPage } =
+                    await import("../pages/admin/AdminLensTreatmentsPage");
+                  return { Component: AdminLensTreatmentsPage };
+                },
+              },
             ],
           },
         ],

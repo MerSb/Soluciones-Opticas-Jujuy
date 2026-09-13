@@ -32,6 +32,7 @@ function baseProduct(overrides: Record<string, unknown> = {}) {
     },
     variants: [],
     isComplete: false,
+    lensTypes: [],
     deletedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -39,7 +40,22 @@ function baseProduct(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function stubFetch(product: unknown, opts?: { onDelete?: () => void }) {
+// Fictional test data — never the client's real lens names.
+const LENS_TYPES = [
+  { id: "lt1", name: "Cristal Uno", slug: "cristal-uno", deletedAt: null },
+  { id: "lt2", name: "Cristal Dos", slug: "cristal-dos", deletedAt: null },
+  {
+    id: "lt3",
+    name: "Cristal Retirado",
+    slug: "cristal-retirado",
+    deletedAt: "2026-01-02T00:00:00.000Z",
+  },
+];
+
+function stubFetch(
+  product: unknown,
+  opts?: { onDelete?: () => void; onSetLensTypes?: (body: unknown) => void },
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -61,6 +77,21 @@ function stubFetch(product: unknown, opts?: { onDelete?: () => void }) {
       }
       if (path === "/api/admin/categories") {
         return { ok: true, status: 200, json: async () => [CATEGORY] };
+      }
+      if (path === "/api/admin/lens-types") {
+        return { ok: true, status: 200, json: async () => LENS_TYPES };
+      }
+      if (path === "/api/admin/products/p1/lens-types" && method === "PUT") {
+        const body = JSON.parse(init!.body as string);
+        opts?.onSetLensTypes?.(body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...(product as object),
+            lensTypes: LENS_TYPES.filter((type) => body.lensTypeIds.includes(type.id)),
+          }),
+        };
       }
       throw new Error(`Unhandled request: ${method} ${path}`);
     }),
@@ -191,5 +222,39 @@ describe("AdminProductDetailPage — destructive action confirmation", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Eliminar producto" }));
     expect(onDelete).toHaveBeenCalled();
+  });
+});
+
+describe("AdminProductDetailPage — cristales compatibles (ADR-0023)", () => {
+  it("shows the product's current lens types and saves the explicit full set", async () => {
+    const onSetLensTypes = vi.fn();
+    stubFetch(baseProduct({ isComplete: true, lensTypes: [LENS_TYPES[0]] }), { onSetLensTypes });
+    renderDetailPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Cristales compatibles" }),
+    ).toBeInTheDocument();
+    const uno = await screen.findByRole("checkbox", { name: "Cristal Uno" });
+    expect(uno).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Cristal Dos" })).not.toBeChecked();
+    // A retired type that isn't attached is never offered.
+    expect(screen.queryByText("Cristal Retirado")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "Cristal Dos" }));
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cristales compatibles" }));
+
+    expect(onSetLensTypes).toHaveBeenCalledWith({ lensTypeIds: ["lt1", "lt2"] });
+    expect(
+      await screen.findByText("Los cristales compatibles se guardaron correctamente."),
+    ).toBeInTheDocument();
+  });
+
+  it("a product without lens types can stay that way — none checked, no Incompleto badge from it", async () => {
+    stubFetch(baseProduct({ isComplete: true }));
+    renderDetailPage();
+
+    await screen.findByRole("heading", { name: "Cristales compatibles" });
+    expect(await screen.findByRole("checkbox", { name: "Cristal Uno" })).not.toBeChecked();
+    expect(screen.queryByText("Incompleto")).not.toBeInTheDocument();
   });
 });

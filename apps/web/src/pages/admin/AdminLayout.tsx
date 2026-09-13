@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { to: "/admin/products", label: "Productos" },
   { to: "/admin/brands", label: "Marcas" },
   { to: "/admin/categories", label: "Categorías" },
+  { to: "/admin/lens-types", label: "Cristales" },
+  { to: "/admin/lens-treatments", label: "Tratamientos" },
 ];
 
 // Same top-nav-over-content shell as AccountLayout — no dense sidebar
