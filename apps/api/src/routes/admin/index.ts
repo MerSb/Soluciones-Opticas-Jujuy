@@ -5,6 +5,8 @@ import { adminBrandsRouter } from "./brands.routes.js";
 import { adminCategoriesRouter } from "./categories.routes.js";
 import { adminDashboardRouter } from "./dashboard.routes.js";
 import { adminProductsRouter } from "./products.routes.js";
+import { adminLensTypesRouter } from "./lens-types.routes.js";
+import { adminLensTreatmentsRouter } from "./lens-treatments.routes.js";
 
 export const adminRouter = Router();
 
@@ -20,3 +22,5 @@ adminRouter.use("/brands", adminBrandsRouter);
 adminRouter.use("/categories", adminCategoriesRouter);
 adminRouter.use("/products", adminProductsRouter);
 adminRouter.use("/dashboard", adminDashboardRouter);
+adminRouter.use("/lens-types", adminLensTypesRouter);
+adminRouter.use("/lens-treatments", adminLensTreatmentsRouter);

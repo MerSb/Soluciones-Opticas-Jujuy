@@ -23,6 +23,7 @@ import type {
   UpdateProductBody,
   UpdateVariantBody,
 } from "../schemas/admin-products.schema.js";
+import type { SetProductLensTypesBody } from "../schemas/admin-lens.schema.js";
 
 // -------- shared select shapes / DTO mapping --------
 
@@ -67,6 +68,10 @@ const PRODUCT_DETAIL_SELECT = {
   brand: { select: { id: true, name: true, slug: true } },
   category: { select: { id: true, name: true, slug: true } },
   variants: { select: VARIANT_SELECT },
+  lensTypes: {
+    orderBy: { lensType: { name: "asc" as const } },
+    select: { lensType: { select: { id: true, name: true, slug: true, deletedAt: true } } },
+  },
 } as const;
 
 const PRODUCT_LIST_SELECT = {
@@ -143,6 +148,10 @@ function toProductDetailDto(row: ProductDetailRow): AdminProductDetail {
     },
     variants: row.variants.map(toVariantDto),
     isComplete: computeIsComplete(row.variants),
+    lensTypes: row.lensTypes.map(({ lensType }) => ({
+      ...lensType,
+      deletedAt: lensType.deletedAt?.toISOString() ?? null,
+    })),
     deletedAt: row.deletedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -211,6 +220,45 @@ export async function getAdminProduct(id: string): Promise<AdminProductDetail> {
   const row = await prisma.product.findUnique({ where: { id }, select: PRODUCT_DETAIL_SELECT });
   if (!row) throw ApiError.notFound(`No product found with id "${id}".`);
   return toProductDetailDto(row);
+}
+
+// Lens compatibility (ADR-0023) — replaces the product's full set of
+// compatible lens types. Explicit admin decision only: never inferred
+// from category. A type can be newly attached only while active; one
+// already attached may stay even if soft-deleted since (the public
+// side hides it anyway), so re-saving never fails on the admin's
+// unrelated edits.
+export async function setProductLensTypes(
+  id: string,
+  body: SetProductLensTypesBody,
+): Promise<AdminProductDetail> {
+  const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
+  if (!product) throw ApiError.notFound(`No product found with id "${id}".`);
+
+  const lensTypeIds = [...new Set(body.lensTypeIds)];
+  const found = await prisma.lensType.findMany({
+    where: { id: { in: lensTypeIds } },
+    select: {
+      id: true,
+      deletedAt: true,
+      products: { where: { productId: id }, select: { productId: true } },
+    },
+  });
+  const attachable = found.filter((type) => type.deletedAt === null || type.products.length > 0);
+  if (attachable.length !== lensTypeIds.length) {
+    throw ApiError.validation("Alguno de los cristales elegidos no existe o fue eliminado.");
+  }
+
+  await prisma.$transaction([
+    prisma.productLensType.deleteMany({
+      where: { productId: id, lensTypeId: { notIn: lensTypeIds } },
+    }),
+    prisma.productLensType.createMany({
+      data: lensTypeIds.map((lensTypeId) => ({ productId: id, lensTypeId })),
+      skipDuplicates: true,
+    }),
+  ]);
+  return getAdminProduct(id);
 }
 
 async function assertActiveBrandAndCategory(brandId: string, categoryId: string): Promise<void> {
