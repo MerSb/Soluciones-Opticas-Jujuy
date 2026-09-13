@@ -13,7 +13,44 @@
 // only retries the *observation* when the precondition provably didn't
 // hold, and fails loudly if the state never settles.
 
+import { prisma } from "../src/lib/prisma.js";
+import { COMPLETE_PRODUCT_WHERE } from "../src/lib/product-completeness.js";
+
 const DEFAULT_ATTEMPTS = 20;
+
+// Everything the public candidate queries (recommendations, related
+// products) can see — the same `where` as production — with the
+// timestamps/ids that change whenever another file creates, edits,
+// completes, soft-deletes or re-images a product.
+export function completeCatalogFingerprint() {
+  return prisma.product.findMany({
+    where: { deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      updatedAt: true,
+      brand: { select: { updatedAt: true } },
+      category: { select: { updatedAt: true } },
+      variants: {
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          updatedAt: true,
+          images: {
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              cloudinaryPublicId: true,
+              alt: true,
+              isPrimary: true,
+              sortOrder: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
 
 export async function observeWhileStable<F, T>(
   fingerprint: () => Promise<F>,
