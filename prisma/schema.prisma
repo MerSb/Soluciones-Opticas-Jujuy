@@ -291,11 +291,98 @@ model Branch {
   lng           Float?
   googleMapsUrl String? @map("google_maps_url")
 
+  /// Part of the physical address; the earliest non-deleted branch's
+  /// postal code is the shipping origin (ADR-0024). Nullable: the real
+  /// value is loaded once confirmed — shipping quotes report it as
+  /// missing configuration meanwhile, never guess it.
+  postalCode String? @map("postal_code")
+
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@map("branches")
+}
+
+// Shipping V1 — Phase A. See docs/adr/0024-shipping-boundary.md and
+// docs/SHIPPING.md. No Order and no stored addresses yet: DeliveryMethod
+// and ShippingAddressInput are shared types only.
+
+enum ShippingQuoteSource {
+  CHECKOUT
+  ADMIN_SIMULATOR
+  ESTIMATE_MATRIX
+}
+
+/// Synchronous outcome of one quote attempt. No PENDING on purpose — that
+/// is reserved for the future Order.shippingCostStatus.
+enum ShippingQuoteStatus {
+  QUOTED
+  FAILED
+  NOT_COVERED
+  NOT_CONFIGURED
+}
+
+/// Admin-managed package used to quote a delivery. At most one active
+/// profile is the default — enforced in the service inside a transaction
+/// serialized by an advisory lock (a partial unique index would be
+/// unmanaged by this schema, like the pg_trgm index — ADR-0014).
+/// CHECK (> 0) on every measure is raw SQL in the migration.
+model ShippingPackageProfile {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  weightGrams Int     @map("weight_grams")
+  lengthCm    Int     @map("length_cm")
+  widthCm     Int     @map("width_cm")
+  heightCm    Int     @map("height_cm")
+  isDefault   Boolean @default(false) @map("is_default")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("shipping_package_profiles")
+}
+
+/// One row per quote attempt that reached the provider stage. Snapshot of
+/// origin, destination and package so metrics survive later profile
+/// edits. Never stores tokens, headers or raw provider responses.
+model ShippingQuoteLog {
+  id     String              @id @default(uuid()) @db.Uuid
+  source ShippingQuoteSource
+  status ShippingQuoteStatus
+
+  provider String
+  service  String?
+
+  originPostalCode        String @map("origin_postal_code")
+  destinationPostalCode   String @map("destination_postal_code")
+  /// ISO 3166-2:AR letter; CHECK in the migration.
+  destinationProvinceCode String @map("destination_province_code")
+
+  weightGrams Int @map("weight_grams")
+  lengthCm    Int @map("length_cm")
+  widthCm     Int @map("width_cm")
+  heightCm    Int @map("height_cm")
+
+  declaredValue Decimal? @map("declared_value") @db.Decimal(12, 2)
+  providerCost  Decimal? @map("provider_cost") @db.Decimal(12, 2)
+  currency      String   @default("ARS")
+
+  estimatedDaysMin  Int?      @map("estimated_days_min")
+  estimatedDaysMax  Int?      @map("estimated_days_max")
+  validUntil        DateTime? @map("valid_until")
+  providerReference String?   @map("provider_reference")
+
+  errorCode  String? @map("error_code")
+  latencyMs  Int?    @map("latency_ms")
+  policyCode String  @map("policy_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([destinationProvinceCode])
+  @@map("shipping_quotes")
 }
 
 /// CUSTOMER | ADMIN today — the minimum useful model for this phase.
