@@ -41,6 +41,15 @@ const FIELD_LABELS: Record<string, string> = {
   templeLength: "la medida",
   lensHeight: "la medida",
   frameWidth: "la medida",
+  variantId: "la variante",
+  lensTypeId: "el cristal",
+  lensOptionId: "la variedad",
+  graduationMode: "la graduación",
+  swatchHex: "el color de muestra",
+  supportsCustomGraduation: "la graduación personalizada",
+  isFeatured: "el destacado",
+  treatmentIds: "los tratamientos",
+  lensTypeIds: "los cristales",
 };
 
 function labelFor(path: (string | number)[]): string {

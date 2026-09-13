@@ -155,6 +155,9 @@ export interface AdminProductDetail {
    * image. Independent of stock — a complete product can still be out
    * of stock. */
   isComplete: boolean;
+  /** Explicitly compatible lens types (ADR-0023), soft-deleted ones
+   * included so the admin can see them. Never affects isComplete. */
+  lensTypes: AdminLensTypeRef[];
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -242,4 +245,131 @@ export interface AdminDashboardResponse {
     outOfStock: AdminDashboardAlertProduct[];
     withoutImages: AdminDashboardAlertProduct[];
   };
+}
+
+// Lens catalog admin — Cristales & Configurador V1 (ADR-0023). Same
+// public/admin split as the frame catalog: exact stock, soft-deleted
+// rows, raw priceOverride and timestamps exist only here.
+
+export interface AdminLensTypeRef {
+  id: string;
+  name: string;
+  slug: string;
+  deletedAt: string | null;
+}
+
+export interface AdminLensTreatmentRef {
+  id: string;
+  name: string;
+  slug: string;
+  deletedAt: string | null;
+}
+
+export interface AdminLensTreatmentDto {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  /** Non-deleted lens types that include this treatment. */
+  lensTypeCount: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLensTreatmentRequest {
+  name: string;
+  description?: string | null;
+}
+
+// No `slug` — ADR-0013, same as UpdateBrandRequest.
+export interface UpdateLensTreatmentRequest {
+  name?: string;
+  description?: string | null;
+}
+
+export interface AdminLensOptionDto {
+  id: string;
+  lensTypeId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  swatchHex: string | null;
+  priceOverride: number | null;
+  /** Effective price: priceOverride ?? the lens type's basePrice. */
+  price: number;
+  /** null = not tracked, 0 = out of stock, > 0 = in stock. */
+  stock: number | null;
+  sortOrder: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLensOptionRequest {
+  name: string;
+  description?: string | null;
+  swatchHex?: string | null;
+  priceOverride?: number | null;
+  stock?: number | null;
+  sortOrder?: number;
+}
+
+export interface UpdateLensOptionRequest {
+  name?: string;
+  description?: string | null;
+  swatchHex?: string | null;
+  priceOverride?: number | null;
+  stock?: number | null;
+  sortOrder?: number;
+}
+
+export interface AdminLensTypeDto {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  basePrice: number;
+  supportsCustomGraduation: boolean;
+  isFeatured: boolean;
+  sortOrder: number;
+  treatments: AdminLensTreatmentRef[];
+  /** Every option, soft-deleted ones included, in display order. */
+  options: AdminLensOptionDto[];
+  /** Non-deleted options (out-of-stock ones included). Public promotional
+   * copy counts only active *and* available options — see
+   * docs/LENS_CONFIGURATOR.md. */
+  activeOptionCount: number;
+  /** Non-deleted products explicitly compatible with this type. */
+  productCount: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLensTypeRequest {
+  name: string;
+  description?: string | null;
+  basePrice: number;
+  supportsCustomGraduation?: boolean;
+  isFeatured?: boolean;
+  sortOrder?: number;
+  /** Full set of included treatments. */
+  treatmentIds?: string[];
+}
+
+export interface UpdateLensTypeRequest {
+  name?: string;
+  description?: string | null;
+  basePrice?: number;
+  supportsCustomGraduation?: boolean;
+  isFeatured?: boolean;
+  sortOrder?: number;
+  /** When present, replaces the full set of included treatments. */
+  treatmentIds?: string[];
+}
+
+/** PUT /api/admin/products/:id/lens-types — replaces the full set. */
+export interface SetProductLensTypesRequest {
+  lensTypeIds: string[];
 }

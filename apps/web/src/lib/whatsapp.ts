@@ -19,6 +19,25 @@ export interface WhatsAppProductContext {
    * message, so this needs no change when a final domain is set up.
    */
   productUrl?: string | null;
+  /**
+   * Lens configuration (ADR-0023) — only for products that offer lenses.
+   * Omitted entirely for every other product, so their message stays
+   * exactly as before. `lensTypeName: null` means the customer chose
+   * "Sin cristales".
+   */
+  lens?: {
+    lensTypeName: string | null;
+    lensOptionName?: string | null;
+    customGraduation?: boolean;
+  } | null;
+}
+
+function lensPhrase(lens: WhatsAppProductContext["lens"]): string {
+  if (!lens) return "";
+  if (!lens.lensTypeName) return ", sin cristales";
+  const option = lens.lensOptionName ? ` (variedad ${lens.lensOptionName})` : "";
+  const graduation = lens.customGraduation ? " y graduación personalizada" : "";
+  return `, con cristales ${lens.lensTypeName}${option}${graduation}`;
 }
 
 // Pure — no phone number needed — so a component that already renders
@@ -32,12 +51,13 @@ export function buildProductInquiryMessage({
   brandName,
   color,
   productUrl,
+  lens,
 }: WhatsAppProductContext): string {
   const productPhrase = brandName ? `${productName} de ${brandName}` : productName;
   const colorPhrase = color ? `, color ${color}` : "";
   const linkPhrase = productUrl ? ` ${productUrl}` : "";
 
-  return `Hola, estoy interesado/a en el modelo ${productPhrase}${colorPhrase}. ¿Podrían darme más información?${linkPhrase}`;
+  return `Hola, estoy interesado/a en el modelo ${productPhrase}${colorPhrase}${lensPhrase(lens)}. ¿Podrían darme más información?${linkPhrase}`;
 }
 
 // Convenience wrapper for a call site that needs the full wa.me URL

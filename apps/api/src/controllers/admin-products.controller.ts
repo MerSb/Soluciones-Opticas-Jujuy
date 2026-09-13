@@ -10,6 +10,7 @@ import type {
   UpdateProductBody,
   UpdateVariantBody,
 } from "../schemas/admin-products.schema.js";
+import type { SetProductLensTypesBody } from "../schemas/admin-lens.schema.js";
 
 export const listProducts = asyncHandler(async (_req: Request, res: Response) => {
   const query = res.locals.query as AdminProductsListQuery;
@@ -19,6 +20,12 @@ export const listProducts = asyncHandler(async (_req: Request, res: Response) =>
 export const getProduct = asyncHandler(async (_req: Request, res: Response) => {
   const { id } = res.locals.params as { id: string };
   res.json(await adminProductsService.getAdminProduct(id));
+});
+
+export const setProductLensTypes = asyncHandler(async (_req: Request, res: Response) => {
+  const { id } = res.locals.params as { id: string };
+  const body = res.locals.body as SetProductLensTypesBody;
+  res.json(await adminProductsService.setProductLensTypes(id, body));
 });
 
 export const createProduct = asyncHandler(async (_req: Request, res: Response) => {

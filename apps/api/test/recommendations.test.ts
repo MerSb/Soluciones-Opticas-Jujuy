@@ -2,8 +2,44 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
+import { COMPLETE_PRODUCT_WHERE } from "../src/lib/product-completeness.js";
+import { observeWhileStable } from "./stable-snapshot.js";
 
 const app = createApp();
+
+// Everything the list endpoint's candidate query can see, with the
+// timestamps/ids that change whenever another file creates, edits,
+// completes, soft-deletes or re-images a product. Same `where` as the
+// productive loadCandidateProducts().
+function candidateFingerprint() {
+  return prisma.product.findMany({
+    where: { deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      updatedAt: true,
+      brand: { select: { updatedAt: true } },
+      category: { select: { updatedAt: true } },
+      variants: {
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          updatedAt: true,
+          images: {
+            orderBy: { id: "asc" },
+            select: {
+              id: true,
+              cloudinaryPublicId: true,
+              alt: true,
+              isPrimary: true,
+              sortOrder: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
 const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const emailA = `reco-test-a-${RUN_ID}@example.com`;
 const emailB = `reco-test-b-${RUN_ID}@example.com`;
@@ -140,9 +176,20 @@ describe("GET /api/recommendations", () => {
     expect(responseB.body.recommendations).toEqual([]);
   });
 
+  // Same profile + the same candidate set ⇒ identical output. The candidate
+  // set is the whole complete catalog, which other files mutate
+  // concurrently, so "the same candidate set" is proven (fingerprinted
+  // unchanged across both requests) rather than assumed.
   it("produces stable, deterministic output across repeated requests", async () => {
-    const first = await agentA.get("/api/recommendations");
-    const second = await agentA.get("/api/recommendations");
+    const {
+      result: [first, second],
+    } = await observeWhileStable(candidateFingerprint, async () => {
+      const first = await agentA.get("/api/recommendations");
+      const second = await agentA.get("/api/recommendations");
+      return [first, second] as const;
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.recommendations.length).toBeGreaterThan(0);
     expect(first.body).toEqual(second.body);
   });
 });

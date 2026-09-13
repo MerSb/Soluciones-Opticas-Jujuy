@@ -67,3 +67,36 @@ describe("buildWhatsAppProductUrl", () => {
     expect(url.startsWith("https://wa.me/5493884844442?text=")).toBe(true);
   });
 });
+
+describe("buildProductInquiryMessage — lens configuration (ADR-0023)", () => {
+  const base = { productName: "Andina Aviador", brandName: "Andina", color: "Negro" };
+
+  it("leaves the message untouched for products without lens configuration", () => {
+    expect(buildProductInquiryMessage({ ...base, lens: null })).toBe(
+      buildProductInquiryMessage(base),
+    );
+  });
+
+  it("states 'sin cristales' when the customer keeps the frame only", () => {
+    expect(buildProductInquiryMessage({ ...base, lens: { lensTypeName: null } })).toBe(
+      "Hola, estoy interesado/a en el modelo Andina Aviador de Andina, color Negro, sin cristales. ¿Podrían darme más información?",
+    );
+  });
+
+  it("includes the lens, its variety and a custom-graduation request", () => {
+    expect(
+      buildProductInquiryMessage({
+        ...base,
+        lens: { lensTypeName: "Espectro", lensOptionName: "Variedad A", customGraduation: true },
+      }),
+    ).toBe(
+      "Hola, estoy interesado/a en el modelo Andina Aviador de Andina, color Negro, con cristales Espectro (variedad Variedad A) y graduación personalizada. ¿Podrían darme más información?",
+    );
+  });
+
+  it("omits the variety and graduation when not chosen", () => {
+    expect(buildProductInquiryMessage({ ...base, lens: { lensTypeName: "HD" } })).toContain(
+      ", con cristales HD. ¿Podrían",
+    );
+  });
+});

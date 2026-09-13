@@ -9,6 +9,7 @@ import {
   getProduct,
   listProducts,
   restoreProduct,
+  setProductLensTypes,
   signImageUpload,
   updateImage,
   updateProduct,
@@ -27,6 +28,7 @@ import {
   updateVariantBodySchema,
   variantIdParamSchema,
 } from "../../schemas/admin-products.schema.js";
+import { setProductLensTypesBodySchema } from "../../schemas/admin-lens.schema.js";
 
 export const adminProductsRouter = Router();
 
@@ -41,6 +43,12 @@ adminProductsRouter.patch(
 );
 adminProductsRouter.delete("/:id", validateParams(productIdParamSchema), deleteProduct);
 adminProductsRouter.post("/:id/restore", validateParams(productIdParamSchema), restoreProduct);
+adminProductsRouter.put(
+  "/:id/lens-types",
+  validateParams(productIdParamSchema),
+  validateBody(setProductLensTypesBodySchema),
+  setProductLensTypes,
+);
 
 adminProductsRouter.post(
   "/:id/variants",

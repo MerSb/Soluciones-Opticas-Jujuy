@@ -89,10 +89,14 @@ model Product {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  brand     Brand            @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  category  Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brand     Brand             @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category  Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   variants  ProductVariant[]
   favorites Favorite[]
+  /// Lens types this frame may be configured with (ADR-0023). Empty for
+  /// every product that predates the lens catalog — those keep behaving
+  /// exactly as before.
+  lensTypes ProductLensType[]
 
   @@index([brandId])
   @@index([categoryId])
@@ -154,6 +158,123 @@ model ProductImage {
 
   @@index([variantId])
   @@map("product_images")
+}
+
+// Lens catalog — Cristales & Configurador V1, see
+// docs/adr/0023-lens-catalog-domain.md and docs/LENS_CONFIGURATOR.md.
+// Deliberately separate from ProductVariant: a variant is the physical
+// frame (its color is the frame's color); a lens tint/variety is a
+// LensOption and never reuses ProductVariant.color.
+
+/// A lens line ("HD", "Fotocromático", "Espectro"…). Names, prices and
+/// which ones exist are admin data — nothing here is hardcoded.
+model LensType {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  /// Immutable once published — see docs/adr/0013-slug-immutability-enforcement.md
+  slug        String  @unique
+  description String?
+
+  /// Effective lens price is `option.priceOverride ?? basePrice`, same
+  /// rule as Product.basePrice / ProductVariant.priceOverride.
+  basePrice Decimal @map("base_price") @db.Decimal(10, 2)
+
+  /// The only persisted graduation fact. A configuration's
+  /// graduationMode CUSTOM is valid only for these types; it never adds
+  /// a price in V1 and never stores clinical data (ADR-0023).
+  supportsCustomGraduation Boolean @default(false) @map("supports_custom_graduation")
+
+  /// Promotional highlight. Any "N variedades" copy is derived from the
+  /// count of active options, never stored or hardcoded.
+  isFeatured Boolean @default(false) @map("is_featured")
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  options    LensOption[]
+  treatments LensTypeTreatment[]
+  products   ProductLensType[]
+
+  @@map("lens_types")
+}
+
+/// A variety/tint of a lens line. A type with active options requires
+/// picking one; a type with none forbids it.
+model LensOption {
+  id          String  @id @default(uuid()) @db.Uuid
+  lensTypeId  String  @map("lens_type_id") @db.Uuid
+  name        String
+  /// Immutable once published, unique within its lens type.
+  slug        String
+  description String?
+  /// Optional display swatch (#RRGGBB) entered by the admin.
+  swatchHex   String? @map("swatch_hex")
+
+  priceOverride Decimal? @map("price_override") @db.Decimal(10, 2)
+
+  /// null = not tracked (availability managed by the shop), 0 = out of
+  /// stock, > 0 = in stock. CHECK (stock IS NULL OR stock >= 0) is raw
+  /// SQL in the migration. Independent from ProductVariant.stock and
+  /// never decremented until Orders exist.
+  stock Int?
+
+  sortOrder Int       @default(0) @map("sort_order")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  lensType LensType @relation(fields: [lensTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([lensTypeId, slug])
+  @@index([lensTypeId])
+  @@map("lens_options")
+}
+
+/// A treatment a lens line includes ("Filtro azul", "Antirreflejo"…).
+/// Informative in V1: no price, not selectable by the customer.
+model LensTreatment {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  /// Immutable once published — see docs/adr/0013-slug-immutability-enforcement.md
+  slug        String  @unique
+  description String?
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  lensTypes LensTypeTreatment[]
+
+  @@map("lens_treatments")
+}
+
+model LensTypeTreatment {
+  lensTypeId  String @map("lens_type_id") @db.Uuid
+  treatmentId String @map("treatment_id") @db.Uuid
+
+  lensType  LensType      @relation(fields: [lensTypeId], references: [id], onDelete: Cascade)
+  treatment LensTreatment @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+
+  @@id([lensTypeId, treatmentId])
+  @@index([treatmentId])
+  @@map("lens_type_treatments")
+}
+
+/// Explicit, admin-decided compatibility between a frame and a lens
+/// line — never inferred from category, never per option.
+model ProductLensType {
+  productId  String   @map("product_id") @db.Uuid
+  lensTypeId String   @map("lens_type_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  lensType LensType @relation(fields: [lensTypeId], references: [id], onDelete: Cascade)
+
+  @@id([productId, lensTypeId])
+  @@index([lensTypeId])
+  @@map("product_lens_types")
 }
 
 model Branch {

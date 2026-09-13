@@ -3,6 +3,7 @@ import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { createAdminAgent } from "./helpers.js";
+import { observeWhileStable } from "../stable-snapshot.js";
 
 // Same boundary-mock convention as admin/products.test.ts — no real
 // Cloudinary call needed just to attach a cloudinaryPublicId to a
@@ -44,6 +45,33 @@ const createdProductIds: string[] = [];
 const createdBrandIds: string[] = [];
 const createdCategoryIds: string[] = [];
 const createdUserIds: string[] = [];
+
+// Fingerprints for observeWhileStable — the exact id sets behind the
+// dashboard's productive `count({ where: { deletedAt: null } })` rules.
+async function activeUserIds(): Promise<string[]> {
+  const rows = await prisma.user.findMany({
+    where: { deletedAt: null },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  return rows.map((row) => row.id);
+}
+
+async function activeBrandAndCategoryIds(): Promise<{ brandIds: string[]; categoryIds: string[] }> {
+  const [brands, categories] = await Promise.all([
+    prisma.brand.findMany({
+      where: { deletedAt: null },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.category.findMany({
+      where: { deletedAt: null },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    }),
+  ]);
+  return { brandIds: brands.map((b) => b.id), categoryIds: categories.map((c) => c.id) };
+}
 
 async function createProduct(name: string): Promise<string> {
   const response = await adminAgent
@@ -198,6 +226,12 @@ describe("GET /api/admin/dashboard", () => {
   // correct lives in the "alerts" describe block below, which checks
   // exact membership of *this file's own* known fixtures — floors here
   // are just a sanity check on top of that, not the primary evidence.
+  //
+  // The brand/category/user metrics used to be checked with a
+  // before/after delta, which flaked whenever another file deleted its
+  // own fixtures inside that window. They are now checked *exactly*
+  // against the productive rule, observed inside a window where the
+  // relevant id set provably didn't change (test/stable-snapshot.ts).
   describe("metrics", () => {
     it("activeProducts counts at least the active fixtures created here", async () => {
       const response = await adminAgent.get("/api/admin/dashboard");
@@ -217,9 +251,7 @@ describe("GET /api/admin/dashboard", () => {
       expect(response.body.metrics.productsWithoutImages).toBeGreaterThanOrEqual(10);
     });
 
-    it("activeBrands/activeCategories reflect a newly created one", async () => {
-      const before = await adminAgent.get("/api/admin/dashboard");
-
+    it("activeBrands/activeCategories count exactly the non-deleted brands/categories, a newly created one included", async () => {
       const brand = await adminAgent
         .post("/api/admin/brands")
         .send({ name: `Dash Test Brand ${RUN_ID}` });
@@ -229,24 +261,23 @@ describe("GET /api/admin/dashboard", () => {
         .send({ name: `Dash Test Category ${RUN_ID}` });
       createdCategoryIds.push(category.body.id);
 
-      const after = await adminAgent.get("/api/admin/dashboard");
-      expect(after.body.metrics.activeBrands).toBeGreaterThanOrEqual(
-        before.body.metrics.activeBrands + 1,
+      const { result, fingerprint } = await observeWhileStable(activeBrandAndCategoryIds, () =>
+        adminAgent.get("/api/admin/dashboard"),
       );
-      expect(after.body.metrics.activeCategories).toBeGreaterThanOrEqual(
-        before.body.metrics.activeCategories + 1,
-      );
+      expect(result.body.metrics.activeBrands).toBe(fingerprint.brandIds.length);
+      expect(result.body.metrics.activeCategories).toBe(fingerprint.categoryIds.length);
+      expect(fingerprint.brandIds).toContain(brand.body.id);
+      expect(fingerprint.categoryIds).toContain(category.body.id);
     });
 
-    it("registeredUsers reflects a newly registered customer, and already includes ADMIN accounts", async () => {
-      const before = await adminAgent.get("/api/admin/dashboard");
-      // adminAgent's own ADMIN account exists from beforeAll onward — if
-      // the endpoint excluded ADMIN accounts, this floor would still
-      // have to hold via customerAgent/extraEmail alone, but combined
-      // with "before" already being >= 2 here (admin + customer from
-      // beforeAll), a role-filtered count would come out lower than
-      // this assertion allows.
-      expect(before.body.metrics.registeredUsers).toBeGreaterThanOrEqual(2);
+    // The productive rule is "every non-deleted user, every role". Observed
+    // at a stable instant, the metric must equal the size of that exact id
+    // set: if ADMIN accounts were excluded, or a soft-deleted user were
+    // counted, it would differ from it — both fixtures below are present
+    // in the DB while measured.
+    it("registeredUsers counts exactly the non-deleted users — ADMIN accounts and a newly registered customer included, soft-deleted ones excluded", async () => {
+      const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: adminEmail } });
+      expect(adminUser.role).toBe("ADMIN");
 
       const extraEmail = `dash-extra-${RUN_ID}@example.com`;
       await request(app)
@@ -255,10 +286,21 @@ describe("GET /api/admin/dashboard", () => {
       const extraUser = await prisma.user.findUniqueOrThrow({ where: { email: extraEmail } });
       createdUserIds.push(extraUser.id);
 
-      const after = await adminAgent.get("/api/admin/dashboard");
-      expect(after.body.metrics.registeredUsers).toBeGreaterThanOrEqual(
-        before.body.metrics.registeredUsers + 1,
+      const withExtra = await observeWhileStable(activeUserIds, () =>
+        adminAgent.get("/api/admin/dashboard"),
       );
+      expect(withExtra.result.body.metrics.registeredUsers).toBe(withExtra.fingerprint.length);
+      expect(withExtra.fingerprint).toContain(adminUser.id);
+      expect(withExtra.fingerprint).toContain(extraUser.id);
+
+      await prisma.user.update({ where: { id: extraUser.id }, data: { deletedAt: new Date() } });
+      const afterSoftDelete = await observeWhileStable(activeUserIds, () =>
+        adminAgent.get("/api/admin/dashboard"),
+      );
+      expect(afterSoftDelete.result.body.metrics.registeredUsers).toBe(
+        afterSoftDelete.fingerprint.length,
+      );
+      expect(afterSoftDelete.fingerprint).not.toContain(extraUser.id);
     });
   });
 

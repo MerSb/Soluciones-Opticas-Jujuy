@@ -12,9 +12,15 @@ import { VariantSelector } from "../components/products/VariantSelector";
 import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
+import { LensConfigurator } from "../components/products/LensConfigurator";
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
 import { formatPrice } from "../lib/format-price";
 import { buildProductInquiryMessage } from "../lib/whatsapp";
+import {
+  FRAME_ONLY_SELECTION,
+  summarizeLensSelection,
+  type LensSelection,
+} from "../lib/lens-configuration";
 import { buildCloudinaryUrl } from "../lib/cloudinary";
 import { STYLE_PREFERENCE_OPTIONS } from "../lib/optical-profile-taxonomy";
 
@@ -32,6 +38,7 @@ export function ProductDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const { data: product, isLoading, isError, error } = useProductQuery(slug);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [lensSelection, setLensSelection] = useState<LensSelection>(FRAME_ONLY_SELECTION);
 
   if (isLoading) {
     return (
@@ -104,11 +111,18 @@ export function ProductDetailPage() {
     ? (buildCloudinaryUrl(primaryImage.publicId, { width: 1200 }) ?? undefined)
     : undefined;
 
+  // `?? []` guards a web deploy that reaches an API not yet serving the
+  // field (ADR-0023 is additive; the API is deployed first). No lens
+  // types → no configurator and the exact pre-existing page/message.
+  const lensTypes = product.lensTypes ?? [];
+  const offersLenses = lensTypes.length > 0;
+
   const whatsappMessage = buildProductInquiryMessage({
     productName: product.name,
     brandName: product.brand.name,
     color: selectedVariant.color,
     productUrl: typeof window !== "undefined" ? window.location.href : null,
+    lens: offersLenses ? summarizeLensSelection(lensSelection, lensTypes) : null,
   });
 
   return (
@@ -198,6 +212,18 @@ export function ProductDetailPage() {
                   variants={product.variants}
                   selected={selectedVariant}
                   onSelect={(variant) => setSelectedVariantId(variant.id)}
+                />
+              </div>
+            )}
+
+            {offersLenses && (
+              <div className="mt-8 border-t border-border pt-6">
+                <LensConfigurator
+                  slug={product.slug}
+                  lensTypes={lensTypes}
+                  variant={selectedVariant}
+                  selection={lensSelection}
+                  onChange={setLensSelection}
                 />
               </div>
             )}
