@@ -5,6 +5,7 @@
 // or redeclared in each app.
 
 import type { StylePreference } from "./optical-profile.js";
+import type { PublicLensTypeDto } from "./lens.js";
 
 export interface FrameMeasurements {
   lensWidth: number | null;
@@ -72,6 +73,12 @@ export interface ProductDetail {
   price: number;
   frameMeasurements: FrameMeasurements;
   variants: ProductVariantDto[];
+  /**
+   * Lens types this frame can be configured with (ADR-0023), in display
+   * order. Empty for every product without explicit lens compatibility —
+   * the product detail then renders exactly as before. Additive field.
+   */
+  lensTypes: PublicLensTypeDto[];
 }
 
 export interface BrandSummary {

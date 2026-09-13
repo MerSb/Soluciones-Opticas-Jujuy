@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import { normalizeShape } from "./recommendation/normalize.js";
+import { PRODUCT_LENS_TYPES_ARGS, toPublicLensTypeDto } from "./lens-configuration.service.js";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
 import type {
   BrandRef,
@@ -97,6 +98,9 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
           },
         },
       },
+      // ADR-0023: explicitly compatible lens types only — empty for every
+      // product without lens configuration. Never part of completeness.
+      lensTypes: PRODUCT_LENS_TYPES_ARGS,
     },
   });
 
@@ -136,6 +140,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
         isPrimary: image.isPrimary,
       })),
     })),
+    lensTypes: product.lensTypes.map(({ lensType }) => toPublicLensTypeDto(lensType)),
   };
 }
 
