@@ -11,6 +11,11 @@ const customerEmail = `customer-brands-${RUN_ID}@example.com`;
 
 let adminAgent: ReturnType<typeof request.agent>;
 let customerAgent: ReturnType<typeof request.agent>;
+// Fixtures are owned by this file and cleaned up by id: brands get
+// renamed mid-test ("Renamed Brand"), so a name-based cleanup would miss
+// them. The category is this file's own too — never another suite's.
+const createdBrandIds: string[] = [];
+let categoryId: string;
 
 beforeAll(async () => {
   adminAgent = await createAdminAgent(app, adminEmail);
@@ -18,11 +23,24 @@ beforeAll(async () => {
   await customerAgent
     .post("/api/auth/register")
     .send({ firstName: "Cust", lastName: "Test", email: customerEmail, password: "password123" });
+  const category = await prisma.category.create({
+    data: {
+      name: `Test Brands Category ${RUN_ID}`,
+      slug: `test-brands-category-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  categoryId = category.id;
 });
 
 afterAll(async () => {
-  await prisma.brand.deleteMany({ where: { name: { startsWith: `Test Brand ${RUN_ID}` } } });
+  await prisma.product.deleteMany({
+    where: { OR: [{ brandId: { in: createdBrandIds } }, { categoryId }] },
+  });
+  await prisma.brand.deleteMany({ where: { id: { in: createdBrandIds } } });
+  const remaining = await prisma.brand.count({ where: { id: { in: createdBrandIds } } });
+  await prisma.category.delete({ where: { id: categoryId } });
   await prisma.user.deleteMany({ where: { email: { in: [adminEmail, customerEmail] } } });
+  expect(remaining).toBe(0);
 });
 
 describe("admin brands", () => {
@@ -39,6 +57,7 @@ describe("admin brands", () => {
     const response = await adminAgent
       .post("/api/admin/brands")
       .send({ name: `Test Brand ${RUN_ID}`, description: "Una marca de prueba." });
+    createdBrandIds.push(response.body.id);
     expect(response.status).toBe(201);
     expect(response.body.slug).toBe(`test-brand-${RUN_ID}`.toLowerCase());
     expect(response.body.deletedAt).toBeNull();
@@ -49,6 +68,7 @@ describe("admin brands", () => {
     const response = await adminAgent
       .post("/api/admin/brands")
       .send({ name: `Test Brand ${RUN_ID}` });
+    createdBrandIds.push(response.body.id);
     expect(response.status).toBe(201);
     expect(response.body.slug).toBe(`test-brand-${RUN_ID}-2`.toLowerCase());
   });
@@ -64,6 +84,7 @@ describe("admin brands", () => {
     const created = await adminAgent
       .post("/api/admin/brands")
       .send({ name: `Test Brand ${RUN_ID} Update Me` });
+    createdBrandIds.push(created.body.id);
     const originalSlug = created.body.slug;
 
     // slug is not even part of the accepted schema — sending one is
@@ -86,13 +107,13 @@ describe("admin brands", () => {
     const brand = await adminAgent
       .post("/api/admin/brands")
       .send({ name: `Test Brand ${RUN_ID} In Use` });
-    const category = await prisma.category.findFirstOrThrow({ where: { deletedAt: null } });
+    createdBrandIds.push(brand.body.id);
     const product = await prisma.product.create({
       data: {
         name: `Temp product ${RUN_ID}`,
         slug: `temp-product-${RUN_ID}`,
         brandId: brand.body.id,
-        categoryId: category.id,
+        categoryId,
         basePrice: 1000,
       },
     });

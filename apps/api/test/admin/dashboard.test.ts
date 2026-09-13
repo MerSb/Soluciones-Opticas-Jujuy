@@ -112,8 +112,23 @@ beforeAll(async () => {
   const customerUser = await prisma.user.findUniqueOrThrow({ where: { email: customerEmail } });
   createdUserIds.push(customerUser.id);
 
-  const brand = await prisma.brand.findFirstOrThrow({ where: { deletedAt: null } });
-  const category = await prisma.category.findFirstOrThrow({ where: { deletedAt: null } });
+  // Own brand/category, cleaned up by id — never "the first active one",
+  // which could be another suite's temporary fixture. Global metrics are
+  // still observed over the whole table (observeWhileStable below).
+  const brand = await prisma.brand.create({
+    data: {
+      name: `Dash Fixture Brand ${RUN_ID}`,
+      slug: `dash-fixture-brand-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  const category = await prisma.category.create({
+    data: {
+      name: `Dash Fixture Category ${RUN_ID}`,
+      slug: `dash-fixture-category-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  createdBrandIds.push(brand.id);
+  createdCategoryIds.push(category.id);
   brandId = brand.id;
   categoryId = category.id;
 

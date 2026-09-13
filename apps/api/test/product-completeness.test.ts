@@ -60,8 +60,20 @@ beforeAll(async () => {
     .patch("/api/optical-profile")
     .send({ preferredShapes: ["AVIATOR"], preferredColors: ["NEGRO"] });
 
-  const brand = await prisma.brand.findFirstOrThrow({ where: { deletedAt: null } });
-  const category = await prisma.category.findFirstOrThrow({ where: { deletedAt: null } });
+  // Own brand/category — never "the first active one", which could be
+  // another suite's temporary fixture.
+  const brand = await prisma.brand.create({
+    data: {
+      name: `Completeness Brand ${RUN_ID}`,
+      slug: `completeness-brand-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  const category = await prisma.category.create({
+    data: {
+      name: `Completeness Category ${RUN_ID}`,
+      slug: `completeness-category-${RUN_ID}`.toLowerCase(),
+    },
+  });
   brandId = brand.id;
   categoryId = category.id;
 
@@ -105,7 +117,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } });
+  await prisma.product.deleteMany({
+    where: { OR: [{ id: { in: createdProductIds } }, { brandId }, { categoryId }] },
+  });
+  await prisma.brand.delete({ where: { id: brandId } });
+  await prisma.category.delete({ where: { id: categoryId } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
 });
 
