@@ -18,6 +18,11 @@ each environment points at is documented in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 | `RefreshToken`           | A rotating session-refresh credential, hashed at rest — Etapa 2                                                                                                                         | `refresh_tokens`            |
 | `Favorite`               | A customer's saved product — Etapa 2                                                                                                                                                    | `favorites`                 |
 | `CustomerOpticalProfile` | A customer's current-frame measurements + style preferences — see [ADR-0019](adr/0019-optical-profile-taxonomy.md)                                                                      | `customer_optical_profiles` |
+| `LensType`               | A lens line offered with frames (base price, custom-graduation support, featured flag) — see [ADR-0023](adr/0023-lens-catalog-domain.md)                                                | `lens_types`                |
+| `LensOption`             | A variety/tint of a lens line, with optional own price and optional stock                                                                                                               | `lens_options`              |
+| `LensTreatment`          | An informative treatment a lens line includes (no price)                                                                                                                                | `lens_treatments`           |
+| `LensTypeTreatment`      | Which treatments each lens line includes                                                                                                                                                | `lens_type_treatments`      |
+| `ProductLensType`        | Explicit, admin-decided compatibility between a frame and a lens line                                                                                                                   | `product_lens_types`        |
 
 Still deliberately absent: `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`,
 `audit_logs`. These remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope. (The
@@ -35,7 +40,14 @@ Branch                                  — standalone, no relations
 User     (1) ──── (N) RefreshToken
 User     (1) ──── (N) Favorite ──── (1) Product
 User     (1) ──── (0..1) CustomerOpticalProfile
+Product  (N) ──── (N) LensType        via ProductLensType   (cascade both sides)
+LensType (1) ──── (N) LensOption                            (cascade)
+LensType (N) ──── (N) LensTreatment   via LensTypeTreatment (cascade both sides)
 ```
+
+- **Lens catalog** (ADR-0023): all lens entities use `deletedAt` soft delete, so the cascades only
+  matter on a real hard delete. A lens option is never a `ProductVariant` (the variant is the
+  physical frame). See [`LENS_CONFIGURATOR.md`](LENS_CONFIGURATOR.md).
 
 - **CustomerOpticalProfile → User**: `onDelete: Cascade`, `userId @unique` — a true
   one-to-zero-or-one; a customer has at most one optical profile, enforced by the database, not
@@ -77,13 +89,15 @@ prescription, or preference fields at all — those live on the separate, 1:1-re
 
 ## Important constraints
 
-| Constraint                                         | Where                              | Why                                                                                                                                                           |
-| -------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `slug` unique                                      | `brands`, `categories`, `products` | Slugs are the public URL key                                                                                                                                  |
-| `sku` unique                                       | `product_variants`                 | Every purchasable item needs one stable identifier                                                                                                            |
-| `brand_id`, `category_id` `NOT NULL` on `products` | —                                  | Both are primary browse/filter dimensions; a product without them can't be placed in the catalog                                                              |
-| `stock >= 0`                                       | `product_variants`                 | Data-integrity guard, added as raw SQL in the first migration — Prisma has no declarative `CHECK` syntax. Not inventory-management logic, just a sanity bound |
-| `alt` `NOT NULL` on `product_images`               | —                                  | Accessibility requirement; the admin/seed layer is responsible for supplying real text, not the schema                                                        |
+| Constraint                                         | Where                                            | Why                                                                                                                                                           |
+| -------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slug` unique                                      | `brands`, `categories`, `products`               | Slugs are the public URL key                                                                                                                                  |
+| `sku` unique                                       | `product_variants`                               | Every purchasable item needs one stable identifier                                                                                                            |
+| `brand_id`, `category_id` `NOT NULL` on `products` | —                                                | Both are primary browse/filter dimensions; a product without them can't be placed in the catalog                                                              |
+| `stock >= 0`                                       | `product_variants`                               | Data-integrity guard, added as raw SQL in the first migration — Prisma has no declarative `CHECK` syntax. Not inventory-management logic, just a sanity bound |
+| `alt` `NOT NULL` on `product_images`               | —                                                | Accessibility requirement; the admin/seed layer is responsible for supplying real text, not the schema                                                        |
+| `stock IS NULL OR stock >= 0`                      | `lens_options`                                   | Raw SQL in `20260913031740_add_lens_catalog`. `NULL` = stock not tracked for that variety                                                                     |
+| `slug` unique / `(lens_type_id, slug)` unique      | `lens_types`, `lens_treatments` / `lens_options` | Stable, immutable identifiers (ADR-0013)                                                                                                                      |
 
 **Not enforced at the DB level, deliberately:** "only one `is_primary` image per variant." A
 partial/filtered unique index could do this, but it's real added complexity for a rule the

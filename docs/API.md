@@ -455,6 +455,29 @@ an unknown/deleted target product. See `apps/api/src/services/products.service.t
 `getRelatedProducts` for the exact implementation and
 `docs/CUSTOMER_EXPERIENCE_V2.md` for the full reasoning.
 
+## Lens configuration — Cristales & Configurador V1
+
+See [`LENS_CONFIGURATOR.md`](LENS_CONFIGURATOR.md) and
+[ADR-0023](adr/0023-lens-catalog-domain.md). Additive and backward-compatible:
+
+- `GET /api/products/:slug` now includes `lensTypes: PublicLensTypeDto[]` — the product's
+  explicitly compatible, non-deleted lens types with their active options (effective `price` and
+  public `available` only; never raw stock, `priceOverride` or `deletedAt`). Empty for every product
+  without lens compatibility.
+- `GET /api/products/:slug/quote?variantId=&lensTypeId=&lensOptionId=&graduationMode=NONE|CUSTOM` —
+  public, idempotent, no side effects. Validates the configuration against the database and
+  returns `EyewearConfigurationQuote` (`framePrice`, `lensPrice`, `total`, frame/lens summary,
+  `graduation.requiresOpticalConsultation`). Omit `lensTypeId` for "Sin cristales". Custom
+  graduation never changes the price in V1. Any price sent by the client is ignored. Errors: `404`
+  unknown/incomplete product; `400` invalid ids, variant of another product, incompatible or
+  deleted lens type, missing/unexpected/foreign option, `CUSTOM` without a lens or on a type that
+  doesn't support it; `409` option out of stock.
+- Admin (`authenticate` + `authorize("ADMIN")`): `/api/admin/lens-types` (+ `/:id`, `/:id/restore`,
+  `/:id/options`, `/:id/options/:optionId`, `/:id/options/:optionId/restore`),
+  `/api/admin/lens-treatments` (+ `/:id`, `/:id/restore`) and
+  `PUT /api/admin/products/:id/lens-types` (`{ lensTypeIds }`, replaces the full set).
+  `AdminProductDetail` now includes `lensTypes`.
+
 ## `GET /api/brands`, `GET /api/categories`
 
 ```json
