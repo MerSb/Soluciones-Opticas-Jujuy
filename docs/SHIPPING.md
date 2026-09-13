@@ -48,11 +48,11 @@ negocio. Tres montos que nunca se mezclan (función pura `applyShippingPolicy`, 
   valor real del CP/CPA de Alvear 732 **todavía no está confirmado y no se inventó**; hasta cargarlo,
   toda cotización informa `ORIGIN_POSTAL_CODE` como configuración faltante. No hay UI de sucursales:
   se carga directamente en la base cuando se confirme (`UPDATE branches SET postal_code = '…'`).
-- **Paquete**: `ShippingPackageProfile` (nombre, peso en gramos, largo/ancho/alto en cm, enteros y
-  > 0 con `CHECK`). Como máximo **un perfil activo predeterminado**: se garantiza en el servicio con
-  > una transacción serializada por advisory lock. Borrar el predeterminado deja el sistema sin
-  > predeterminado (no se puede cotizar hasta elegir otro). Sin valores precargados: las medidas
-  > reales del paquete de anteojos las carga el admin.
+- **Paquete**: `ShippingPackageProfile` (nombre, peso en gramos, largo/ancho/alto en cm; enteros
+  mayores que cero, con `CHECK`). Como máximo **un perfil activo predeterminado**: se garantiza en el
+  servicio con una transacción serializada por advisory lock. Borrar el predeterminado deja el
+  sistema sin predeterminado (no se puede cotizar hasta elegir otro). Sin valores precargados: las
+  medidas reales del paquete de anteojos las carga el admin.
 
 ## Proveedor logístico (boundary)
 
