@@ -1,5 +1,11 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import type { Paginated, ProductDetail, ProductListItem } from "@soluciones-opticas/shared";
+import type {
+  EyewearConfigurationInput,
+  EyewearConfigurationQuote,
+  Paginated,
+  ProductDetail,
+  ProductListItem,
+} from "@soluciones-opticas/shared";
 import { apiGet, ApiClientError } from "../api-client";
 import type { CatalogFilters } from "../../lib/catalog-url-state";
 import { PRODUCTS_PER_PAGE } from "../../lib/catalog-url-state";
@@ -61,5 +67,28 @@ export function useRelatedProductsQuery(slug: string | undefined) {
       if (error instanceof ApiClientError && error.status === 404) return false;
       return failureCount < 1;
     },
+  });
+}
+
+// Cristales & Configurador V1 (ADR-0023): the price breakdown shown to
+// the customer always comes from the backend's quote — the page sends
+// ids only, never a price. Disabled until the configuration is complete
+// (e.g. a lens type with varieties still needs one picked).
+export function useEyewearQuoteQuery(
+  slug: string | undefined,
+  input: EyewearConfigurationInput | null,
+) {
+  return useQuery({
+    queryKey: ["products", "detail", slug, "quote", input],
+    queryFn: () =>
+      apiGet<EyewearConfigurationQuote>(`/api/products/${slug}/quote`, {
+        variantId: input?.variantId,
+        lensTypeId: input?.lens?.lensTypeId,
+        lensOptionId: input?.lens?.lensOptionId ?? undefined,
+        graduationMode: input?.graduationMode,
+      }),
+    enabled: Boolean(slug && input),
+    placeholderData: keepPreviousData,
+    retry: false,
   });
 }
