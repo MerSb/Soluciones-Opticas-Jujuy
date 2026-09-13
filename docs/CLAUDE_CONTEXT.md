@@ -178,5 +178,5 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 - `LensOption` sin imagen propia (solo `swatchHex`); listado público no indica si un producto
   admite cristales.
 - `docs/DEPLOYMENT.md` desalineado con el flujo real de ramas (ver Ramas).
-- Shipping: origen = la `Branch` más antigua (sin flag explícito) y sin UI para cargar su CP; el
+- Shipping: origen = la `Branch` más antigua, desempate por menor id (sin flag explícito: con varias sucursales reales hará falta decidir cuál es el origen logístico) y sin UI para cargar su CP; el
   rate limit del simulador vive en memoria por proceso (como el de auth).

@@ -78,12 +78,16 @@ export interface DeliveryQuoteOutcome {
 export type ShippingQuoteOutcome =
   { deliveryMethod: "PICKUP"; charges: ShippingCharges } | DeliveryQuoteOutcome;
 
-// The earliest non-deleted branch is the store (ADR-0024). A postal code
-// that isn't a valid Argentine code is treated as missing, never used.
+// The earliest non-deleted branch is the store (ADR-0024); ties on
+// createdAt are broken by the lowest id, so the choice never depends on
+// PostgreSQL's physical row order. With several real branches this rule
+// is not a business decision — an explicit origin flag would be needed.
+// A postal code that isn't a valid Argentine code is treated as missing,
+// never used.
 async function resolveOrigin(): Promise<ShippingOrigin | null> {
   const branch = await prisma.branch.findFirst({
     where: { deletedAt: null },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { name: true, postalCode: true },
   });
   if (!branch) return null;

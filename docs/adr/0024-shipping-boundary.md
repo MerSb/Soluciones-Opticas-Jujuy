@@ -59,7 +59,7 @@ is no valid snapshot): nothing is logged and the result lists the missing config
 
 ### Origin and package
 
-The origin is the store's `Branch` (earliest non-deleted one), which gains a nullable `postalCode`
+The origin is the store's `Branch` (earliest non-deleted one; ties on `createdAt` broken by the lowest id), which gains a nullable `postalCode`
 — part of the physical address, not a separate setting. The package comes from admin-managed
 `ShippingPackageProfile` rows; at most one active profile is the default, enforced in a transaction
 serialized with a Postgres advisory lock (a partial unique index would be unmanaged by

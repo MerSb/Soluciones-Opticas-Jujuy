@@ -44,7 +44,7 @@ negocio. Tres montos que nunca se mezclan (función pura `applyShippingPolicy`, 
 
 ## Origen y paquete
 
-- **Origen**: la sucursal (la `Branch` no eliminada más antigua) y su `postalCode` (nullable). El
+- **Origen**: la sucursal (la `Branch` no eliminada más antigua; si varias comparten la misma fecha de creación, la de menor id — nunca el orden físico de la tabla) y su `postalCode` (nullable). El
   valor real del CP/CPA de Alvear 732 **todavía no está confirmado y no se inventó**; hasta cargarlo,
   toda cotización informa `ORIGIN_POSTAL_CODE` como configuración faltante. No hay UI de sucursales:
   se carga directamente en la base cuando se confirme (`UPDATE branches SET postal_code = '…'`).

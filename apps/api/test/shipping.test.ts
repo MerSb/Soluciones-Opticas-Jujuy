@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { Prisma } from "@prisma/client";
@@ -77,9 +78,10 @@ beforeAll(async () => {
     .post("/api/auth/register")
     .send({ firstName: "Cust", lastName: "Test", email: customerEmail, password: "password123" });
 
+  // Same rule as the service's resolveOrigin (createdAt, then id).
   const origin = await prisma.branch.findFirst({
     where: { deletedAt: null },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
   if (origin) {
     originBranchId = origin.id;
@@ -540,5 +542,55 @@ describe("quote service — provider outcomes (mocked seam, no network)", () => 
     await expect(
       quoteShipping({ ...delivery, destination: { postalCode: "12", provinceCode: "X" } }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+// B2: the origin must not depend on PostgreSQL's physical row order when
+// branches tie on createdAt (local seed data has two such branches).
+describe("shipping origin — deterministic branch selection", () => {
+  it("with branches sharing the earliest createdAt, always picks the lowest id", async () => {
+    // No default package → the attempt stops before the provider: nothing is logged.
+    await clearDefaultProfiles();
+    const [lowId, highId] = [randomUUID(), randomUUID()].sort() as [string, string];
+    const createdAt = new Date("2000-01-01T00:00:00.000Z");
+    try {
+      // The higher id is inserted first, so insertion order disagrees with the rule.
+      await prisma.branch.create({
+        data: {
+          id: highId,
+          name: `${PREFIX} Origin High`,
+          address: "Dirección de prueba",
+          postalCode: "9002",
+          createdAt,
+        },
+      });
+      await prisma.branch.create({
+        data: {
+          id: lowId,
+          name: `${PREFIX} Origin Low`,
+          address: "Dirección de prueba",
+          postalCode: "9001",
+          createdAt,
+        },
+      });
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // Rewriting a row moves its tuple, reshuffling physical order.
+        await prisma.branch.update({
+          where: { id: attempt % 2 === 0 ? lowId : highId },
+          data: { address: `Dirección de prueba ${attempt}` },
+        });
+        const outcome = await quoteShipping({
+          deliveryMethod: "DELIVERY",
+          source: "ADMIN_SIMULATOR",
+          destination: { postalCode: TEST_DESTINATION_CP, provinceCode: "Y" },
+        });
+        if (outcome.deliveryMethod !== "DELIVERY") throw new Error("expected DELIVERY");
+        expect(outcome.origin).toEqual({ branchName: `${PREFIX} Origin Low`, postalCode: "9001" });
+        expect(outcome.quoteLogId).toBeNull();
+      }
+    } finally {
+      await prisma.branch.deleteMany({ where: { id: { in: [lowId, highId] } } });
+    }
   });
 });
