@@ -9,14 +9,32 @@ const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const adminEmail = `admin-categories-${RUN_ID}@example.com`;
 
 let adminAgent: ReturnType<typeof request.agent>;
+// Owned by this file, cleaned up by id: categories get renamed mid-test
+// ("Renamed Category"), so a name-based cleanup would miss them. The
+// brand is this file's own too — never another suite's.
+const createdCategoryIds: string[] = [];
+let brandId: string;
 
 beforeAll(async () => {
   adminAgent = await createAdminAgent(app, adminEmail);
+  const brand = await prisma.brand.create({
+    data: {
+      name: `Test Categories Brand ${RUN_ID}`,
+      slug: `test-categories-brand-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  brandId = brand.id;
 });
 
 afterAll(async () => {
-  await prisma.category.deleteMany({ where: { name: { startsWith: `Test Cat ${RUN_ID}` } } });
+  await prisma.product.deleteMany({
+    where: { OR: [{ categoryId: { in: createdCategoryIds } }, { brandId }] },
+  });
+  await prisma.category.deleteMany({ where: { id: { in: createdCategoryIds } } });
+  const remaining = await prisma.category.count({ where: { id: { in: createdCategoryIds } } });
+  await prisma.brand.delete({ where: { id: brandId } });
   await prisma.user.deleteMany({ where: { email: adminEmail } });
+  expect(remaining).toBe(0);
 });
 
 describe("admin categories", () => {
@@ -28,6 +46,7 @@ describe("admin categories", () => {
     const created = await adminAgent
       .post("/api/admin/categories")
       .send({ name: `Test Cat ${RUN_ID}` });
+    createdCategoryIds.push(created.body.id);
     expect(created.status).toBe(201);
     const originalSlug = created.body.slug;
 
@@ -54,12 +73,12 @@ describe("admin categories", () => {
     const category = await adminAgent
       .post("/api/admin/categories")
       .send({ name: `Test Cat ${RUN_ID} In Use` });
-    const brand = await prisma.brand.findFirstOrThrow({ where: { deletedAt: null } });
+    createdCategoryIds.push(category.body.id);
     const product = await prisma.product.create({
       data: {
         name: `Temp product cat ${RUN_ID}`,
         slug: `temp-product-cat-${RUN_ID}`,
-        brandId: brand.id,
+        brandId,
         categoryId: category.body.id,
         basePrice: 1000,
       },

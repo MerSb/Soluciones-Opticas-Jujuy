@@ -42,15 +42,40 @@ beforeAll(async () => {
     .post("/api/auth/register")
     .send({ firstName: "Cust", lastName: "Test", email: customerEmail, password: "password123" });
 
-  const brand = await prisma.brand.findFirstOrThrow({ where: { deletedAt: null } });
-  const category = await prisma.category.findFirstOrThrow({ where: { deletedAt: null } });
+  // This file owns its brand/category — never "the first active one",
+  // which could be another suite's temporary fixture (products created
+  // here would then block that suite from deleting it).
+  const brand = await prisma.brand.create({
+    data: {
+      name: `Test Products Brand ${RUN_ID}`,
+      slug: `test-products-brand-${RUN_ID}`.toLowerCase(),
+    },
+  });
+  const category = await prisma.category.create({
+    data: {
+      name: `Test Products Category ${RUN_ID}`,
+      slug: `test-products-category-${RUN_ID}`.toLowerCase(),
+    },
+  });
   brandId = brand.id;
   categoryId = category.id;
 });
 
 afterAll(async () => {
-  await prisma.product.deleteMany({ where: { name: { startsWith: `Test Product ${RUN_ID}` } } });
+  // No product named after this run may hang off someone else's brand.
+  const foreign = await prisma.product.count({
+    where: { name: { startsWith: `Test Product ${RUN_ID}` }, NOT: { brandId } },
+  });
+  // Cleanup by ownership, never by name: products are renamed mid-test
+  // ("Renamed Product"), but every one of them belongs to this file's
+  // own brand/category.
+  await prisma.product.deleteMany({ where: { OR: [{ brandId }, { categoryId }] } });
+  const remaining = await prisma.product.count({ where: { OR: [{ brandId }, { categoryId }] } });
+  await prisma.brand.delete({ where: { id: brandId } });
+  await prisma.category.delete({ where: { id: categoryId } });
   await prisma.user.deleteMany({ where: { email: { in: [adminEmail, customerEmail] } } });
+  expect(foreign).toBe(0);
+  expect(remaining).toBe(0);
 });
 
 afterEach(() => {
@@ -110,6 +135,9 @@ describe("admin products", () => {
     expect(updated.body.name).toBe("Renamed Product");
     expect(updated.body.slug).toBe(originalSlug);
     expect(updated.body.styles).toEqual(["MODERN"]);
+    // The visible name changed; the fixture's identity didn't — it still
+    // belongs to this file's own brand, which is what cleanup uses.
+    expect(await prisma.product.count({ where: { id, brandId, categoryId } })).toBe(1);
 
     const deleted = await adminAgent.delete(`/api/admin/products/${id}`);
     expect(deleted.body.deletedAt).not.toBeNull();

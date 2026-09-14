@@ -50,6 +50,21 @@ const FIELD_LABELS: Record<string, string> = {
   isFeatured: "el destacado",
   treatmentIds: "los tratamientos",
   lensTypeIds: "los cristales",
+  postalCode: "el código postal",
+  destinationPostalCode: "el código postal de destino",
+  provinceCode: "la provincia",
+  destinationProvinceCode: "la provincia de destino",
+  recipientName: "el nombre del destinatario",
+  streetName: "la calle",
+  streetNumber: "la altura",
+  floor: "el piso",
+  apartment: "el departamento",
+  city: "la localidad",
+  references: "las referencias",
+  weightGrams: "el peso",
+  lengthCm: "el largo",
+  widthCm: "el ancho",
+  heightCm: "el alto",
 };
 
 function labelFor(path: (string | number)[]): string {

@@ -1,7 +1,7 @@
 # Contexto compacto — Soluciones Ópticas Jujuy
 
 Punto de entrada para nuevas sesiones. Corto a propósito: para el detalle de cada tema, abrí solo el
-documento enlazado. Última actualización: Cristales & Configurador V1 (2026-09-13).
+documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
 
 ## Stack
 
@@ -27,7 +27,7 @@ documento enlazado. Última actualización: Cristales & Configurador V1 (2026-09
 - **Admin API**: `/api/admin/*`, `authenticate` + `authorize("ADMIN")` una sola vez en
   `routes/admin/index.ts`. Endpoints por recurso (no PATCH con arrays anidados), soft delete +
   `/restore`.
-- ADRs en `docs/adr/` (0001–0023). Leer el ADR del tema antes de cambiar una decisión.
+- ADRs en `docs/adr/` (0001–0024). Leer el ADR del tema antes de cambiar una decisión.
 
 ## Ramas
 
@@ -86,20 +86,40 @@ documento enlazado. Última actualización: Cristales & Configurador V1 (2026-09
 - Fuente única de validación/precio: `resolveEyewearConfiguration()` (`GET
 /api/products/:slug/quote`). El frontend nunca envía precios.
 - Sin datos de cristales inventados: los carga el admin con datos reales del cliente.
+- **El antirreflejo se comercializa como característica estándar/incluida, no como adicional
+  seleccionable** (confirmado por el cliente). Se modela como `LensTreatment` incluido en cada
+  `LensType` que corresponda; sin precio, sin selección. Lo carga el admin (no hay seed).
+
+**Envíos — Shipping V1** (ADR-0024, [`SHIPPING.md`](SHIPPING.md))
+
+- Métodos: `PICKUP` (Alvear 732, San Salvador de Jujuy — la `Branch` real) y `DELIVERY` solo en
+  Argentina (24 códigos ISO 3166-2:AR). Sin internacional.
+- Política `FREE_NATIONAL_V1`: **el cliente paga $0 de envío en todo el país; eso NO significa que
+  el envío no le cueste a la óptica.** Tres montos separados (Decimal): costo del proveedor, precio
+  al cliente (0) y costo absorbido. Costo desconocido = `null`, nunca inventado ni mostrado como $0.
+- El envío nunca modifica precios de producto ni de cristal.
+- Un solo acceso al transportista: `shipping-provider.service.ts`. Fase A: **sin proveedor**
+  (resultado `NOT_CONFIGURED`), sin credenciales ni variables de entorno.
+- Log `shipping_quotes`: `QUOTED` / `FAILED` / `NOT_COVERED` / `NOT_CONFIGURED`. `PENDING` queda
+  reservado para el futuro `Order.shippingCostStatus`.
+- Origen = `Branch.postalCode` (nullable; el CP real todavía no confirmado). Paquete = perfil
+  predeterminado (`/admin/shipping`, un solo default). Sin endpoint público hasta checkout.
 
 ## Estado de milestones
 
-| Milestone                                     | Estado                                                                        |
-| --------------------------------------------- | ----------------------------------------------------------------------------- |
-| Etapa 1 — sitio + catálogo                    | Hecho                                                                         |
-| Etapa 2 — auth, favoritos, perfil óptico      | Hecho                                                                         |
-| Recomendaciones V1/V2, Customer Experience V2 | Hecho                                                                         |
-| Admin catálogo + Admin Dashboard V2           | Hecho                                                                         |
-| Cloudinary staging readiness                  | Hecho, en staging                                                             |
-| Real Catalog Readiness                        | Hecho, integrado (merge `2491f8a`), probado en staging                        |
-| Cristales & Configurador V1                   | Implementado en `feature/lens-configurator-v1`; pendiente QA manual; sin push |
-| Payments V1 (Mercado Pago), Orders, carrito   | No iniciado                                                                   |
-| Facturación (CUIT / ARCA)                     | No iniciado — milestone separado                                              |
+| Milestone                                     | Estado                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| Etapa 1 — sitio + catálogo                    | Hecho                                                                |
+| Etapa 2 — auth, favoritos, perfil óptico      | Hecho                                                                |
+| Recomendaciones V1/V2, Customer Experience V2 | Hecho                                                                |
+| Admin catálogo + Admin Dashboard V2           | Hecho                                                                |
+| Cloudinary staging readiness                  | Hecho, en staging                                                    |
+| Real Catalog Readiness                        | Hecho, integrado (merge `2491f8a`), probado en staging               |
+| Cristales & Configurador V1                   | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual |
+| Shipping V1 — Fase A (sin proveedor)          | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push |
+| Shipping V1 — Fase B (proveedor real)         | Bloqueado: el cliente debe elegir operador y conseguir credenciales  |
+| Payments V1 (Mercado Pago), Orders, carrito   | No iniciado                                                          |
+| Facturación (CUIT / ARCA)                     | No iniciado — milestone separado                                     |
 
 ## Infraestructura
 
@@ -139,7 +159,9 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 - **Cristales**: nombres/colores/precios reales (incluida la línea espectro, ~10 variedades),
   qué líneas son compatibles con qué productos, stock o a pedido, si la graduación personalizada
   tendrá costo.
-- **Envíos**: política de costo (tarifa, zonas, gratis, transportista) — bloquea Payments V1.
+- **Envíos** (política de envío gratis ya confirmada): operador logístico + credenciales, CP/CPA
+  de Alvear 732, peso/medidas/embalaje del paquete, valor declarado, aceptar pedidos con costo
+  pendiente, domicilio vs. sucursal del correo. Detalle en `docs/SHIPPING.md`.
 - **Pagos**: Mercado Pago, pago completo online, tarjetas, checkout invitado (cuenta no
   obligatoria), retiro en local y envío a domicilio.
 - **Facturación**: CUIT cuando corresponda; ARCA fuera de alcance hasta su milestone.
@@ -156,3 +178,5 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 - `LensOption` sin imagen propia (solo `swatchHex`); listado público no indica si un producto
   admite cristales.
 - `docs/DEPLOYMENT.md` desalineado con el flujo real de ramas (ver Ramas).
+- Shipping: origen = la `Branch` más antigua, desempate por menor id (sin flag explícito: con varias sucursales reales hará falta decidir cuál es el origen logístico) y sin UI para cargar su CP; el
+  rate limit del simulador vive en memoria por proceso (como el de auth).

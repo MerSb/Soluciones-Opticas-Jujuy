@@ -23,6 +23,8 @@ each environment points at is documented in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 | `LensTreatment`          | An informative treatment a lens line includes (no price)                                                                                                                                | `lens_treatments`           |
 | `LensTypeTreatment`      | Which treatments each lens line includes                                                                                                                                                | `lens_type_treatments`      |
 | `ProductLensType`        | Explicit, admin-decided compatibility between a frame and a lens line                                                                                                                   | `product_lens_types`        |
+| `ShippingPackageProfile` | Admin-managed package (grams/cm) used to quote deliveries; at most one active default — see [ADR-0024](adr/0024-shipping-boundary.md)                                                   | `shipping_package_profiles` |
+| `ShippingQuoteLog`       | One synchronous quote attempt (QUOTED/FAILED/NOT_COVERED/NOT_CONFIGURED) with origin/destination/package snapshot, carrier cost and policy code                                         | `shipping_quotes`           |
 
 Still deliberately absent: `recommendation_rules`, `orders`, `payments`, `fiscal_invoices`,
 `audit_logs`. These remain future-phase concerns — see `ARCHITECTURE.md` §Phased scope. (The
@@ -36,7 +38,8 @@ Brand    (1) ──── (N) Product
 Category (1) ──── (N) Product
 Product  (1) ──── (N) ProductVariant
 Variant  (1) ──── (N) ProductImage
-Branch                                  — standalone, no relations
+Branch                                  — standalone; postal_code (nullable) is the shipping origin
+ShippingPackageProfile, ShippingQuoteLog — standalone (the log snapshots values, no FKs)
 User     (1) ──── (N) RefreshToken
 User     (1) ──── (N) Favorite ──── (1) Product
 User     (1) ──── (0..1) CustomerOpticalProfile
@@ -89,15 +92,18 @@ prescription, or preference fields at all — those live on the separate, 1:1-re
 
 ## Important constraints
 
-| Constraint                                         | Where                                            | Why                                                                                                                                                           |
-| -------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `slug` unique                                      | `brands`, `categories`, `products`               | Slugs are the public URL key                                                                                                                                  |
-| `sku` unique                                       | `product_variants`                               | Every purchasable item needs one stable identifier                                                                                                            |
-| `brand_id`, `category_id` `NOT NULL` on `products` | —                                                | Both are primary browse/filter dimensions; a product without them can't be placed in the catalog                                                              |
-| `stock >= 0`                                       | `product_variants`                               | Data-integrity guard, added as raw SQL in the first migration — Prisma has no declarative `CHECK` syntax. Not inventory-management logic, just a sanity bound |
-| `alt` `NOT NULL` on `product_images`               | —                                                | Accessibility requirement; the admin/seed layer is responsible for supplying real text, not the schema                                                        |
-| `stock IS NULL OR stock >= 0`                      | `lens_options`                                   | Raw SQL in `20260913031740_add_lens_catalog`. `NULL` = stock not tracked for that variety                                                                     |
-| `slug` unique / `(lens_type_id, slug)` unique      | `lens_types`, `lens_treatments` / `lens_options` | Stable, immutable identifiers (ADR-0013)                                                                                                                      |
+| Constraint                                               | Where                                            | Why                                                                                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slug` unique                                            | `brands`, `categories`, `products`               | Slugs are the public URL key                                                                                                                                  |
+| `sku` unique                                             | `product_variants`                               | Every purchasable item needs one stable identifier                                                                                                            |
+| `brand_id`, `category_id` `NOT NULL` on `products`       | —                                                | Both are primary browse/filter dimensions; a product without them can't be placed in the catalog                                                              |
+| `stock >= 0`                                             | `product_variants`                               | Data-integrity guard, added as raw SQL in the first migration — Prisma has no declarative `CHECK` syntax. Not inventory-management logic, just a sanity bound |
+| `alt` `NOT NULL` on `product_images`                     | —                                                | Accessibility requirement; the admin/seed layer is responsible for supplying real text, not the schema                                                        |
+| `stock IS NULL OR stock >= 0`                            | `lens_options`                                   | Raw SQL in `20260913031740_add_lens_catalog`. `NULL` = stock not tracked for that variety                                                                     |
+| `slug` unique / `(lens_type_id, slug)` unique            | `lens_types`, `lens_treatments` / `lens_options` | Stable, immutable identifiers (ADR-0013)                                                                                                                      |
+| measures `> 0`                                           | `shipping_package_profiles`, `shipping_quotes`   | Raw SQL in `20260913045017_add_shipping_foundation`; grams/cm are whole numbers                                                                               |
+| money/timings `>= 0` (or NULL), province `^[A-HJ-NP-Z]$` | `shipping_quotes`                                | Raw SQL; unknown carrier cost stays NULL, never 0; destination is an ISO 3166-2:AR letter                                                                     |
+| single active default profile                            | `shipping_package_profiles`                      | Enforced in the service (transaction + advisory lock), not by an index — a partial unique index would be unmanaged drift (ADR-0014)                           |
 
 **Not enforced at the DB level, deliberately:** "only one `is_primary` image per variant." A
 partial/filtered unique index could do this, but it's real added complexity for a rule the

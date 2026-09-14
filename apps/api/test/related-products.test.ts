@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
+import { completeCatalogFingerprint, observeWhileStable } from "./stable-snapshot.js";
 
 const app = createApp();
 
@@ -45,9 +46,20 @@ describe("GET /api/products/:slug/related", () => {
     }
   });
 
+  // Same target + the same candidate set ⇒ identical output. Candidates
+  // are the whole complete catalog, which other files mutate
+  // concurrently, so "the same candidate set" is proven (fingerprinted
+  // unchanged across both requests) rather than assumed.
   it("produces stable, deterministic output across repeated requests", async () => {
-    const first = await request(app).get("/api/products/andina-aviador/related");
-    const second = await request(app).get("/api/products/andina-aviador/related");
+    const {
+      result: [first, second],
+    } = await observeWhileStable(completeCatalogFingerprint, async () => {
+      const first = await request(app).get("/api/products/andina-aviador/related");
+      const second = await request(app).get("/api/products/andina-aviador/related");
+      return [first, second] as const;
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.data.length).toBeGreaterThan(0);
     expect(first.body).toEqual(second.body);
   });
 
