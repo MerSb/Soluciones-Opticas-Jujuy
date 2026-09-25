@@ -6,6 +6,7 @@ export async function listBranches(): Promise<BranchSummary[]> {
     where: { deletedAt: null },
     orderBy: { createdAt: "asc" },
     select: {
+      id: true,
       name: true,
       address: true,
       phone: true,

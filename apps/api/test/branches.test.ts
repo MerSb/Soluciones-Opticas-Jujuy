@@ -12,4 +12,11 @@ describe("GET /api/branches", () => {
     expect(names).toContain("Sucursal Centro");
     expect(names).toContain("Sucursal Norte");
   });
+
+  it("exposes each branch id so checkout can pick a pickup branch", async () => {
+    const response = await request(createApp()).get("/api/branches");
+    for (const branch of response.body.data as { id: string }[]) {
+      expect(branch.id).toMatch(/^[0-9a-f-]{36}$/);
+    }
+  });
 });
