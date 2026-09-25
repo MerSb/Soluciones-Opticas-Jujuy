@@ -5,6 +5,7 @@ import logo2x from "../../assets/brand/logo-2x.webp";
 import { WhatsAppButton } from "../ui/WhatsAppButton";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useCurrentUserQuery } from "../../services/queries/auth";
+import { CartLink } from "../cart/CartLink";
 
 interface NavItem {
   to: string;
@@ -122,6 +123,8 @@ export function Header() {
           >
             {accountLink.label}
           </Link>
+
+          <CartLink />
 
           <ThemeSwitcher />
 

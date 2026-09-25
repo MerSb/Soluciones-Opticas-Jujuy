@@ -13,6 +13,7 @@ import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
 import { LensConfigurator } from "../components/products/LensConfigurator";
+import { AddToCartSection } from "../components/products/AddToCartSection";
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
 import { formatPrice } from "../lib/format-price";
 import { buildProductInquiryMessage } from "../lib/whatsapp";
@@ -228,12 +229,24 @@ export function ProductDetailPage() {
               </div>
             )}
 
+            {/* Purchase block (Payments V1 — Phase C): the cart is the
+                primary action; WhatsApp stays as the secondary way to ask
+                before buying. */}
+            <section aria-label="Comprar" className="mt-8 space-y-5 border-t border-border pt-6">
+              <AddToCartSection
+                product={product}
+                variant={selectedVariant}
+                lensTypes={lensTypes}
+                selection={lensSelection}
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-text-muted">¿Preferís consultar antes?</span>
+                <WhatsAppButton message={whatsappMessage}>Consultar por WhatsApp</WhatsAppButton>
+              </div>
+            </section>
+
             <div className="mt-8 border-t border-border pt-6">
               <MeasurementsTable measurements={product.frameMeasurements} />
-            </div>
-
-            <div className="mt-8">
-              <WhatsAppButton message={whatsappMessage}>Consultar por WhatsApp</WhatsAppButton>
             </div>
 
             <ProductMatchSection slug={slug} />
