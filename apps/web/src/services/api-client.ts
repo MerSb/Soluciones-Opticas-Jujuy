@@ -106,8 +106,11 @@ async function request<T>(
 export function apiGet<T>(
   path: string,
   searchParams?: Record<string, string | number | undefined>,
+  /** Extra request headers — e.g. the guest order token, which must
+   * travel in a header, never in the URL (docs/PAYMENTS.md). */
+  headers?: Record<string, string>,
 ): Promise<T> {
-  return request<T>(path, { method: "GET" }, searchParams);
+  return request<T>(path, { method: "GET", headers }, searchParams);
 }
 
 // Always sends Content-Type: application/json, even for a bodyless POST

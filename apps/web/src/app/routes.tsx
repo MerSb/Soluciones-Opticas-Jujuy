@@ -52,6 +52,32 @@ export const routes: RouteObject[] = [
           return { Component: ProductDetailPage };
         },
       },
+      // Payments V1 — Phase C: cart/checkout/order are lazy, same
+      // reasoning as account — only buyers ever load them.
+      {
+        path: "cart",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { CartPage } = await import("../pages/CartPage");
+          return { Component: CartPage };
+        },
+      },
+      {
+        path: "checkout",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { CheckoutPage } = await import("../pages/CheckoutPage");
+          return { Component: CheckoutPage };
+        },
+      },
+      {
+        path: "order/:orderNumber",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { OrderPage } = await import("../pages/OrderPage");
+          return { Component: OrderPage };
+        },
+      },
       { path: "brands", element: <BrandsPage /> },
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },
@@ -96,6 +122,21 @@ export const routes: RouteObject[] = [
                 lazy: async () => {
                   const { ProfilePage } = await import("../pages/account/ProfilePage");
                   return { Component: ProfilePage };
+                },
+              },
+              {
+                path: "orders",
+                lazy: async () => {
+                  const { AccountOrdersPage } = await import("../pages/account/AccountOrdersPage");
+                  return { Component: AccountOrdersPage };
+                },
+              },
+              {
+                path: "orders/:orderNumber",
+                lazy: async () => {
+                  const { AccountOrderDetailPage } =
+                    await import("../pages/account/AccountOrderDetailPage");
+                  return { Component: AccountOrderDetailPage };
                 },
               },
               {
