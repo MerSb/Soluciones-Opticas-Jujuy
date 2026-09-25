@@ -34,6 +34,11 @@ export class ApiError extends Error {
     return new ApiError(409, "CONFLICT", message);
   }
 
+  /** A reservation found less stock than requested (checkout). */
+  static outOfStock(message: string): ApiError {
+    return new ApiError(409, "OUT_OF_STOCK", message);
+  }
+
   static rateLimited(message: string): ApiError {
     return new ApiError(429, "RATE_LIMITED", message);
   }
