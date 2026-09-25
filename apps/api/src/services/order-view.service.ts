@@ -187,6 +187,29 @@ async function loadPublicOrder(where: Prisma.OrderWhereInput): Promise<PublicOrd
 
 export const ORDER_NOT_FOUND_MESSAGE = "No encontramos un pedido con esos datos.";
 
+/** Who may act on an order (view it, start its payment): a guest with
+ * the order's access token, or the account that owns it. The token check
+ * is the Phase B one (findOrderIdForAccessToken, constant-time); every
+ * failure is the same 404. */
+export async function resolveOrderAccess(access: {
+  orderNumber: string;
+  accessToken: string | null;
+  userId: string | null;
+}): Promise<string> {
+  const orderId = access.accessToken
+    ? await findOrderIdForAccessToken(access.orderNumber, access.accessToken)
+    : access.userId
+      ? ((
+          await prisma.order.findFirst({
+            where: { orderNumber: access.orderNumber, userId: access.userId },
+            select: { id: true },
+          })
+        )?.id ?? null)
+      : null;
+  if (!orderId) throw ApiError.notFound(ORDER_NOT_FOUND_MESSAGE);
+  return orderId;
+}
+
 /** Guest access: order number + the token from X-Order-Access-Token.
  * Unknown order and wrong token give the same 404. */
 export async function getGuestOrder(

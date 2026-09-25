@@ -35,3 +35,17 @@ export const guestOrderRateLimiter = rateLimit({
     throw ApiError.rateLimited("Demasiadas consultas. Probá de nuevo en unos minutos.");
   },
 });
+
+// Starting a payment talks to Mercado Pago. A buyer clicks "Pagar" a few
+// times at most; this bounds scripted hammering of the provider.
+export const PAYMENT_INITIATION_RATE_LIMIT = { windowMs: 15 * 60 * 1000, limit: 20 } as const;
+export const paymentInitiationRateLimitStore = new MemoryStore();
+export const paymentInitiationRateLimiter = rateLimit({
+  ...PAYMENT_INITIATION_RATE_LIMIT,
+  store: paymentInitiationRateLimitStore,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: () => {
+    throw ApiError.rateLimited("Demasiados intentos de pago. Probá de nuevo en unos minutos.");
+  },
+});

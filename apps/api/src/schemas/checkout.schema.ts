@@ -109,3 +109,7 @@ export type OrderNumberParams = z.infer<typeof orderNumberParamsSchema>;
 /** Shape of generateOrderAccessToken(): 32 bytes, base64url. */
 export const ORDER_ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 export const ORDER_ACCESS_TOKEN_HEADER = "X-Order-Access-Token";
+
+/** POST /api/orders/:orderNumber/payment takes no input at all: amount,
+ * currency, references and keys are all server-side. Any field is a 400. */
+export const initiatePaymentBodySchema = z.object({}).strict();
