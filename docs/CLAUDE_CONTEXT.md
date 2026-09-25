@@ -1,7 +1,7 @@
 # Contexto compacto — Soluciones Ópticas Jujuy
 
 Punto de entrada para nuevas sesiones. Corto a propósito: para el detalle de cada tema, abrí solo el
-documento enlazado. Última actualización: Payments V1 — Fase A (2026-09-25).
+documento enlazado. Última actualización: Payments V1 — Fase B (2026-09-25).
 
 ## Stack
 
@@ -105,7 +105,7 @@ documento enlazado. Última actualización: Payments V1 — Fase A (2026-09-25).
 - Origen = `Branch.postalCode` (nullable; el CP real todavía no confirmado). Paquete = perfil
   predeterminado (`/admin/shipping`, un solo default). Sin endpoint público hasta checkout.
 
-**Órdenes — Payments V1 Fase A** (ADR-0025, [`PAYMENTS.md`](PAYMENTS.md))
+**Órdenes — Payments V1 Fases A+B** (ADR-0025, [`PAYMENTS.md`](PAYMENTS.md))
 
 - Sin carrito en DB: la `Order` nace al confirmar checkout; cada línea se revalida con
   `resolveEyewearConfigurationDetails()`. El cliente nunca envía precios, nombres ni stock.
@@ -116,7 +116,13 @@ documento enlazado. Última actualización: Payments V1 — Fase A (2026-09-25).
 - `PAYMENT_STOCK_RESERVATION_MINUTES = 30` (`lib/order-policy.ts`). Expiración idempotente; pago
   tardío → `PAID` o `PAID_NEEDS_REVIEW` (sin refund automático).
 - Token de invitado: solo hash SHA-256; futuro header `X-Order-Access-Token`, nunca query string.
-- `orderNumber` desde la secuencia `order_number_seq` (SQL manual). Sin Mercado Pago ni HTTP todavía.
+- `orderNumber` desde la secuencia `order_number_seq` (SQL manual).
+- HTTP (Fase B): `POST /api/checkout/orders` (invitado o cuenta; cookie inválida → 401),
+  `GET /api/orders/:orderNumber` (header de token; todo fallo = mismo 404),
+  `GET /api/account/orders[/:n]`. Teléfono obligatorio. Envío vía `quoteShipping()` fuera de la
+  transacción; re-resolución + `FOR SHARE` dentro. `paymentStatus` DTO = último `Payment` o
+  `NOT_STARTED` (sin filas ficticias). Expiración oportunista en checkout/lectura; falta scheduler
+  antes de producción. Sin Mercado Pago ni frontend todavía.
 
 ## Estado de milestones
 
@@ -182,8 +188,8 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 
 ## Deuda técnica relevante
 
-- Órdenes: el barrido de expiración no está programado (sin cron); `PAID_NEEDS_REVIEW` no tiene
-  flujo de admin todavía.
+- Órdenes: el barrido de expiración es solo oportunista (sin scheduler persistente — requerido antes
+  de producción); `PAID_NEEDS_REVIEW` no tiene flujo de admin; rate limits de checkout en memoria.
 - Índice pg_trgm fuera del schema: toda migration requiere revisión manual (ver arriba).
 - Filtros públicos de color/forma/material sin normalización (`docs/REAL_CATALOG_READINESS.md`).
 - Limpieza de fixtures admin por nombre mutable; flake conocido de concurrencia entre archivos de

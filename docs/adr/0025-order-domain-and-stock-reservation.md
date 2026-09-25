@@ -1,6 +1,6 @@
 # ADR-0025: Order domain, snapshots and atomic stock reservation (Payments V1 — Phase A)
 
-**Status:** Approved (Phase A implemented; payment provider pending).
+**Status:** Approved (Phases A and B implemented; payment provider pending).
 
 ## Context
 
@@ -88,6 +88,31 @@ three ADR-0024 amounts separate; a delivery order without a carrier quote stores
 No clinical data (a `CUSTOM` graduation is a mode plus a flag), no invented fiscal fields (only
 `invoiceRequested` and optional billing name / tax id / address; ARCA is its own milestone), no
 PaymentProvider or Mercado Pago integration, no HTTP endpoint, no webhook yet.
+
+## Phase B additions (HTTP checkout)
+
+- **Routes:** `POST /api/checkout/orders` (guest or account), `GET /api/orders/:orderNumber` (guest,
+  `X-Order-Access-Token`), `GET /api/account/orders[/:orderNumber]` (own orders only).
+- **Optional session:** no access cookie → guest; valid cookie → the account; a present but invalid
+  cookie → `401`, never downgraded to a guest order. Same JWT verification as `authenticate`.
+- **Guest token** returned only for guest checkouts; missing/malformed/wrong token and unknown order
+  number are one indistinguishable `404` (not `401`, which the web client treats as "refresh the
+  session").
+- **Phone is required** at checkout (the shop must be able to reach the buyer, especially for a
+  `CUSTOM` graduation). Stored as an optional `+` plus digits.
+- **Shipping** goes through `quoteShipping()` (`source = CHECKOUT`) before the transaction opens:
+  a carrier quote is network I/O and must never hold row locks. `QUOTED` → `KNOWN` with the real cost;
+  `NOT_CONFIGURED`/`FAILED` → carrier cost `NULL`, `PENDING`, customer still pays 0; `NOT_COVERED`
+  → `422 SHIPPING_NOT_COVERED`.
+- **Critical re-validation:** inside the short transaction, products and lens types are locked
+  `FOR SHARE` (id order) and every line is re-resolved with the same resolver before stock is
+  reserved. `FOR SHARE` is only taken on rows checkout never updates, so two checkouts cannot
+  deadlock on a lock upgrade.
+- **`paymentStatus` in DTOs** is the latest `Payment` row's status or `NOT_STARTED` — a DTO value; no
+  placeholder `Payment` row is created.
+- **Opportunistic expiry:** each checkout runs a bounded idempotent sweep (25) before reserving, and
+  reading an order expires it if due. No in-process interval, no cron — a persistent scheduler is
+  still required before production.
 
 ## Consequences
 

@@ -17,32 +17,36 @@ npm run dev -w apps/api     # http://localhost:3001
 
 ## Endpoints
 
-| Method | Path                          | Purpose                                                                  | Auth                                 |
-| ------ | ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
-| GET    | `/api/health`                 | Liveness check                                                           | Public                               |
-| GET    | `/api/products`               | Catalog listing — search, filter, sort, paginate                         | Public                               |
-| GET    | `/api/products/:slug`         | Product detail                                                           | Public                               |
-| GET    | `/api/products/:slug/related` | Up to 4 related products (deterministic weighted ranking)                | Public                               |
-| GET    | `/api/brands`                 | Brand listing with product counts                                        | Public                               |
-| GET    | `/api/categories`             | Category listing with product counts                                     | Public                               |
-| GET    | `/api/branches`               | Branch listing                                                           | Public                               |
-| POST   | `/api/auth/register`          | Create a customer account, starts a session                              | Public (rate-limited)                |
-| POST   | `/api/auth/login`             | Starts a session                                                         | Public (rate-limited)                |
-| POST   | `/api/auth/refresh`           | Rotates the session (silent, called by the frontend on 401)              | Refresh cookie                       |
-| POST   | `/api/auth/logout`            | Ends the session                                                         | Public (no-op if already logged out) |
-| GET    | `/api/auth/me`                | The authenticated user's safe profile                                    | Required                             |
-| GET    | `/api/profile`                | Same shape as `/auth/me` — the editable profile endpoint                 | Required                             |
-| PATCH  | `/api/profile`                | Update `firstName`/`lastName`/`phone` only                               | Required                             |
-| GET    | `/api/favorites`              | The authenticated customer's favorited products                          | Required                             |
-| POST   | `/api/favorites/:slug`        | Add a favorite (idempotent)                                              | Required                             |
-| DELETE | `/api/favorites/:slug`        | Remove a favorite (idempotent)                                           | Required                             |
-| GET    | `/api/optical-profile`        | The authenticated customer's frame measurements + style preferences      | Required                             |
-| PATCH  | `/api/optical-profile`        | Update any subset of measurements/preferences                            | Required                             |
-| GET    | `/api/recommendations`        | Ranked, explained product recommendations for the authenticated customer | Required                             |
-| GET    | `/api/recommendations/:slug`  | Personalized match for one product (Product Detail V2)                   | Required                             |
-| \*     | `/api/admin/brands*`          | Admin brand CRUD + soft-delete/restore — see "Admin" below               | Required (`Role.ADMIN`)              |
-| \*     | `/api/admin/categories*`      | Admin category CRUD + soft-delete/restore — see "Admin" below            | Required (`Role.ADMIN`)              |
-| \*     | `/api/admin/products*`        | Admin product/variant/image CRUD — see "Admin" below                     | Required (`Role.ADMIN`)              |
+| Method | Path                               | Purpose                                                                          | Auth                                      |
+| ------ | ---------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
+| GET    | `/api/health`                      | Liveness check                                                                   | Public                                    |
+| GET    | `/api/products`                    | Catalog listing — search, filter, sort, paginate                                 | Public                                    |
+| GET    | `/api/products/:slug`              | Product detail                                                                   | Public                                    |
+| GET    | `/api/products/:slug/related`      | Up to 4 related products (deterministic weighted ranking)                        | Public                                    |
+| GET    | `/api/brands`                      | Brand listing with product counts                                                | Public                                    |
+| GET    | `/api/categories`                  | Category listing with product counts                                             | Public                                    |
+| GET    | `/api/branches`                    | Branch listing                                                                   | Public                                    |
+| POST   | `/api/auth/register`               | Create a customer account, starts a session                                      | Public (rate-limited)                     |
+| POST   | `/api/auth/login`                  | Starts a session                                                                 | Public (rate-limited)                     |
+| POST   | `/api/auth/refresh`                | Rotates the session (silent, called by the frontend on 401)                      | Refresh cookie                            |
+| POST   | `/api/auth/logout`                 | Ends the session                                                                 | Public (no-op if already logged out)      |
+| GET    | `/api/auth/me`                     | The authenticated user's safe profile                                            | Required                                  |
+| GET    | `/api/profile`                     | Same shape as `/auth/me` — the editable profile endpoint                         | Required                                  |
+| PATCH  | `/api/profile`                     | Update `firstName`/`lastName`/`phone` only                                       | Required                                  |
+| GET    | `/api/favorites`                   | The authenticated customer's favorited products                                  | Required                                  |
+| POST   | `/api/favorites/:slug`             | Add a favorite (idempotent)                                                      | Required                                  |
+| DELETE | `/api/favorites/:slug`             | Remove a favorite (idempotent)                                                   | Required                                  |
+| GET    | `/api/optical-profile`             | The authenticated customer's frame measurements + style preferences              | Required                                  |
+| PATCH  | `/api/optical-profile`             | Update any subset of measurements/preferences                                    | Required                                  |
+| GET    | `/api/recommendations`             | Ranked, explained product recommendations for the authenticated customer         | Required                                  |
+| GET    | `/api/recommendations/:slug`       | Personalized match for one product (Product Detail V2)                           | Required                                  |
+| POST   | `/api/checkout/orders`             | Create a `PENDING_PAYMENT` order and reserve its stock — see "Checkout & orders" | Optional (guest or account; rate-limited) |
+| GET    | `/api/orders/:orderNumber`         | Guest order view, token in `X-Order-Access-Token`                                | Guest token (rate-limited)                |
+| GET    | `/api/account/orders`              | The authenticated customer's own orders (latest 50)                              | Required                                  |
+| GET    | `/api/account/orders/:orderNumber` | One of the authenticated customer's own orders                                   | Required                                  |
+| \*     | `/api/admin/brands*`               | Admin brand CRUD + soft-delete/restore — see "Admin" below                       | Required (`Role.ADMIN`)                   |
+| \*     | `/api/admin/categories*`           | Admin category CRUD + soft-delete/restore — see "Admin" below                    | Required (`Role.ADMIN`)                   |
+| \*     | `/api/admin/products*`             | Admin product/variant/image CRUD — see "Admin" below                             | Required (`Role.ADMIN`)                   |
 
 **Not implemented — no concrete requirement yet, not added speculatively:** `/api/brands/:slug`,
 `/api/categories/:slug`. Add when a public brand/category detail page is actually planned.
@@ -483,6 +487,7 @@ See [`LENS_CONFIGURATOR.md`](LENS_CONFIGURATOR.md) and
 See [`SHIPPING.md`](SHIPPING.md) and [ADR-0024](adr/0024-shipping-boundary.md). All under
 `authenticate` + `authorize("ADMIN")`; **no public shipping endpoint exists yet** (Checkout, Phase C,
 will add one that returns availability and `customerShippingPrice`, never the carrier cost).
+Checkout (`POST /api/checkout/orders`) quotes through the same seam with `source = CHECKOUT`.
 
 - `GET|POST /api/admin/shipping/package-profiles`, `PATCH|DELETE /api/admin/shipping/package-profiles/:id`,
   `POST .../:id/restore`, `POST .../:id/default` — package profiles (grams/cm, integers > 0); at
@@ -495,6 +500,43 @@ will add one that returns availability and `customerShippingPrice`, never the ca
   0 by default), origin, package snapshot, destination, `quoteLogId`. Postal codes accept 4 digits
   or CPA (normalized); province is one of the 24 ISO 3166-2:AR letters. Any cost/total in the body
   is ignored.
+
+## Checkout & orders — Payments V1 Phase B
+
+See [`PAYMENTS.md`](PAYMENTS.md) and [ADR-0025](adr/0025-order-domain-and-stock-reservation.md). No
+payment provider yet: an order is created `PENDING_PAYMENT` with `paymentStatus: "NOT_STARTED"`.
+
+**`POST /api/checkout/orders`** — JSON only, 20 attempts / 15 min per IP (failures count).
+`optionalAuthenticate`: no access cookie → guest; a valid cookie → the order belongs to that account;
+a cookie that is present but invalid/expired → `401` (never silently a guest order). Body
+(`CheckoutOrderInput`): `customer { firstName, lastName, email, phone }` (phone required, stored as
+`+`? + digits), `delivery` (`{ method: "PICKUP", branchId }` or
+`{ method: "DELIVERY", address: { recipientName, streetName, streetNumber, floor?, apartment?, city, provinceCode, postalCode, references? } }`),
+`billing?` (`{ invoiceRequested: false }` or `{ invoiceRequested: true, billingName, billingTaxId, billingAddressLine? }`,
+tax id = 7–11 digits, format only), `items[1..10] { productSlug, variantId, lensTypeId?, lensOptionId?, graduationMode?, quantity 1..10 }`.
+Unknown keys (prices, totals, names, stock, status, userId…) are stripped; everything is derived
+server-side. `201` → `CheckoutOrderResponse` (`orderNumber`, `accessToken` **guest only, returned
+once**, `status`, `paymentStatus`, `currency`, `itemsSubtotal`, `customerShippingPrice`,
+`grandTotal`, `requiresOpticalConsultation`, `stockReservedUntil`).
+
+Errors: `400 VALIDATION_ERROR` (invalid body, incompatible lens, unsupported `CUSTOM`, unknown
+branch), `404 NOT_FOUND` (product unknown/deleted/incomplete), `409 CONFLICT` (lens variety with
+stock 0), `409 OUT_OF_STOCK` (frame or tracked lens stock), `422 SHIPPING_NOT_COVERED` (carrier does
+not deliver there), `401 UNAUTHENTICATED` (bad session cookie), `413 PAYLOAD_TOO_LARGE`,
+`415`, `429 RATE_LIMITED`.
+
+**`GET /api/orders/:orderNumber`** — header `X-Order-Access-Token` (never a query string: the
+request log records the URL). 60 / 15 min per IP. Missing, malformed or wrong token and unknown
+order number all return the same `404 NOT_FOUND`. `200` → `PublicOrderDto`, `Cache-Control:
+no-store`.
+
+**`GET /api/account/orders`**, **`GET /api/account/orders/:orderNumber`** — `authenticate`; only
+orders whose `userId` is the caller (another account's order is a `404`; a guest order with the same
+email never appears). → `AccountOrderSummaryDto[]` / `PublicOrderDto`.
+
+Public order DTOs never include the token hash, the carrier cost, the absorbed cost, the shipping
+quote log, payment ids/keys or any database id. A pending order whose reservation ran out is
+expired when read, so it shows `EXPIRED` (and `stockReservedUntil: null`).
 
 ## `GET /api/brands`, `GET /api/categories`
 
@@ -589,7 +631,8 @@ low thousands); the documented migration path if the catalog grows well past tha
 ```
 
 `code` is a stable machine-readable string (`VALIDATION_ERROR`, `NOT_FOUND`, `CORS_FORBIDDEN`,
-`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `OUT_OF_STOCK`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
+`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `OUT_OF_STOCK`, `SHIPPING_NOT_COVERED`,
+`PAYLOAD_TOO_LARGE`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
 appears for validation errors and only contains Zod's field-level messages — never a stack trace,
 SQL, file path, or environment data. Unexpected errors are logged in full server-side and
 returned to the client as a generic `500 INTERNAL_ERROR`.
