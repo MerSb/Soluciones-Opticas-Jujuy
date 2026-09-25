@@ -1,9 +1,9 @@
 # Payments V1
 
-Estado: **Fases A, B y C implementadas** — dominio de órdenes, backend HTTP de checkout y consulta
-de pedidos, y frontend (carrito, checkout, pedido, "Mis pedidos"). **Sin proveedor de pagos**:
-Mercado Pago, preferencias, webhook y botón de pago **todavía no existen**; un pedido termina en
-"Pedido creado — pago pendiente". Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
+Estado: **Fases A, B, C y D1 implementadas** — dominio de órdenes, checkout, frontend e **inicio
+del pago con Mercado Pago (Checkout Pro vía Orders API, modo TEST)**. La **confirmación del pago
+(webhook) todavía no existe** (D2): ningún pedido pasa a pagado todavía. Decisión:
+[ADR-0026](adr/0026-mercado-pago-checkout-pro-orders-api.md). Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
 Contrato HTTP: [`API.md` → Checkout & orders](API.md#checkout--orders--payments-v1-phase-b).
 
 ## Fase A — qué hay
@@ -165,12 +165,47 @@ Detalle técnico en [`FRONTEND_ARCHITECTURE.md`](FRONTEND_ARCHITECTURE.md#cart-c
 - **"Mis pedidos"** (`/account/orders`): solo las órdenes de la cuenta; detalle en
   `/account/orders/:orderNumber`.
 
+## Fase D1 — inicio del pago con Mercado Pago
+
+- **Checkout Pro vía Orders API** (`POST /v1/orders` → `checkout_url`), **no** Preferences API
+  (`/checkout/preferences`): es una integración nueva. SDK oficial `mercadopago` (versión fijada),
+  solo en el backend, detrás de `PaymentProvider`. Timeout 10 s, sin reintentos automáticos del SDK.
+- **Endpoint**: `POST /api/orders/:orderNumber/payment` — invitado con `X-Order-Access-Token` (la
+  misma verificación de Fase B) o la cuenta dueña. Body vacío (cualquier campo → 400). Responde
+  solo `{ checkoutUrl }`.
+- **Validación previa**: la orden debe estar `PENDING_PAYMENT` con la reserva vigente. Vencida →
+  `409 ORDER_EXPIRED` (se expira en el momento, sin llamar a Mercado Pago, sin extender la reserva).
+  `PAID`/`PAID_NEEDS_REVIEW` → `ORDER_ALREADY_PAID`; `CANCELLED` → `ORDER_CANCELLED`.
+- **Monto**: `Order.grandTotal`, congelado en el checkout; ítems desde los snapshots de
+  `OrderItem`. Nunca del frontend.
+- **Intentos (`Payment`)**: la `idempotencyKey` se guarda **antes** de llamar a Mercado Pago y se
+  manda tal cual como `X-Idempotency-Key`. Timeout, error de red o respuesta inválida → el intento
+  queda abierto y el reintento usa **la misma key** (misma order remota, nunca duplicada). Un
+  segundo click reutiliza el `checkout_url` guardado. Mercado Pago rechaza el pedido → se cierra
+  el intento y el próximo click abre uno nuevo con key nueva.
+- **Retorno**: `/order/:orderNumber/payment/{success|pending|failure}`. **El redirect no confirma
+  el pago**: la página ignora los parámetros de Mercado Pago (`status=approved`, etc.) y muestra el
+  estado de nuestro pedido — "Estamos verificando tu pago" mientras siga `PENDING_PAYMENT`.
+- **Sin credenciales** (`MERCADOPAGO_ACCESS_TOKEN` / `PUBLIC_WEB_URL` sin definir): la app funciona
+  y "Pagar" responde `503 PAYMENT_PROVIDER_NOT_CONFIGURED`; el pedido sigue reservado.
+- **Logs**: ids internos, id de la order remota, resultado normalizado y duración. Nunca tokens,
+  headers, payloads ni datos del comprador.
+
+### Smoke test manual con credenciales TEST (opcional, nunca en la suite)
+
+1. En `.env` (local, nunca commiteado): `MERCADOPAGO_ACCESS_TOKEN=<token TEST de tu panel>` y
+   `PUBLIC_WEB_URL=http://localhost:5173`.
+2. `npm run dev:api` y `npm run dev:web`; crear un pedido con datos ficticios.
+3. En el pedido, "Pagar con Mercado Pago" → debe abrir el Checkout Pro de prueba.
+4. Pagar con un usuario/tarjeta de prueba de Mercado Pago y volver: la página debe decir "Estamos
+   verificando tu pago" (el pedido sigue `PENDING_PAYMENT` hasta D2).
+5. Con `http://localhost` no hay retorno automático (Mercado Pago lo exige `https`): volver con el
+   botón del checkout.
+
 ## Pendiente (fases siguientes)
 
-- Fase D: `PaymentProvider` + adaptador de Mercado Pago (preferencia, `idempotencyKey`,
-  `externalReference`), error `ORDER_EXPIRED` al intentar pagar una orden vencida, botón de pago
-  en la sección "Próximo paso: el pago" de la página del pedido.
+- Fase D2: webhook (`x-signature`, `PaymentEvent`, lectura server-side del estado real,
+  verificación de monto, `markOrderPaid()`, duplicados, aprobación tardía).
 - Notificación del pedido por email/WhatsApp (recuperar acceso sin `sessionStorage`).
-- Webhook con `PaymentEvent` como registro idempotente, llamando a `markOrderPaid()`.
 - Scheduler persistente del barrido de expiración (antes de producción).
 - Flujo humano para `PAID_NEEDS_REVIEW`; cancelación.

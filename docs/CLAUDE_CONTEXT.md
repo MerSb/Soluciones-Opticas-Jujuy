@@ -1,7 +1,7 @@
 # Contexto compacto — Soluciones Ópticas Jujuy
 
 Punto de entrada para nuevas sesiones. Corto a propósito: para el detalle de cada tema, abrí solo el
-documento enlazado. Última actualización: Payments V1 — Fase C (2026-09-25).
+documento enlazado. Última actualización: Payments V1 — Fase D1 (2026-09-25).
 
 ## Stack
 
@@ -27,7 +27,7 @@ documento enlazado. Última actualización: Payments V1 — Fase C (2026-09-25).
 - **Admin API**: `/api/admin/*`, `authenticate` + `authorize("ADMIN")` una sola vez en
   `routes/admin/index.ts`. Endpoints por recurso (no PATCH con arrays anidados), soft delete +
   `/restore`.
-- ADRs en `docs/adr/` (0001–0025). Leer el ADR del tema antes de cambiar una decisión.
+- ADRs en `docs/adr/` (0001–0026). Leer el ADR del tema antes de cambiar una decisión.
 
 ## Ramas
 
@@ -126,24 +126,29 @@ documento enlazado. Última actualización: Payments V1 — Fase C (2026-09-25).
 - Frontend (Fase C): carrito solo en `localStorage` (`lib/cart/*`, `useSyncExternalStore`, sin
   provider); `/cart`, `/checkout`, `/order/:orderNumber`, `/account/orders[/:n]`. Precio del carrito
   informativo; vaciar solo tras 201. Token de invitado en `sessionStorage`, solo por header.
-  `GET /api/branches` expone `id`. Sin Mercado Pago ni botón de pago todavía.
+  `GET /api/branches` expone `id`.
+- **Mercado Pago (D1, ADR-0026)**: Checkout Pro vía **Orders API** (`POST /v1/orders`), no
+  Preferences. SDK oficial `mercadopago` fijado, detrás de `PaymentProvider`; timeout 10 s, sin
+  reintentos del SDK, cliente nuevo por llamada. `POST /api/orders/:n/payment` (token de invitado o
+  dueño, body vacío) → `{ checkoutUrl }`. `idempotencyKey` guardada antes de llamar y reutilizada en
+  reintentos. El redirect NO confirma el pago; webhook = D2. Sin credenciales → 503.
 
 ## Estado de milestones
 
-| Milestone                                               | Estado                                                                 |
-| ------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Etapa 1 — sitio + catálogo                              | Hecho                                                                  |
-| Etapa 2 — auth, favoritos, perfil óptico                | Hecho                                                                  |
-| Recomendaciones V1/V2, Customer Experience V2           | Hecho                                                                  |
-| Admin catálogo + Admin Dashboard V2                     | Hecho                                                                  |
-| Cloudinary staging readiness                            | Hecho, en staging                                                      |
-| Real Catalog Readiness                                  | Hecho, integrado (merge `2491f8a`), probado en staging                 |
-| Cristales & Configurador V1                             | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual   |
-| Shipping V1 — Fase A (sin proveedor)                    | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push   |
-| Shipping V1 — Fase B (proveedor real)                   | Bloqueado: el cliente debe elegir operador y conseguir credenciales    |
-| Payments V1 — Fases A+B+C (órdenes, checkout, frontend) | Implementado en `feature/payments-v1`; sin proveedor de pago; sin push |
-| Payments V1 — Fase D (Mercado Pago)                     | No iniciado                                                            |
-| Facturación (CUIT / ARCA)                               | No iniciado — milestone separado                                       |
+| Milestone                                                                     | Estado                                                                                    |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Etapa 1 — sitio + catálogo                                                    | Hecho                                                                                     |
+| Etapa 2 — auth, favoritos, perfil óptico                                      | Hecho                                                                                     |
+| Recomendaciones V1/V2, Customer Experience V2                                 | Hecho                                                                                     |
+| Admin catálogo + Admin Dashboard V2                                           | Hecho                                                                                     |
+| Cloudinary staging readiness                                                  | Hecho, en staging                                                                         |
+| Real Catalog Readiness                                                        | Hecho, integrado (merge `2491f8a`), probado en staging                                    |
+| Cristales & Configurador V1                                                   | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual                      |
+| Shipping V1 — Fase A (sin proveedor)                                          | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push                      |
+| Shipping V1 — Fase B (proveedor real)                                         | Bloqueado: el cliente debe elegir operador y conseguir credenciales                       |
+| Payments V1 — Fases A+B+C+D1 (órdenes, checkout, frontend, inicio de pago MP) | Implementado en `feature/payments-v1`; MP en modo TEST sin credenciales locales; sin push |
+| Payments V1 — Fase D2 (webhook / confirmación)                                | No iniciado                                                                               |
+| Facturación (CUIT / ARCA)                                                     | No iniciado — milestone separado                                                          |
 
 ## Infraestructura
 

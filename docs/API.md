@@ -530,6 +530,17 @@ request log records the URL). 60 / 15 min per IP. Missing, malformed or wrong to
 order number all return the same `404 NOT_FOUND`. `200` → `PublicOrderDto`, `Cache-Control:
 no-store`.
 
+**`POST /api/orders/:orderNumber/payment`** (Payments V1 — D1, ADR-0026) — guest via
+`X-Order-Access-Token` (same check as the GET) or the owning account; 20 / 15 min per IP. The body
+must be `{}` (any field → 400: amount, currency and references are server-side). `200 {
+checkoutUrl }` — a Mercado Pago Checkout Pro URL (Orders API); the client navigates there.
+Errors: `404 NOT_FOUND` (no access), `409 ORDER_EXPIRED` (reservation over — the order is expired
+on the spot), `409 ORDER_ALREADY_PAID`, `409 ORDER_CANCELLED`, `409 PAYMENT_ALREADY_SUBMITTED`
+(the provider already has a payment in progress/processed for it), `503
+PAYMENT_PROVIDER_NOT_CONFIGURED`, `502 PAYMENT_PROVIDER_UNAVAILABLE` (retry is safe: same
+idempotency key), `502 PAYMENT_PROVIDER_REJECTED`. Returning from Mercado Pago never confirms a
+payment.
+
 **`GET /api/account/orders`**, **`GET /api/account/orders/:orderNumber`** — `authenticate`; only
 orders whose `userId` is the caller (another account's order is a `404`; a guest order with the same
 email never appears). → `AccountOrderSummaryDto[]` / `PublicOrderDto`.
@@ -635,7 +646,8 @@ low thousands); the documented migration path if the catalog grows well past tha
 ```
 
 `code` is a stable machine-readable string (`VALIDATION_ERROR`, `NOT_FOUND`, `CORS_FORBIDDEN`,
-`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `OUT_OF_STOCK`, `SHIPPING_NOT_COVERED`,
+`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `OUT_OF_STOCK`, `SHIPPING_NOT_COVERED`, `ORDER_EXPIRED`,
+`ORDER_ALREADY_PAID`, `ORDER_CANCELLED`, `PAYMENT_ALREADY_SUBMITTED`, `PAYMENT_PROVIDER_*`,
 `PAYLOAD_TOO_LARGE`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
 appears for validation errors and only contains Zod's field-level messages — never a stack trace,
 SQL, file path, or environment data. Unexpected errors are logged in full server-side and
