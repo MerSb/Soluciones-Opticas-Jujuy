@@ -46,6 +46,20 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
+  // Mercado Pago (ADR-0026) — optional like Cloudinary: the whole app
+  // (tests, local dev, a staging deploy before the provider is set up)
+  // runs without it; only payment initiation answers 503
+  // PAYMENT_PROVIDER_NOT_CONFIGURED. Backend-only private credential —
+  // never sent to the frontend, never logged. Use a TEST credential
+  // anywhere that is not production.
+  MERCADOPAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+  // Public origin of the web app (e.g. the Vercel URL), used to build the
+  // Checkout Pro return URLs. Payments stay unconfigured without it.
+  PUBLIC_WEB_URL: z
+    .string()
+    .url()
+    .transform((value) => value.replace(/\/+$/, ""))
+    .optional(),
 });
 
 export const env = envSchema
