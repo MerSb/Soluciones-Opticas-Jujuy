@@ -619,8 +619,20 @@ model Payment {
   /// "MERCADOPAGO" when that adapter exists. A plain string, not an
   /// enum: adding a provider must not be a database migration.
   provider             String
+  /// The provider's payment (transaction) id, once one exists (D2).
   providerPaymentId    String? @map("provider_payment_id")
+  /// Unused by the Mercado Pago integration: it is Checkout Pro via the
+  /// Orders API, which has no preference object (ADR-0026). Kept, not
+  /// dropped — migrations here are additive.
   providerPreferenceId String? @map("provider_preference_id")
+  /// The provider's remote order for this attempt (Mercado Pago Orders
+  /// API `id`). Null until the provider confirms the create — a row with
+  /// no remote order yet is an attempt whose outcome is unknown and is
+  /// retried with the same idempotencyKey (ADR-0026).
+  providerOrderId      String? @map("provider_order_id")
+  /// Where the buyer is sent to pay (Checkout Pro redirect). Not a
+  /// secret; kept so a repeated click reuses it instead of re-creating.
+  checkoutUrl          String? @map("checkout_url")
   /// What the provider echoes back to identify the order (the order id).
   externalReference    String  @map("external_reference")
   /// Sent to the provider so a retried create is never a second charge.
@@ -647,6 +659,7 @@ model Payment {
   /// Postgres treats NULLs as distinct, so many rows may sit with no
   /// provider id yet while a given real payment can only be recorded once.
   @@unique([provider, providerPaymentId])
+  @@unique([provider, providerOrderId])
   @@index([orderId])
   @@map("payments")
 }
