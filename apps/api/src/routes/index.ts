@@ -10,6 +10,9 @@ import { favoritesRouter } from "./favorites.routes.js";
 import { opticalProfileRouter } from "./optical-profile.routes.js";
 import { recommendationsRouter } from "./recommendations.routes.js";
 import { adminRouter } from "./admin/index.js";
+import { checkoutRouter } from "./checkout.routes.js";
+import { ordersRouter } from "./orders.routes.js";
+import { accountRouter } from "./account.routes.js";
 
 export const apiRouter = Router();
 
@@ -23,4 +26,7 @@ apiRouter.use("/profile", profileRouter);
 apiRouter.use("/favorites", favoritesRouter);
 apiRouter.use("/optical-profile", opticalProfileRouter);
 apiRouter.use("/recommendations", recommendationsRouter);
+apiRouter.use("/checkout", checkoutRouter);
+apiRouter.use("/orders", ordersRouter);
+apiRouter.use("/account", accountRouter);
 apiRouter.use("/admin", adminRouter);

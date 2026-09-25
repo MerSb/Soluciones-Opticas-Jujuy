@@ -39,6 +39,11 @@ export class ApiError extends Error {
     return new ApiError(409, "OUT_OF_STOCK", message);
   }
 
+  /** The carrier reported it does not deliver to that destination. */
+  static shippingNotCovered(message: string): ApiError {
+    return new ApiError(422, "SHIPPING_NOT_COVERED", message);
+  }
+
   static rateLimited(message: string): ApiError {
     return new ApiError(429, "RATE_LIMITED", message);
   }

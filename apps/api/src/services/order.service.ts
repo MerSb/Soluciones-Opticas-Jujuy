@@ -1,20 +1,27 @@
-import { Prisma, type OrderStatus } from "@prisma/client";
+import { Prisma, type OrderStatus, type ShippingCostStatus } from "@prisma/client";
 import type { ArgentineProvinceCode, GraduationMode } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { isArgentineProvinceCode } from "../lib/argentina-provinces.js";
 import { isValidArgentinePostalCode, normalizePostalCode } from "../lib/postal-code.js";
-import { applyShippingPolicy } from "../lib/shipping-policy.js";
+import type { ShippingCharges } from "../lib/shipping-policy.js";
 import { generateOrderAccessToken, verifyOrderAccessToken } from "../lib/order-access-token.js";
-import { ORDER_CURRENCY, formatOrderNumber, stockReservedUntil } from "../lib/order-policy.js";
+import {
+  OPPORTUNISTIC_SWEEP_BATCH_SIZE,
+  ORDER_CURRENCY,
+  formatOrderNumber,
+  stockReservedUntil,
+} from "../lib/order-policy.js";
 import {
   resolveEyewearConfigurationDetails,
   type ResolvedEyewearConfiguration,
 } from "./lens-configuration.service.js";
+import { quoteShipping } from "./shipping-quote.service.js";
 
-// Payments V1 — Phase A order domain (ADR-0025, docs/PAYMENTS.md). No
-// HTTP yet: these are the primitives checkout (Phase C) and the payment
-// webhook (Phase E) will call.
+// Payments V1 order domain (ADR-0025, docs/PAYMENTS.md). Phase A built
+// these primitives; Phase B exposes them through checkout.controller.ts
+// (POST /api/checkout/orders). The payment webhook will call
+// markOrderPaid() once a provider exists.
 //
 // Stock rule: an order reserves stock by decrementing it the moment it
 // is created (PENDING_PAYMENT). Never read → check → update: every
@@ -56,7 +63,7 @@ export interface DeliveryAddressInput {
 export interface CreateOrderInput {
   /** null = guest checkout. */
   userId: string | null;
-  contact: { firstName: string; lastName: string; email: string; phone?: string | null };
+  contact: { firstName: string; lastName: string; email: string; phone: string };
   delivery:
     { method: "PICKUP"; branchId: string } | { method: "DELIVERY"; address: DeliveryAddressInput };
   billing?: {
@@ -74,7 +81,11 @@ export interface CreatedOrder {
   /** Returned exactly once, here. Only its hash is stored. */
   accessToken: string;
   status: OrderStatus;
+  currency: string;
+  itemsSubtotal: Prisma.Decimal;
+  customerShippingPrice: Prisma.Decimal;
   grandTotal: Prisma.Decimal;
+  requiresOpticalConsultation: boolean;
   stockReservedUntil: Date;
 }
 
@@ -217,23 +228,57 @@ function requireText(value: string | null | undefined, label: string): string {
 
 const optionalText = (value: string | null | undefined) => value?.trim() || null;
 
-async function resolveDelivery(delivery: CreateOrderInput["delivery"]) {
+type PreparedDelivery = {
+  snapshot:
+    | {
+        deliveryMethod: "PICKUP";
+        pickupBranchId: string;
+        pickupBranchName: string;
+        pickupAddress: string;
+      }
+    | {
+        deliveryMethod: "DELIVERY";
+        deliveryRecipient: string;
+        deliveryStreetName: string;
+        deliveryStreetNumber: string;
+        deliveryFloor: string | null;
+        deliveryApartment: string | null;
+        deliveryCity: string;
+        deliveryProvinceCode: ArgentineProvinceCode;
+        deliveryPostalCode: string;
+        deliveryReferences: string | null;
+      };
+  charges: ShippingCharges;
+  costStatus: ShippingCostStatus;
+  shippingQuoteLogId: string | null;
+};
+
+/** Pickup branch snapshot + shipping charges, through the quoteShipping()
+ * seam (ADR-0024) — never a carrier directly. Runs before the order
+ * transaction opens: a carrier quote is network I/O and must never hold
+ * database locks. */
+async function prepareDelivery(
+  delivery: CreateOrderInput["delivery"],
+  declaredValue: Prisma.Decimal,
+): Promise<PreparedDelivery> {
   if (delivery.method === "PICKUP") {
     const branch = await prisma.branch.findFirst({
       where: { id: delivery.branchId, deletedAt: null },
       select: { id: true, name: true, address: true },
     });
     if (!branch) throw ApiError.validation("La sucursal de retiro elegida no está disponible.");
+    const outcome = await quoteShipping({ deliveryMethod: "PICKUP" });
     return {
       snapshot: {
-        deliveryMethod: "PICKUP" as const,
+        deliveryMethod: "PICKUP",
         pickupBranchId: branch.id,
         pickupBranchName: branch.name,
         pickupAddress: branch.address,
       },
       // Pickup has no carrier: every shipping amount is a known 0.
-      charges: applyShippingPolicy({ deliveryMethod: "PICKUP", providerCost: null }),
-      costStatus: "KNOWN" as const,
+      charges: outcome.charges,
+      costStatus: "KNOWN",
+      shippingQuoteLogId: null,
     };
   }
 
@@ -245,24 +290,38 @@ async function resolveDelivery(delivery: CreateOrderInput["delivery"]) {
   if (!isValidArgentinePostalCode(postalCode)) {
     throw ApiError.validation("El código postal de destino no es válido.");
   }
+  const snapshot = {
+    deliveryMethod: "DELIVERY" as const,
+    deliveryRecipient: requireText(address.recipient, "destinatario"),
+    deliveryStreetName: requireText(address.streetName, "calle"),
+    deliveryStreetNumber: requireText(address.streetNumber, "número"),
+    deliveryFloor: optionalText(address.floor),
+    deliveryApartment: optionalText(address.apartment),
+    deliveryCity: requireText(address.city, "localidad"),
+    deliveryProvinceCode: address.provinceCode,
+    deliveryPostalCode: postalCode,
+    deliveryReferences: optionalText(address.references),
+  };
+
+  const outcome = await quoteShipping({
+    deliveryMethod: "DELIVERY",
+    source: "CHECKOUT",
+    destination: { postalCode, provinceCode: address.provinceCode },
+    declaredValue,
+  });
+  if (outcome.deliveryMethod !== "DELIVERY") throw new Error("Unexpected pickup quote outcome.");
+  if (outcome.status === "NOT_COVERED") {
+    throw ApiError.shippingNotCovered("No hacemos envíos a esa dirección todavía.");
+  }
+  // QUOTED → the carrier cost is known and frozen. NOT_CONFIGURED /
+  // FAILED → the order still goes ahead (the customer pays 0 under
+  // FREE_NATIONAL_V1 either way) with the carrier cost left null —
+  // unknown, never 0 — and PENDING, for the shop to settle later.
   return {
-    snapshot: {
-      deliveryMethod: "DELIVERY" as const,
-      deliveryRecipient: requireText(address.recipient, "destinatario"),
-      deliveryStreetName: requireText(address.streetName, "calle"),
-      deliveryStreetNumber: requireText(address.streetNumber, "número"),
-      deliveryFloor: optionalText(address.floor),
-      deliveryApartment: optionalText(address.apartment),
-      deliveryCity: requireText(address.city, "localidad"),
-      deliveryProvinceCode: address.provinceCode satisfies ArgentineProvinceCode,
-      deliveryPostalCode: postalCode,
-      deliveryReferences: optionalText(address.references),
-    },
-    // Phase A has no carrier quote in the order flow: the carrier cost is
-    // unknown (null, never 0) while the customer still pays 0 under
-    // FREE_NATIONAL_V1. Checkout will attach a real quote later.
-    charges: applyShippingPolicy({ deliveryMethod: "DELIVERY", providerCost: null }),
-    costStatus: "PENDING" as const,
+    snapshot,
+    charges: outcome.charges,
+    costStatus: outcome.status === "QUOTED" ? "KNOWN" : "PENDING",
+    shippingQuoteLogId: outcome.quoteLogId,
   };
 }
 
@@ -291,11 +350,52 @@ function snapshotLine(resolved: ResolvedEyewearConfiguration, quantity: number) 
     lineTotal: unitPrice.times(quantity),
   };
 }
+type OrderLine = ReturnType<typeof snapshotLine>;
+
+async function resolveLines(db: Db, items: OrderItemInput[]): Promise<OrderLine[]> {
+  const lines: OrderLine[] = [];
+  for (const item of items) {
+    const resolved = await resolveEyewearConfigurationDetails(
+      item.productSlug,
+      { variantId: item.variantId, lens: item.lens, graduationMode: item.graduationMode },
+      db,
+    );
+    lines.push(snapshotLine(resolved, item.quantity));
+  }
+  return lines;
+}
+
+const sumLines = (lines: OrderLine[]) =>
+  lines.reduce((sum, line) => sum.plus(line.lineTotal), new Prisma.Decimal(0));
+
+/** Share-locks the catalog rows a checkout depends on, in id order, so
+ * that a concurrent soft delete (an UPDATE, which conflicts with FOR
+ * SHARE) waits for this transaction instead of committing between its
+ * re-validation and its insert. Only rows checkout never updates are
+ * share-locked — products and lens types — so two checkouts can never
+ * deadlock upgrading the same lock; variants and tracked lens options
+ * are protected by their own conditional UPDATEs instead. */
+async function lockCatalogForShare(db: Db, lines: OrderLine[]): Promise<void> {
+  const productIds = [...new Set(lines.map((line) => line.productId))].sort();
+  const lensTypeIds = [
+    ...new Set(lines.flatMap((line) => (line.lensTypeId ? [line.lensTypeId] : []))),
+  ].sort();
+  await db.$queryRaw`SELECT id FROM products WHERE id = ANY(${productIds}::uuid[]) ORDER BY id FOR SHARE`;
+  if (lensTypeIds.length > 0) {
+    await db.$queryRaw`SELECT id FROM lens_types WHERE id = ANY(${lensTypeIds}::uuid[]) ORDER BY id FOR SHARE`;
+  }
+}
 
 /** Creates a PENDING_PAYMENT order and reserves its stock, all or
- * nothing. The configuration of every line is re-resolved with
- * resolveEyewearConfigurationDetails() — the same source of truth as
- * the public quote. */
+ * nothing:
+ *   1. resolve every line (outside any transaction) — fails fast and
+ *      gives the declared value for the shipping quote;
+ *   2. quote shipping — possible network I/O, no transaction open;
+ *   3. one short transaction: share-lock the catalog rows, re-resolve
+ *      every line with the same resolver (catches a product/lens that
+ *      stopped being sellable meanwhile, and freezes the prices of this
+ *      instant), reserve stock atomically, insert the order.
+ * The lines of step 3 are the ones persisted; step 1 only prepares. */
 export async function createOrder(
   input: CreateOrderInput,
   now = new Date(),
@@ -311,7 +411,7 @@ export async function createOrder(
     customerFirstName: requireText(input.contact.firstName, "nombre"),
     customerLastName: requireText(input.contact.lastName, "apellido"),
     customerEmail: requireText(input.contact.email, "email").toLowerCase(),
-    customerPhone: optionalText(input.contact.phone),
+    customerPhone: requireText(input.contact.phone, "teléfono"),
   };
 
   if (input.userId) {
@@ -322,26 +422,22 @@ export async function createOrder(
     if (!user) throw ApiError.unauthenticated("La sesión ya no es válida.");
   }
 
-  const lines: ReturnType<typeof snapshotLine>[] = [];
-  for (const item of input.items) {
-    const resolved = await resolveEyewearConfigurationDetails(item.productSlug, {
-      variantId: item.variantId,
-      lens: item.lens,
-      graduationMode: item.graduationMode,
-    });
-    lines.push(snapshotLine(resolved, item.quantity));
-  }
-
-  const delivery = await resolveDelivery(input.delivery);
-  const itemsSubtotal = lines.reduce(
-    (sum, line) => sum.plus(line.lineTotal),
-    new Prisma.Decimal(0),
-  );
-  const grandTotal = itemsSubtotal.plus(delivery.charges.customerShippingPrice);
+  const preliminary = await resolveLines(prisma, input.items);
+  const delivery = await prepareDelivery(input.delivery, sumLines(preliminary));
   const reservedUntil = stockReservedUntil(now);
   const token = generateOrderAccessToken();
 
   const order = await prisma.$transaction(async (tx) => {
+    await lockCatalogForShare(tx, preliminary);
+    const lines = await resolveLines(tx, input.items);
+    if (delivery.snapshot.deliveryMethod === "PICKUP") {
+      const branch = await tx.branch.findFirst({
+        where: { id: delivery.snapshot.pickupBranchId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!branch) throw ApiError.validation("La sucursal de retiro elegida no está disponible.");
+    }
+
     await reserveVariants(tx, lines);
     const reservedOptions = await reserveLensOptions(
       tx,
@@ -350,6 +446,7 @@ export async function createOrder(
       ),
     );
 
+    const itemsSubtotal = sumLines(lines);
     const [{ value }] = await tx.$queryRaw<
       [{ value: bigint }]
     >`SELECT nextval('order_number_seq') AS value`;
@@ -369,10 +466,11 @@ export async function createOrder(
         customerShippingPrice: delivery.charges.customerShippingPrice,
         providerShippingCost: delivery.charges.providerShippingCost,
         absorbedShippingCost: delivery.charges.absorbedShippingCost,
-        grandTotal,
+        grandTotal: itemsSubtotal.plus(delivery.charges.customerShippingPrice),
         currency: ORDER_CURRENCY,
         shippingPolicyCode: delivery.charges.policyCode,
         shippingCostStatus: delivery.costStatus,
+        shippingQuoteLogId: delivery.shippingQuoteLogId,
         status: "PENDING_PAYMENT",
         requiresOpticalConsultation: lines.some((line) => line.requiresOpticalConsultation),
         stockReservedUntil: reservedUntil,
@@ -383,7 +481,16 @@ export async function createOrder(
           })),
         },
       },
-      select: { id: true, orderNumber: true, status: true, grandTotal: true },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        currency: true,
+        itemsSubtotal: true,
+        customerShippingPrice: true,
+        grandTotal: true,
+        requiresOpticalConsultation: true,
+      },
     });
   });
 
@@ -404,9 +511,13 @@ export async function findOrderIdForAccessToken(
     where: { orderNumber },
     select: { id: true, publicAccessTokenHash: true },
   });
-  if (!order || !verifyOrderAccessToken(rawToken, order.publicAccessTokenHash)) return null;
-  return order.id;
+  // Unknown order: still hash and compare (against a fixed dummy) so the
+  // response time does not tell "no such order" from "wrong token".
+  const matches = verifyOrderAccessToken(rawToken, order?.publicAccessTokenHash ?? DUMMY_HASH);
+  return order && matches ? order.id : null;
 }
+
+const DUMMY_HASH = "0".repeat(64);
 
 // ---------------------------------------------------------------------------
 // Expiry
@@ -450,6 +561,19 @@ export async function releaseExpiredReservations(
     if (await expireOrderReservation(id, now)) expired += 1;
   }
   return { expired };
+}
+
+/** Opportunistic expiry (Phase B, until a persistent scheduler exists):
+ * checkout runs a small bounded sweep before reserving, so stock held by
+ * abandoned orders is given back whenever someone is actually trying to
+ * buy. Safe from any number of instances (the release is idempotent);
+ * a failure is logged and never blocks the checkout itself. */
+export async function sweepExpiredReservationsOpportunistically(now = new Date()): Promise<void> {
+  try {
+    await releaseExpiredReservations(now, OPPORTUNISTIC_SWEEP_BATCH_SIZE);
+  } catch (error) {
+    console.error("Opportunistic reservation sweep failed.", error);
+  }
 }
 
 // ---------------------------------------------------------------------------

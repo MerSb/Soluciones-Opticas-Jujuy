@@ -10,6 +10,10 @@ export function stockReservedUntil(from: Date): Date {
   return new Date(from.getTime() + PAYMENT_STOCK_RESERVATION_MINUTES * 60_000);
 }
 
+/** Upper bound of expired orders released by the opportunistic sweep a
+ * checkout runs before reserving (no scheduler yet, see docs/PAYMENTS.md). */
+export const OPPORTUNISTIC_SWEEP_BATCH_SIZE = 25;
+
 /** Every order is priced in pesos in V1; the column exists so a future
  * currency is data, not a migration. */
 export const ORDER_CURRENCY = "ARS";

@@ -16,7 +16,25 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     next(ApiError.unauthenticated("Iniciá sesión para continuar."));
     return;
   }
+  attachAuth(req, token, next);
+}
 
+// For routes open to guests and accounts alike (checkout, ADR-0025).
+// No access cookie at all → guest, req.auth stays undefined. A cookie
+// that is present but invalid or expired is NOT downgraded to a guest:
+// it fails with 401 exactly like `authenticate`, so the client refreshes
+// its session and retries — an order meant for an account is never
+// silently created as someone else's (or nobody's).
+export function optionalAuthenticate(req: Request, _res: Response, next: NextFunction): void {
+  const token = req.cookies?.[ACCESS_TOKEN_COOKIE] as string | undefined;
+  if (!token) {
+    next();
+    return;
+  }
+  attachAuth(req, token, next);
+}
+
+function attachAuth(req: Request, token: string, next: NextFunction): void {
   try {
     const payload = verifyAccessToken(token);
     req.auth = { userId: payload.sub, role: payload.role };

@@ -129,14 +129,17 @@ export interface ResolvedEyewearConfiguration {
 export async function resolveEyewearConfigurationDetails(
   slug: string,
   input: EyewearConfigurationInput,
+  /** Checkout passes its transaction to re-resolve right before it
+   * reserves stock (order.service.ts); everyone else reads directly. */
+  db: Prisma.TransactionClient = prisma,
 ): Promise<ResolvedEyewearConfiguration> {
-  const product = await prisma.product.findFirst({
+  const product = await db.product.findFirst({
     where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
     select: { id: true, name: true, slug: true, basePrice: true },
   });
   if (!product) throw ApiError.notFound(`No product found with slug "${slug}".`);
 
-  const variant = await prisma.productVariant.findFirst({
+  const variant = await db.productVariant.findFirst({
     where: { id: input.variantId, productId: product.id },
     select: { id: true, sku: true, color: true, material: true, stock: true, priceOverride: true },
   });
@@ -171,7 +174,7 @@ export async function resolveEyewearConfigurationDetails(
   }
 
   const { lensTypeId, lensOptionId } = input.lens;
-  const compatibility = await prisma.productLensType.findUnique({
+  const compatibility = await db.productLensType.findUnique({
     where: { productId_lensTypeId: { productId: product.id, lensTypeId } },
     select: {
       lensType: {
