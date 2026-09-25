@@ -64,7 +64,7 @@ describe("OrderPage — guest", () => {
     expect((init!.headers as Record<string, string>)["X-Order-Access-Token"]).toBe(GUEST_TOKEN);
   });
 
-  it("PENDING_PAYMENT: order created, payment pending, reservation time, no payment UI", async () => {
+  it("PENDING_PAYMENT: order created, payment pending, reservation time, a real pay CTA and no card form", async () => {
     saveOrderAccessToken("SOJ-000123", GUEST_TOKEN);
     renderAt("/order/SOJ-000123", {
       "GET /api/orders/SOJ-000123": {
@@ -85,19 +85,17 @@ describe("OrderPage — guest", () => {
     expect(await screen.findByRole("heading", { name: "Pedido creado" })).toBeInTheDocument();
     expect(screen.getByText("Pago pendiente")).toBeInTheDocument();
     expect(screen.getByText(/Reservamos tus productos hasta el/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/El pago online se habilitará en el siguiente paso/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pagar con Mercado Pago" })).toBeInTheDocument();
     expect(screen.getByText("Cristales: Test HD — Gris")).toBeInTheDocument();
     expect(
       screen.getByText("Graduación personalizada — A coordinar con la óptica"),
     ).toBeInTheDocument();
     expect(screen.getByText("Gratis")).toBeInTheDocument();
     expect(screen.getByText("Sucursal Test")).toBeInTheDocument();
-    for (const claim of [/Pago aprobado/, /Compra completada/, /tarjeta/i, /Mercado Pago/i]) {
+    for (const claim of [/Pago aprobado/, /Compra completada/, /tarjeta/i, /CVV/i]) {
       expect(screen.queryByText(claim)).not.toBeInTheDocument();
     }
-    expect(screen.queryByRole("button", { name: /pagar/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/tarjeta|vencimiento|CVV/i)).not.toBeInTheDocument();
   });
 
   it("never renders internal shipping costs even if a response carried them", async () => {

@@ -120,10 +120,15 @@ export function apiGet<T>(
 // can never set this content type, so requiring it on every POST,
 // including ones with nothing to validate, closes that gap for good
 // instead of endpoint-by-endpoint.
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(
+  path: string,
+  body?: unknown,
+  /** Extra headers (e.g. the guest order token — never in the URL). */
+  headers?: Record<string, string>,
+): Promise<T> {
   return request<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
 }

@@ -71,6 +71,16 @@ export const routes: RouteObject[] = [
         },
       },
       {
+        // Mercado Pago's return URLs (success | pending | failure). The
+        // segment is never trusted for the outcome — see the page.
+        path: "order/:orderNumber/payment/:result",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { PaymentReturnPage } = await import("../pages/PaymentReturnPage");
+          return { Component: PaymentReturnPage };
+        },
+      },
+      {
         path: "order/:orderNumber",
         HydrateFallback: RouteLoadingFallback,
         lazy: async () => {

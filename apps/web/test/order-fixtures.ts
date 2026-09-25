@@ -53,7 +53,8 @@ export function orderDto(overrides: Partial<PublicOrderDto> = {}): PublicOrderDt
     status: "PENDING_PAYMENT",
     paymentStatus: "NOT_STARTED",
     createdAt: "2026-09-25T15:00:00.000Z",
-    stockReservedUntil: "2026-09-25T15:30:00.000Z",
+    // Always in the future, so a pending order is still payable.
+    stockReservedUntil: new Date(Date.now() + 20 * 60_000).toISOString(),
     customer: {
       firstName: "Test",
       lastName: "Buyer",

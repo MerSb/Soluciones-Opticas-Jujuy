@@ -8,13 +8,22 @@ import { CUSTOM_GRADUATION_LABEL } from "../../lib/lens-configuration";
 import { formatOrderDateTime } from "../../lib/format-date";
 import { WhatsAppButton } from "../ui/WhatsAppButton";
 import { OrderStatusBadge } from "./OrderStatusBadge";
+import { PaymentCta } from "./PaymentCta";
 
 // The buyer's order, guest or account (Payments V1). Renders only what
 // PublicOrderDto carries — it never had internal shipping costs to show.
-// Until online payment exists (Phase D), a pending order ends here:
-// "Pedido creado — pago pendiente", with no fake payment UI.
+// A pending order with a live reservation offers "Pagar con Mercado
+// Pago" (PaymentCta, D1); nothing here ever claims a payment succeeded
+// unless the API says the order is PAID.
 
-export function OrderDetailView({ order }: { order: PublicOrderDto }) {
+export function OrderDetailView({
+  order,
+  paymentToken = null,
+}: {
+  order: PublicOrderDto;
+  /** Guest token for starting the payment; null = the session's account. */
+  paymentToken?: string | null;
+}) {
   const status = presentOrderStatus(order.status);
   const whatsappMessage = `Hola, quisiera consultar por mi pedido ${order.orderNumber}.`;
 
@@ -53,9 +62,11 @@ export function OrderDetailView({ order }: { order: PublicOrderDto }) {
               </time>
             </p>
           )}
-          <p className="mt-2 text-sm text-text-muted">
-            El pago online se habilitará en el siguiente paso. Guardá tu número de pedido; si tenés
-            dudas, escribinos.
+          <div className="mt-4">
+            <PaymentCta order={order} token={paymentToken} />
+          </div>
+          <p className="mt-4 text-sm text-text-muted">
+            Guardá tu número de pedido. ¿Dudas antes de pagar?
           </p>
           <div className="mt-4">
             <WhatsAppButton message={whatsappMessage}>Consultar por WhatsApp</WhatsAppButton>
