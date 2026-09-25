@@ -1,7 +1,7 @@
 # Contexto compacto — Soluciones Ópticas Jujuy
 
 Punto de entrada para nuevas sesiones. Corto a propósito: para el detalle de cada tema, abrí solo el
-documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
+documento enlazado. Última actualización: Payments V1 — Fase A (2026-09-25).
 
 ## Stack
 
@@ -27,7 +27,7 @@ documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
 - **Admin API**: `/api/admin/*`, `authenticate` + `authorize("ADMIN")` una sola vez en
   `routes/admin/index.ts`. Endpoints por recurso (no PATCH con arrays anidados), soft delete +
   `/restore`.
-- ADRs en `docs/adr/` (0001–0024). Leer el ADR del tema antes de cambiar una decisión.
+- ADRs en `docs/adr/` (0001–0025). Leer el ADR del tema antes de cambiar una decisión.
 
 ## Ramas
 
@@ -105,21 +105,35 @@ documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
 - Origen = `Branch.postalCode` (nullable; el CP real todavía no confirmado). Paquete = perfil
   predeterminado (`/admin/shipping`, un solo default). Sin endpoint público hasta checkout.
 
+**Órdenes — Payments V1 Fase A** (ADR-0025, [`PAYMENTS.md`](PAYMENTS.md))
+
+- Sin carrito en DB: la `Order` nace al confirmar checkout; cada línea se revalida con
+  `resolveEyewearConfigurationDetails()`. El cliente nunca envía precios, nombres ni stock.
+- `OrderItem` guarda snapshots (nombres, SKU, precios Decimal, cristal, tratamientos); FKs de
+  catálogo nullable + `SetNull` (resuelve la deuda del hard delete de `ProductVariant`).
+- Reserva = descuento atómico (`stock >= qty`) al crear `PENDING_PAYMENT`; rollback total con
+  `409 OUT_OF_STOCK`. Locks en orden: orden → variantes → variedades (por id).
+- `PAYMENT_STOCK_RESERVATION_MINUTES = 30` (`lib/order-policy.ts`). Expiración idempotente; pago
+  tardío → `PAID` o `PAID_NEEDS_REVIEW` (sin refund automático).
+- Token de invitado: solo hash SHA-256; futuro header `X-Order-Access-Token`, nunca query string.
+- `orderNumber` desde la secuencia `order_number_seq` (SQL manual). Sin Mercado Pago ni HTTP todavía.
+
 ## Estado de milestones
 
-| Milestone                                     | Estado                                                               |
-| --------------------------------------------- | -------------------------------------------------------------------- |
-| Etapa 1 — sitio + catálogo                    | Hecho                                                                |
-| Etapa 2 — auth, favoritos, perfil óptico      | Hecho                                                                |
-| Recomendaciones V1/V2, Customer Experience V2 | Hecho                                                                |
-| Admin catálogo + Admin Dashboard V2           | Hecho                                                                |
-| Cloudinary staging readiness                  | Hecho, en staging                                                    |
-| Real Catalog Readiness                        | Hecho, integrado (merge `2491f8a`), probado en staging               |
-| Cristales & Configurador V1                   | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual |
-| Shipping V1 — Fase A (sin proveedor)          | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push |
-| Shipping V1 — Fase B (proveedor real)         | Bloqueado: el cliente debe elegir operador y conseguir credenciales  |
-| Payments V1 (Mercado Pago), Orders, carrito   | No iniciado                                                          |
-| Facturación (CUIT / ARCA)                     | No iniciado — milestone separado                                     |
+| Milestone                                      | Estado                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| Etapa 1 — sitio + catálogo                     | Hecho                                                                  |
+| Etapa 2 — auth, favoritos, perfil óptico       | Hecho                                                                  |
+| Recomendaciones V1/V2, Customer Experience V2  | Hecho                                                                  |
+| Admin catálogo + Admin Dashboard V2            | Hecho                                                                  |
+| Cloudinary staging readiness                   | Hecho, en staging                                                      |
+| Real Catalog Readiness                         | Hecho, integrado (merge `2491f8a`), probado en staging                 |
+| Cristales & Configurador V1                    | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual   |
+| Shipping V1 — Fase A (sin proveedor)           | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push   |
+| Shipping V1 — Fase B (proveedor real)          | Bloqueado: el cliente debe elegir operador y conseguir credenciales    |
+| Payments V1 — Fase A (dominio de órdenes)      | Implementado en `feature/payments-v1`; sin HTTP ni proveedor; sin push |
+| Payments V1 — Fase B+ (Mercado Pago, checkout) | No iniciado                                                            |
+| Facturación (CUIT / ARCA)                      | No iniciado — milestone separado                                       |
 
 ## Infraestructura
 
@@ -168,8 +182,8 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 
 ## Deuda técnica relevante
 
-- `ProductVariant` es hard delete: antes de `OrderItem`, decidir soft delete o FK `SetNull` +
-  snapshot (nombres, SKU, precios del armazón y del cristal).
+- Órdenes: el barrido de expiración no está programado (sin cron); `PAID_NEEDS_REVIEW` no tiene
+  flujo de admin todavía.
 - Índice pg_trgm fuera del schema: toda migration requiere revisión manual (ver arriba).
 - Filtros públicos de color/forma/material sin normalización (`docs/REAL_CATALOG_READINESS.md`).
 - Limpieza de fixtures admin por nombre mutable; flake conocido de concurrencia entre archivos de

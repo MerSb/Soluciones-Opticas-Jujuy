@@ -589,7 +589,7 @@ low thousands); the documented migration path if the catalog grows well past tha
 ```
 
 `code` is a stable machine-readable string (`VALIDATION_ERROR`, `NOT_FOUND`, `CORS_FORBIDDEN`,
-`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
+`UNAUTHENTICATED`, `FORBIDDEN`, `CONFLICT`, `OUT_OF_STOCK`, `RATE_LIMITED`, `INTERNAL_ERROR`); `details` only
 appears for validation errors and only contains Zod's field-level messages — never a stack trace,
 SQL, file path, or environment data. Unexpected errors are logged in full server-side and
 returned to the client as a generic `500 INTERNAL_ERROR`.
