@@ -1,8 +1,9 @@
 # Payments V1
 
-Estado: **Fase A y Fase B implementadas** — dominio de órdenes + backend HTTP de checkout y consulta
-de pedidos. **Sin proveedor de pagos**: Mercado Pago, preferencias, webhook y frontend **todavía no
-existen**. Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
+Estado: **Fases A, B y C implementadas** — dominio de órdenes, backend HTTP de checkout y consulta
+de pedidos, y frontend (carrito, checkout, pedido, "Mis pedidos"). **Sin proveedor de pagos**:
+Mercado Pago, preferencias, webhook y botón de pago **todavía no existen**; un pedido termina en
+"Pedido creado — pago pendiente". Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
 Contrato HTTP: [`API.md` → Checkout & orders](API.md#checkout--orders--payments-v1-phase-b).
 
 ## Fase A — qué hay
@@ -133,11 +134,43 @@ condicionales por método. Factura: si `invoiceRequested = false` no se pide ni 
 `true`, nombre + DNI/CUIT/CUIL (7–11 dígitos, solo formato — sin condición frente al IVA ni ARCA).
 Body > 16 kb → `413 PAYLOAD_TOO_LARGE`; JSON malformado → `400`.
 
+## Fase C — frontend: carrito, checkout y pedidos
+
+Detalle técnico en [`FRONTEND_ARCHITECTURE.md`](FRONTEND_ARCHITECTURE.md#cart-checkout-and-orders-payments-v1--phase-c).
+
+- **Carrito solo en el frontend** (no hay tabla `Cart`): `localStorage` `soj:cart`. Cada línea
+  guarda ids + snapshots de presentación (nombre, imagen, SKU, color/material, cristal, variedad,
+  graduación, precio mostrado). **El precio es informativo**: al confirmar, el backend re-resuelve
+  todo. Agregar o cambiar cantidades **no reserva stock**; solo un `201` del checkout reserva.
+- **Identidad de línea**: producto + variante + tipo de cristal + variedad + modo de graduación. Si
+  coinciden, se suman cantidades (máximo 10 por línea, 10 líneas — los mismos límites de la API); si
+  cambia el cristal o la graduación, es otra línea. El nombre y el precio no son parte de la
+  identidad.
+- **Checkout** (`/checkout`): contacto (teléfono obligatorio), retiro (sucursal real desde
+  `GET /api/branches`, que ahora expone `id`) o envío a domicilio, facturación opcional (nombre +
+  DNI/CUIT/CUIL, sin condición frente al IVA ni tipo de factura), resumen con "Envío: GRATIS" y
+  "Los precios y la disponibilidad se verifican al confirmar el pedido.". Sin login obligatorio; con
+  sesión se precompletan nombre, apellido, email y teléfono de la cuenta (nunca el perfil óptico).
+  Envío doble bloqueado mientras el pedido se crea (esto no reemplaza la idempotencia del pago).
+- **Después del `201`**: invitado → token en `sessionStorage` (`soj:order-access:<orderNumber>`),
+  nunca en la URL, `localStorage`, logs ni analytics; se vacía el carrito y se navega a
+  `/order/:orderNumber`. Ante cualquier error, carrito y formulario quedan intactos.
+- **Recuperar el pedido**: el token desaparece al cerrar la sesión del navegador. Mientras tanto, un
+  invitado sin token ve un mensaje neutro con WhatsApp; una futura notificación por email/WhatsApp
+  permitirá reabrir el pedido sin depender de `sessionStorage`.
+- **Estados en pantalla**: `PENDING_PAYMENT` "Pago pendiente" (+ "Pedido creado" y hora límite de la
+  reserva), `PAID` "Pago confirmado", `PAID_NEEDS_REVIEW` "Pago recibido — estamos verificando tu
+  pedido", `EXPIRED` "Pedido vencido" (con "Volver al catálogo" y WhatsApp), `CANCELLED` "Pedido
+  cancelado". Nunca "Pago aprobado" ni "Compra completada" antes de Mercado Pago.
+- **"Mis pedidos"** (`/account/orders`): solo las órdenes de la cuenta; detalle en
+  `/account/orders/:orderNumber`.
+
 ## Pendiente (fases siguientes)
 
-- Fase C: carrito (estado del frontend), página de checkout, páginas de pedido.
 - Fase D: `PaymentProvider` + adaptador de Mercado Pago (preferencia, `idempotencyKey`,
-  `externalReference`), error `ORDER_EXPIRED` al intentar pagar una orden vencida.
+  `externalReference`), error `ORDER_EXPIRED` al intentar pagar una orden vencida, botón de pago
+  en la sección "Próximo paso: el pago" de la página del pedido.
+- Notificación del pedido por email/WhatsApp (recuperar acceso sin `sessionStorage`).
 - Webhook con `PaymentEvent` como registro idempotente, llamando a `markOrderPaid()`.
 - Scheduler persistente del barrido de expiración (antes de producción).
 - Flujo humano para `PAID_NEEDS_REVIEW`; cancelación.

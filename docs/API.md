@@ -564,6 +564,7 @@ a handful of brands/categories doesn't need it.
 {
   "data": [
     {
+      "id": "uuid",
       "name": "Sucursal Centro",
       "address": "…",
       "phone": "…",
@@ -576,6 +577,9 @@ a handful of brands/categories doesn't need it.
   ]
 }
 ```
+
+`id` was added in Payments V1 — Phase C: checkout's pickup option needs a real branch id (never
+hardcoded in the frontend). A public UUID; no other field changed.
 
 ## Search
 

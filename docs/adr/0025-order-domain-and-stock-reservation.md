@@ -1,6 +1,6 @@
 # ADR-0025: Order domain, snapshots and atomic stock reservation (Payments V1 — Phase A)
 
-**Status:** Approved (Phases A and B implemented; payment provider pending).
+**Status:** Approved (Phases A, B and C implemented; payment provider pending).
 
 ## Context
 
@@ -113,6 +113,17 @@ PaymentProvider or Mercado Pago integration, no HTTP endpoint, no webhook yet.
 - **Opportunistic expiry:** each checkout runs a bounded idempotent sweep (25) before reserving, and
   reading an order expires it if due. No in-process interval, no cron — a persistent scheduler is
   still required before production.
+
+## Phase C additions (frontend)
+
+- **Cart is frontend state** in `localStorage`, read through a `useSyncExternalStore` store (no
+  provider, no state library). Line identity = product + variant + lens type + lens variety +
+  graduation mode. Its prices are informative; adding to the cart never reserves stock.
+- **Guest token in `sessionStorage`** (`soj:order-access:<orderNumber>`), sent only as the
+  `X-Order-Access-Token` header — never in a URL, `localStorage` or a query key. It is lost when the
+  browser session ends, by design; a future order notification will restore access.
+- **`GET /api/branches` exposes `id`** so checkout can offer the real pickup branch.
+- The cart is emptied only after a `201`; any error keeps cart and form.
 
 ## Consequences
 
