@@ -8,6 +8,12 @@ import {
   type CheckoutItem,
   type PaymentProvider,
 } from "../lib/payment-provider.js";
+import {
+  classifyRemoteOrder,
+  isClosedWithoutPayment,
+  isPaidOrInProgress,
+  paymentStatusForRemote,
+} from "../lib/mercadopago-status.js";
 import { expireOrderReservation } from "./order.service.js";
 import { getPaymentProvider, getPaymentReturnBaseUrl } from "./payment-provider.service.js";
 
@@ -74,14 +80,6 @@ const ORDER_FOR_PAYMENT_SELECT = {
   },
 } satisfies Prisma.OrderSelect;
 type OrderForPayment = Prisma.OrderGetPayload<{ select: typeof ORDER_FOR_PAYMENT_SELECT }>;
-
-/** Remote order states that end an attempt without a payment: a new
- * attempt may be opened. Anything not listed here or below is treated as
- * "still payable" and its checkout URL is reused. */
-const REMOTE_CLOSED_WITHOUT_PAYMENT = new Set(["failed", "canceled", "cancelled", "expired"]);
-/** Remote order states where money is moving or moved: never open a
- * second checkout (that is how a buyer pays twice). */
-const REMOTE_PAID_OR_IN_PROGRESS = new Set(["processing", "processed", "refunded", "charged_back"]);
 
 function assertPayable(order: OrderForPayment, now: Date): void {
   switch (order.status) {
@@ -212,16 +210,16 @@ function logAttempt(fields: Record<string, string | number | null>): void {
 async function stillUsable(provider: PaymentProvider, attempt: PaymentAttempt): Promise<boolean> {
   try {
     const remote = await provider.getOrder(attempt.providerOrderId!);
-    const status = remote.status?.toLowerCase() ?? "";
-    if (REMOTE_PAID_OR_IN_PROGRESS.has(status)) throw PAYMENT_ERROR.paymentAlreadySubmitted();
-    if (!REMOTE_CLOSED_WITHOUT_PAYMENT.has(status)) return true;
+    const state = classifyRemoteOrder(remote.status, remote.statusDetail);
+    if (isPaidOrInProgress(state)) throw PAYMENT_ERROR.paymentAlreadySubmitted();
+    if (!isClosedWithoutPayment(state)) return true;
     await prisma.payment.updateMany({
       where: { id: attempt.id, status: "PENDING" },
       data: {
-        status: status === "failed" ? "REJECTED" : "CANCELLED",
+        status: paymentStatusForRemote(state) ?? "CANCELLED",
         providerStatus: remote.status,
         providerStatusDetail: remote.statusDetail,
-        failureCode: `REMOTE_${status.toUpperCase()}`,
+        failureCode: `REMOTE_${state}`,
       },
     });
     return false;

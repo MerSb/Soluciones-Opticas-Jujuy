@@ -39,6 +39,7 @@ class FakeMercadoPago implements PaymentProvider {
   queue: Behavior[] = [];
   onCreate: ((input: CreateCheckoutInput) => Promise<void>) | null = null;
   remoteStatus: string | null = null;
+  remoteStatusDetail: string | null = null;
 
   isConfigured() {
     return this.configured;
@@ -75,7 +76,7 @@ class FakeMercadoPago implements PaymentProvider {
     return {
       providerOrderId,
       status: this.remoteStatus ?? "created",
-      statusDetail: null,
+      statusDetail: this.remoteStatusDetail,
       externalReference: null,
       totalAmount: null,
       totalPaidAmount: null,
@@ -527,7 +528,9 @@ describe("POST /api/orders/:orderNumber/payment — idempotency", () => {
   it("a remote order already paid or in progress never gets a second checkout", async () => {
     const order = await placeOrder();
     await pay(order.orderNumber, order.accessToken);
+    // The official "paid" combination (Orders API status table).
     fake.remoteStatus = "processed";
+    fake.remoteStatusDetail = "accredited";
     const response = await pay(order.orderNumber, order.accessToken);
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe("PAYMENT_ALREADY_SUBMITTED");
