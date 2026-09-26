@@ -541,6 +541,12 @@ PAYMENT_PROVIDER_NOT_CONFIGURED`, `502 PAYMENT_PROVIDER_UNAVAILABLE` (retry is s
 idempotency key), `502 PAYMENT_PROVIDER_REJECTED`. Returning from Mercado Pago never confirms a
 payment.
 
+**`POST /api/payments/mercadopago/webhook`** (Payments V1 — D2, ADR-0027) — called by Mercado Pago
+only. Query `data.id` + `type=order`; headers `x-signature` + `x-request-id`; JSON body with the
+notification `id`. Answers `{ "received": true|false }`: `200` processed/final/duplicate/other topic,
+`401 WEBHOOK_SIGNATURE_INVALID`, `400 WEBHOOK_INVALID`, `503 WEBHOOK_NOT_CONFIGURED` (no secret) or
+`503` when the provider could not be read (Mercado Pago retries), `500` on database errors.
+
 **`GET /api/account/orders`**, **`GET /api/account/orders/:orderNumber`** — `authenticate`; only
 orders whose `userId` is the caller (another account's order is a `404`; a guest order with the same
 email never appears). → `AccountOrderSummaryDto[]` / `PublicOrderDto`.

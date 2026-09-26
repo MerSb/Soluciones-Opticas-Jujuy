@@ -1,9 +1,10 @@
 # Payments V1
 
-Estado: **Fases A, B, C y D1 implementadas** — dominio de órdenes, checkout, frontend e **inicio
-del pago con Mercado Pago (Checkout Pro vía Orders API, modo TEST)**. La **confirmación del pago
-(webhook) todavía no existe** (D2): ningún pedido pasa a pagado todavía. Decisión:
-[ADR-0026](adr/0026-mercado-pago-checkout-pro-orders-api.md). Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
+Estado: **Fases A, B, C, D1 y D2 implementadas** — dominio de órdenes, checkout, frontend, inicio
+del pago con Mercado Pago (Checkout Pro vía Orders API) y **confirmación por webhook firmado**.
+Probado con proveedor falso; falta tráfico TEST real (credenciales + URL HTTPS pública). Decisiones:
+[ADR-0026](adr/0026-mercado-pago-checkout-pro-orders-api.md) (inicio) y
+[ADR-0027](adr/0027-mercado-pago-webhook-reconciliation.md) (webhook y reconciliación). Decisión de arquitectura: [ADR-0025](adr/0025-order-domain-and-stock-reservation.md).
 Contrato HTTP: [`API.md` → Checkout & orders](API.md#checkout--orders--payments-v1-phase-b).
 
 ## Fase A — qué hay
@@ -202,10 +203,58 @@ Detalle técnico en [`FRONTEND_ARCHITECTURE.md`](FRONTEND_ARCHITECTURE.md#cart-c
 5. Con `http://localhost` no hay retorno automático (Mercado Pago lo exige `https`): volver con el
    botón del checkout.
 
+## Fase D2 — webhook firmado y reconciliación
+
+- **Endpoint**: `POST /api/payments/mercadopago/webhook` (público, sin sesión). Evento de Mercado
+  Pago **"Order (Mercado Pago)"**: query `data.id=<order id>&type=order`, body `{ id, type, action,
+data: { id } }`.
+- **Firma**: validador oficial del SDK (`WebhookSignatureValidator`) — HMAC-SHA256 con
+  `MERCADOPAGO_WEBHOOK_SECRET` sobre `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`. `data.id` se
+  usa tal cual llega (sin pasar a minúsculas). Sin secret → 503; firma inválida → 401. Nada toca la
+  base ni al proveedor antes de validar la firma.
+- **Idempotencia**: `PaymentEvent` único por `(provider, providerEventId = body.id)`. Estados
+  `RECEIVED → PROCESSING → PROCESSED | FAILED_FINAL | FAILED_RETRYABLE`; un claim condicional con
+  lease de 2 min asegura que exactamente un worker procese cada evento.
+- **Fuente de verdad**: `getOrder(data.id)` server-side, fuera de transacciones. Nunca el body, el
+  redirect ni el navegador.
+- **Verificación antes de aprobar**: `external_reference` = `Order.id`; moneda ARS; monto pagado y
+  total = `Order.grandTotal` (Decimal). Si algo no coincide: no se aprueba, se registra
+  (`REFERENCE_MISMATCH` / `AMOUNT_MISMATCH` / `CURRENCY_MISMATCH`) y queda para revisión humana.
+- **Estados remotos** (un único mapper, `lib/mercadopago-status.ts`): solo `processed/accredited`
+  aprueba. `failed` → pago `REJECTED`; `canceled`/`expired` → `CANCELLED`; `created`,
+  `action_required/*`, `processing/*` → pendiente; `refunded`, `charged_back/*`,
+  `processed/partially_refunded` → revisión; desconocido → nada.
+- **Aprobación**: `Payment` → `APPROVED` una sola vez (`approvedAt` no cambia), con el id real de la
+  transacción en `providerPaymentId` (el id de la order remota queda en `providerOrderId`) y el método
+  (`credit_card/visa`). Luego `markOrderPaid()`: pendiente → `PAID`; vencido → `PAID` si recupera el
+  stock, si no `PAID_NEEDS_REVIEW` (nunca stock negativo, nunca reintegro automático); cancelado →
+  `PAID_NEEDS_REVIEW`; ya pagado → sin cambios.
+- **Respuestas**: 200 para procesado, fallo final, duplicado o tópico ajeno; 503 cuando otra entrega
+  puede arreglarlo (proveedor caído, timeout, order remota todavía no disponible) — Mercado Pago
+  reintenta a los 15 min, 30 min, 6 h… Detalle en ADR-0027.
+- **Reprocesamiento**: `reprocessPaymentEvent(eventId)` (servicio, sin ruta pública) reintenta un
+  evento `FAILED_RETRYABLE` o con lease vencido; idempotente.
+- **Retorno del comprador**: sigue sin confirmar nada. La página muestra "Pago confirmado" recién
+  cuando nuestro pedido está `PAID` (después del webhook); mientras tanto "Estamos verificando tu
+  pago" con botón "Actualizar estado" (sin polling, sin consultar a Mercado Pago desde el
+  navegador).
+
+### Configuración manual pendiente en Mercado Pago (no automatizada)
+
+En **Tus integraciones → (la aplicación) → Webhooks → Configurar notificaciones**, modo de prueba
+primero:
+
+1. URL: `https://<API pública>/api/payments/mercadopago/webhook` (HTTPS obligatorio; localhost no
+   recibe webhooks).
+2. Evento: **Order (Mercado Pago)**.
+3. Copiar la **clave secreta** generada a la variable `MERCADOPAGO_WEBHOOK_SECRET` del entorno
+   correspondiente (Railway / `.env` local) — nunca en el repo ni en el chat.
+4. Probar con el simulador de notificaciones de Mercado Pago y luego con un pago TEST.
+
 ## Pendiente (fases siguientes)
 
-- Fase D2: webhook (`x-signature`, `PaymentEvent`, lectura server-side del estado real,
-  verificación de monto, `markOrderPaid()`, duplicados, aprobación tardía).
+- Smoke real en modo TEST (credenciales + URL HTTPS pública + secret del webhook).
+- Vista de administración para `FAILED_FINAL`, `PAID_NEEDS_REVIEW` y pagos duplicados/revertidos.
 - Notificación del pedido por email/WhatsApp (recuperar acceso sin `sessionStorage`).
 - Scheduler persistente del barrido de expiración (antes de producción).
 - Flujo humano para `PAID_NEEDS_REVIEW`; cancelación.

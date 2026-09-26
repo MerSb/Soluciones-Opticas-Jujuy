@@ -1,7 +1,7 @@
 # Contexto compacto — Soluciones Ópticas Jujuy
 
 Punto de entrada para nuevas sesiones. Corto a propósito: para el detalle de cada tema, abrí solo el
-documento enlazado. Última actualización: Payments V1 — Fase D1 (2026-09-25).
+documento enlazado. Última actualización: Payments V1 — Fase D2 (2026-09-26).
 
 ## Stack
 
@@ -27,7 +27,7 @@ documento enlazado. Última actualización: Payments V1 — Fase D1 (2026-09-25)
 - **Admin API**: `/api/admin/*`, `authenticate` + `authorize("ADMIN")` una sola vez en
   `routes/admin/index.ts`. Endpoints por recurso (no PATCH con arrays anidados), soft delete +
   `/restore`.
-- ADRs en `docs/adr/` (0001–0026). Leer el ADR del tema antes de cambiar una decisión.
+- ADRs en `docs/adr/` (0001–0027). Leer el ADR del tema antes de cambiar una decisión.
 
 ## Ramas
 
@@ -131,24 +131,28 @@ documento enlazado. Última actualización: Payments V1 — Fase D1 (2026-09-25)
   Preferences. SDK oficial `mercadopago` fijado, detrás de `PaymentProvider`; timeout 10 s, sin
   reintentos del SDK, cliente nuevo por llamada. `POST /api/orders/:n/payment` (token de invitado o
   dueño, body vacío) → `{ checkoutUrl }`. `idempotencyKey` guardada antes de llamar y reutilizada en
-  reintentos. El redirect NO confirma el pago; webhook = D2. Sin credenciales → 503.
+  reintentos. El redirect NO confirma el pago. Sin credenciales → 503.
+- **Webhook (D2, ADR-0027)**: `POST /api/payments/mercadopago/webhook`, evento "Order", firma con el
+  validador oficial del SDK (`MERCADOPAGO_WEBHOOK_SECRET`), `PaymentEvent` idempotente con lease,
+  `getOrder()` server-side, verificación de referencia/moneda/monto (Decimal), un único mapper de
+  estados (`lib/mercadopago-status.ts`), aprobación vía `markOrderPaid()`.
 
 ## Estado de milestones
 
-| Milestone                                                                     | Estado                                                                                    |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Etapa 1 — sitio + catálogo                                                    | Hecho                                                                                     |
-| Etapa 2 — auth, favoritos, perfil óptico                                      | Hecho                                                                                     |
-| Recomendaciones V1/V2, Customer Experience V2                                 | Hecho                                                                                     |
-| Admin catálogo + Admin Dashboard V2                                           | Hecho                                                                                     |
-| Cloudinary staging readiness                                                  | Hecho, en staging                                                                         |
-| Real Catalog Readiness                                                        | Hecho, integrado (merge `2491f8a`), probado en staging                                    |
-| Cristales & Configurador V1                                                   | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual                      |
-| Shipping V1 — Fase A (sin proveedor)                                          | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push                      |
-| Shipping V1 — Fase B (proveedor real)                                         | Bloqueado: el cliente debe elegir operador y conseguir credenciales                       |
-| Payments V1 — Fases A+B+C+D1 (órdenes, checkout, frontend, inicio de pago MP) | Implementado en `feature/payments-v1`; MP en modo TEST sin credenciales locales; sin push |
-| Payments V1 — Fase D2 (webhook / confirmación)                                | No iniciado                                                                               |
-| Facturación (CUIT / ARCA)                                                     | No iniciado — milestone separado                                                          |
+| Milestone                                                                 | Estado                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Etapa 1 — sitio + catálogo                                                | Hecho                                                                                            |
+| Etapa 2 — auth, favoritos, perfil óptico                                  | Hecho                                                                                            |
+| Recomendaciones V1/V2, Customer Experience V2                             | Hecho                                                                                            |
+| Admin catálogo + Admin Dashboard V2                                       | Hecho                                                                                            |
+| Cloudinary staging readiness                                              | Hecho, en staging                                                                                |
+| Real Catalog Readiness                                                    | Hecho, integrado (merge `2491f8a`), probado en staging                                           |
+| Cristales & Configurador V1                                               | Integrado en staging (merge `6a92a66`); pendiente deploy y QA manual                             |
+| Shipping V1 — Fase A (sin proveedor)                                      | Implementado en `feature/shipping-v1`; pendiente QA manual; sin push                             |
+| Shipping V1 — Fase B (proveedor real)                                     | Bloqueado: el cliente debe elegir operador y conseguir credenciales                              |
+| Payments V1 — Fases A–D2 (órdenes, checkout, frontend, pago y webhook MP) | Implementado en `feature/payments-v1`; smoke TEST real pendiente de credenciales/HTTPS; sin push |
+| Payments V1 — pre-producción (scheduler, admin de revisión, smoke real)   | No iniciado                                                                                      |
+| Facturación (CUIT / ARCA)                                                 | No iniciado — milestone separado                                                                 |
 
 ## Infraestructura
 
@@ -198,7 +202,9 @@ Tests API: fixtures creados con Prisma bajo un prefijo `RUN_ID` y limpiados en `
 ## Deuda técnica relevante
 
 - Órdenes: el barrido de expiración es solo oportunista (sin scheduler persistente — requerido antes
-  de producción); `PAID_NEEDS_REVIEW` no tiene flujo de admin; rate limits de checkout en memoria.
+  de producción); sin vista de admin para `PAID_NEEDS_REVIEW` / eventos `FAILED_FINAL`; eventos
+  `FAILED_RETRYABLE` dependen de los reintentos de Mercado Pago o de `reprocessPaymentEvent()`
+  manual; rate limits en memoria.
 - Índice pg_trgm fuera del schema: toda migration requiere revisión manual (ver arriba).
 - Filtros públicos de color/forma/material sin normalización (`docs/REAL_CATALOG_READINESS.md`).
 - Limpieza de fixtures admin por nombre mutable; flake conocido de concurrencia entre archivos de
