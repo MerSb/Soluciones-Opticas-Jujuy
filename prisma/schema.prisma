@@ -664,24 +664,57 @@ model Payment {
   @@map("payments")
 }
 
+/// Lifecycle of one signed notification (ADR-0027). RECEIVED → PROCESSING
+/// (claimed with a lease) → PROCESSED | FAILED_FINAL, or FAILED_RETRYABLE
+/// (provider unreachable, remote order not available yet…) which a
+/// redelivery or reprocessPaymentEvent() claims again.
+enum PaymentEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED_RETRYABLE
+  FAILED_FINAL
+}
+
 /// Webhook ledger — the row that makes webhook processing idempotent
-/// (future webhook). Written before any state change; a duplicate delivery
-/// collides on (provider, providerEventId) and is acknowledged without
-/// being processed twice. Never stores headers, signatures or payloads.
+/// (ADR-0027). Only signature-verified notifications are stored; a
+/// duplicate delivery collides on (provider, providerEventId) and never
+/// runs side effects twice. Never stores headers, signatures or payloads.
 model PaymentEvent {
-  id                String    @id @default(uuid()) @db.Uuid
-  provider          String
-  providerEventId   String    @map("provider_event_id")
-  topic             String
-  providerPaymentId String?   @map("provider_payment_id")
-  receivedAt        DateTime  @default(now()) @map("received_at")
-  processedAt       DateTime? @map("processed_at")
-  /// Short machine-readable result ("APPLIED", "IGNORED_DUPLICATE"…).
-  outcome           String?
-  signatureValid    Boolean   @map("signature_valid")
+  id                  String             @id @default(uuid()) @db.Uuid
+  provider            String
+  /// The notification's own id (body `id`), Mercado Pago's per-notification
+  /// identifier — redeliveries of the same notification repeat it.
+  providerEventId     String             @map("provider_event_id")
+  /// Notification type ("order" for the Orders API).
+  topic               String
+  /// Body `action`, e.g. "order.processed". Informative only: the state
+  /// applied always comes from reading the remote order server-side.
+  action              String?
+  /// The remote order the notification is about (signed `data.id`).
+  providerOrderId     String?            @map("provider_order_id")
+  /// The provider's payment (transaction) id, once reconciliation finds an
+  /// accredited one. Never an order id.
+  providerPaymentId   String?            @map("provider_payment_id")
+  /// x-request-id, for correlating with the provider's delivery logs.
+  requestId           String?            @map("request_id")
+  status              PaymentEventStatus @default(RECEIVED)
+  /// Processing attempts (webhook deliveries + manual reprocessing).
+  attempts            Int                @default(0)
+  /// Lease start while PROCESSING; a stale lease can be reclaimed.
+  processingStartedAt DateTime?          @map("processing_started_at")
+  /// Normalized provider error kind of the last failed attempt.
+  lastErrorKind       String?            @map("last_error_kind")
+  receivedAt          DateTime           @default(now()) @map("received_at")
+  processedAt         DateTime?          @map("processed_at")
+  /// Short machine-readable result ("APPROVED", "AMOUNT_MISMATCH"…).
+  outcome             String?
+  signatureValid      Boolean            @map("signature_valid")
 
   @@unique([provider, providerEventId])
   @@index([providerPaymentId])
+  @@index([providerOrderId])
+  @@index([status])
   @@map("payment_events")
 }
 
