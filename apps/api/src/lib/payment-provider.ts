@@ -83,10 +83,15 @@ export interface ProviderOrderSnapshot {
   totalPaidAmount: Prisma.Decimal | null;
   currency: string | null;
   payments: {
+    /** The provider's payment (transaction) id. */
     id: string;
     status: string | null;
     statusDetail: string | null;
     amount: Prisma.Decimal | null;
+    paidAmount: Prisma.Decimal | null;
+    /** e.g. "credit_card" / "visa" — never card data. */
+    methodType: string | null;
+    methodId: string | null;
   }[];
 }
 

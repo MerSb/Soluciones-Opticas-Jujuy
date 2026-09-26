@@ -210,7 +210,18 @@ describe("MercadoPagoPaymentProvider", () => {
         ...CREATED,
         status: "processed",
         total_paid_amount: "1500.50",
-        transactions: { payments: [{ id: "PAY01", status: "processed", amount: "1500.50" }] },
+        transactions: {
+          payments: [
+            {
+              id: "PAY01",
+              status: "processed",
+              status_detail: "accredited",
+              amount: "1500.50",
+              paid_amount: "1500.50",
+              payment_method: { id: "visa", type: "credit_card", token: "never-kept" },
+            },
+          ],
+        },
       }),
     );
     const snapshot = await new MercadoPagoPaymentProvider(FAKE_TOKEN).getOrder("ORDTST01TEST");
@@ -223,10 +234,14 @@ describe("MercadoPagoPaymentProvider", () => {
       {
         id: "PAY01",
         status: "processed",
-        statusDetail: null,
+        statusDetail: "accredited",
         amount: new Prisma.Decimal("1500.50"),
+        paidAmount: new Prisma.Decimal("1500.50"),
+        methodType: "credit_card",
+        methodId: "visa",
       },
     ]);
+    expect(JSON.stringify(snapshot)).not.toContain("never-kept");
 
     stubFetch(() => json(404, { error: "order_not_found" }));
     expect(await kindOf(new MercadoPagoPaymentProvider(FAKE_TOKEN).getOrder("NOPE"))).toBe(

@@ -215,6 +215,9 @@ export class MercadoPagoPaymentProvider implements PaymentProvider {
                 status: payment.status ?? null,
                 statusDetail: payment.status_detail ?? null,
                 amount: toDecimal(payment.amount),
+                paidAmount: toDecimal(payment.paid_amount),
+                methodType: payment.payment_method?.type ?? null,
+                methodId: payment.payment_method?.id ?? null,
               },
             ]
           : [],

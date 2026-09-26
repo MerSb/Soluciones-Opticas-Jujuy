@@ -53,6 +53,10 @@ const envSchema = z.object({
   // never sent to the frontend, never logged. Use a TEST credential
   // anywhere that is not production.
   MERCADOPAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+  // Secret signature of the Mercado Pago webhook (Your integrations →
+  // Webhooks). Optional at startup; without it no notification can be
+  // authenticated, so the webhook answers 503 and processes nothing.
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().min(1).optional(),
   // Public origin of the web app (e.g. the Vercel URL), used to build the
   // Checkout Pro return URLs. Payments stay unconfigured without it.
   PUBLIC_WEB_URL: z

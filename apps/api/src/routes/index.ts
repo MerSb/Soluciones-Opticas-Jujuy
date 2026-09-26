@@ -13,6 +13,7 @@ import { adminRouter } from "./admin/index.js";
 import { checkoutRouter } from "./checkout.routes.js";
 import { ordersRouter } from "./orders.routes.js";
 import { accountRouter } from "./account.routes.js";
+import { paymentsRouter } from "./payments.routes.js";
 
 export const apiRouter = Router();
 
@@ -29,4 +30,5 @@ apiRouter.use("/recommendations", recommendationsRouter);
 apiRouter.use("/checkout", checkoutRouter);
 apiRouter.use("/orders", ordersRouter);
 apiRouter.use("/account", accountRouter);
+apiRouter.use("/payments", paymentsRouter);
 apiRouter.use("/admin", adminRouter);
