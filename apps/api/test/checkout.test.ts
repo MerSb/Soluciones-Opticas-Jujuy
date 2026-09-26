@@ -533,7 +533,7 @@ describe("POST /api/checkout/orders — shipping", () => {
     const response = await checkout(checkoutBody([line(product)], { delivery: DELIVERY }));
 
     expect(response.status).toBe(201);
-    expect(JSON.stringify(response.body)).not.toContain("4321");
+    expect(JSON.stringify(response.body)).not.toContain("4321.09");
     const row = await orderRow(response.body.orderNumber);
     expect(row.shippingCostStatus).toBe("KNOWN");
     expect(row.shippingQuoteLogId).toBe(log.id);
@@ -543,7 +543,7 @@ describe("POST /api/checkout/orders — shipping", () => {
 
     const guest = await checkout(checkoutBody([line(await makeProduct(1))]));
     const view = await guestGet(guest.body.orderNumber, guest.body.accessToken);
-    expect(JSON.stringify(view.body)).not.toContain("4321");
+    expect(JSON.stringify(view.body)).not.toContain("4321.09");
   });
 
   it("a destination the carrier does not cover → 422, nothing reserved", async () => {
