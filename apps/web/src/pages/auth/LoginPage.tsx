@@ -6,14 +6,19 @@ import { SeoHead } from "../../components/ui/SeoHead";
 import { FormField } from "../../components/forms/FormField";
 import { useLoginMutation } from "../../services/queries/auth";
 import { useAddFavoriteMutation } from "../../services/queries/favorites";
-import { ApiClientError } from "../../services/api-client";
+import { describeAuthFailure, hasErrors, needsFormAlert, validateLogin } from "../../lib/auth-form";
+import type { FieldErrors, LoginField } from "../../lib/auth-form";
 
 interface LocationState {
   from?: string;
   /** Set by FavoriteButton when a guest tried to favorite a product —
    * finished here once login succeeds, instead of just dropped (§24). */
   favoriteSlug?: string;
+  /** Prefilled when RegisterPage sends someone here after a duplicate email. */
+  email?: string;
 }
+
+const FIELDS: readonly LoginField[] = ["email", "password"];
 
 // The two eyes + mouth shared by every character below — the only part
 // of the illustration with real behavior (mouse-gaze tracking, closing
@@ -195,14 +200,41 @@ export function LoginPage() {
   const login = useLoginMutation();
   const addFavorite = useAddFavoriteMutation();
 
-  const [email, setEmail] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  // isPending only flips after a re-render; this guards a double click or
+  // a double Enter landing before that.
+  const submittingRef = useRef(false);
+  const [email, setEmail] = useState(state.email ?? "");
   const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<LoginField>>({});
   const isTypingPassword = password.length > 0;
+
+  // 401 stays one generic message for both fields — never says whether
+  // the email exists (the API answers the same way for both cases).
+  const failure = login.isError ? describeAuthFailure(login.error, "login", FIELDS) : null;
+  const visibleErrors: FieldErrors<LoginField> = { ...failure?.fieldErrors, ...fieldErrors };
+
+  function focusField(field: LoginField) {
+    const element = formRef.current?.elements.namedItem(field);
+    if (element instanceof HTMLInputElement) element.focus();
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (submittingRef.current || login.isPending) return;
+
+    const errors = validateLogin({ email, password });
+    setFieldErrors(errors);
+    if (hasErrors(errors)) {
+      login.reset();
+      const first = FIELDS.find((field) => errors[field]);
+      if (first) focusField(first);
+      return;
+    }
+
+    submittingRef.current = true;
     login.mutate(
-      { email, password },
+      { email: email.trim(), password },
       {
         onSuccess: async () => {
           if (state.favoriteSlug) {
@@ -212,16 +244,12 @@ export function LoginPage() {
           }
           navigate(state.from ?? "/account", { replace: true });
         },
+        onSettled: () => {
+          submittingRef.current = false;
+        },
       },
     );
   }
-
-  const errorMessage =
-    login.error instanceof ApiClientError
-      ? login.error.message
-      : login.isError
-        ? "Ocurrió un error. Probá de nuevo."
-        : undefined;
 
   return (
     <Container className="flex justify-center py-16">
@@ -235,27 +263,43 @@ export function LoginPage() {
             Accedé a tus favoritos y a tu información de contacto.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+          <form
+            ref={formRef}
+            onSubmit={handleSubmit}
+            className="mt-8 space-y-5"
+            noValidate
+            aria-busy={login.isPending}
+          >
             <FormField
               label="Email"
+              name="email"
               type="email"
               autoComplete="email"
               required
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              error={visibleErrors.email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldErrors((prev) => ({ ...prev, email: undefined }));
+              }}
             />
             <FormField
               label="Contraseña"
+              name="password"
               toggleVisibility
               autoComplete="current-password"
               required
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              error={visibleErrors.password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setFieldErrors((prev) => ({ ...prev, password: undefined }));
+              }}
             />
 
-            {errorMessage && (
+            {failure && needsFormAlert(failure) && (
               <p role="alert" className="text-sm text-danger">
-                {errorMessage}
+                {failure.message}
               </p>
             )}
 

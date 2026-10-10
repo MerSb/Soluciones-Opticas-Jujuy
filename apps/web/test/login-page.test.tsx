@@ -23,6 +23,16 @@ function renderLogin(initialEntries: unknown[] = ["/login"]) {
   );
 }
 
+function jsonResponse(status: number, body: unknown) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+async function fillAndSubmit(email = "ana@example.com", password = "password123") {
+  if (email) await userEvent.type(screen.getByLabelText("Email"), email);
+  if (password) await userEvent.type(screen.getByLabelText("Contraseña"), password);
+  await userEvent.click(screen.getByRole("button", { name: "Ingresar" }));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -138,5 +148,134 @@ describe("LoginPage", () => {
 
     expect(await screen.findByText("Products page")).toBeInTheDocument();
     expect(calledPaths).toContain("/api/favorites/andina-aviador");
+  });
+
+  it("flags empty fields without calling the API and focuses the first one", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    renderLogin();
+
+    await userEvent.click(screen.getByRole("button", { name: "Ingresar" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Ingresá tu email.");
+    expect(screen.getByLabelText("Contraseña")).toHaveAccessibleDescription(
+      "Ingresá tu contraseña.",
+    );
+    expect(screen.getByLabelText("Email")).toHaveFocus();
+  });
+
+  it("does not apply the registration password policy to login", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(401, {
+        error: { code: "UNAUTHENTICATED", message: "Email o contraseña incorrectos." },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderLogin();
+
+    await fillAndSubmit("ana@example.com", "123");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a wrong-credentials error generic — no field is marked as the wrong one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(401, {
+          error: { code: "UNAUTHENTICATED", message: "Email o contraseña incorrectos." },
+        }),
+      ),
+    );
+    renderLogin();
+
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Email o contraseña incorrectos.");
+    expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Contraseña")).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("shows a rate-limit message on 429", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(429, {
+          error: {
+            code: "RATE_LIMITED",
+            message: "Demasiados intentos. Probá de nuevo en unos minutos.",
+          },
+        }),
+      ),
+    );
+    renderLogin();
+
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Hiciste demasiados intentos. Esperá unos minutos y volvé a intentar.",
+    );
+  });
+
+  it("shows a connection message when the request never reaches the API", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderLogin();
+
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos conectarnos con el servidor. Revisá tu conexión a internet e intentá de nuevo.",
+    );
+  });
+
+  it("never shows a 500's body — only a generic Spanish message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(500, {
+          error: { code: "INTERNAL_ERROR", message: "Something went wrong. Please try again." },
+        }),
+      ),
+    );
+    renderLogin();
+
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Ocurrió un error inesperado. Intentá de nuevo en unos minutos.",
+    );
+  });
+
+  it("sends a single request on a double submit and shows a loading state", async () => {
+    let resolve: (value: unknown) => void = () => {};
+    const fetchMock = vi.fn(() => new Promise((r) => (resolve = r)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderLogin();
+
+    await userEvent.type(screen.getByLabelText("Email"), "ana@example.com");
+    await userEvent.type(screen.getByLabelText("Contraseña"), "password123");
+    await userEvent.dblClick(screen.getByRole("button", { name: "Ingresar" }));
+    await userEvent.type(screen.getByLabelText("Contraseña"), "{enter}");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: "Ingresando…" })).toBeDisabled();
+
+    resolve(
+      jsonResponse(200, {
+        id: "u1",
+        email: "ana@example.com",
+        firstName: "Ana",
+        lastName: "Gómez",
+        phone: null,
+        role: "CUSTOMER",
+      }),
+    );
+    expect(await screen.findByText("Account page")).toBeInTheDocument();
+  });
+
+  it("prefills the email when sent here from a duplicate registration", () => {
+    renderLogin([{ pathname: "/login", state: { email: "ya-existe@example.com" } }]);
+    expect(screen.getByLabelText("Email")).toHaveValue("ya-existe@example.com");
   });
 });

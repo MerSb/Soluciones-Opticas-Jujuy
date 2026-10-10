@@ -4,6 +4,8 @@ import type { InputHTMLAttributes } from "react";
 interface FormFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
   label: string;
   error?: string;
+  /** Persistent help text (e.g. the password policy), read by screen readers with the field. */
+  hint?: string;
   /** Adds a show/hide toggle — only meaningful together with type="password". */
   toggleVisibility?: boolean;
 }
@@ -14,6 +16,7 @@ interface FormFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id
 export function FormField({
   label,
   error,
+  hint,
   toggleVisibility,
   type,
   className,
@@ -21,6 +24,8 @@ export function FormField({
 }: FormFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
+  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
   const [visible, setVisible] = useState(false);
   const resolvedType = toggleVisibility ? (visible ? "text" : "password") : type;
 
@@ -34,7 +39,7 @@ export function FormField({
           id={id}
           type={resolvedType}
           aria-invalid={Boolean(error)}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={describedBy || undefined}
           className={`w-full rounded-md border bg-surface-muted px-4 py-2.5 text-text placeholder:text-text-muted focus-visible:border-primary ${
             error ? "border-danger" : "border-border"
           } ${toggleVisibility ? "pr-16" : ""}`}
@@ -50,6 +55,11 @@ export function FormField({
           </button>
         )}
       </div>
+      {hint && (
+        <p id={hintId} className="mt-1.5 text-xs text-text-muted">
+          {hint}
+        </p>
+      )}
       {error && (
         <p id={errorId} role="alert" className="mt-1.5 text-sm text-danger">
           {error}
