@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
@@ -68,7 +68,26 @@ describe("POST /api/auth/register", () => {
       .send({ firstName: "A", lastName: "B", email: dupEmail, password: "password123" });
 
     expect(response.status).toBe(409);
-    expect(response.body.error.code).toBe("CONFLICT");
+    expect(response.body.error).toEqual({
+      code: "CONFLICT",
+      message: "Ese email ya está registrado.",
+    });
+  });
+
+  it("treats a differently-cased duplicate email as the same account", async () => {
+    const dupEmail = email("dup-case");
+    await request(app)
+      .post("/api/auth/register")
+      .send({ firstName: "A", lastName: "B", email: dupEmail, password: "password123" });
+
+    const response = await request(app).post("/api/auth/register").send({
+      firstName: "A",
+      lastName: "B",
+      email: dupEmail.toUpperCase(),
+      password: "password123",
+    });
+
+    expect(response.status).toBe(409);
   });
 
   it("rejects invalid registration input", async () => {
@@ -80,6 +99,18 @@ describe("POST /api/auth/register", () => {
     });
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    // The field keys drive per-field errors in the web forms.
+    expect(Object.keys(response.body.error.details.fieldErrors)).toEqual(
+      expect.arrayContaining(["firstName", "email", "password"]),
+    );
+  });
+
+  it("rejects a password shorter than the 8-character policy with a Spanish message", async () => {
+    const response = await request(app)
+      .post("/api/auth/register")
+      .send({ firstName: "A", lastName: "B", email: email("short"), password: "1234567" });
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toBe("La contraseña debe tener al menos 8 caracteres.");
   });
 
   it("ignores a client-supplied role and always registers as CUSTOMER", async () => {
@@ -128,6 +159,23 @@ describe("POST /api/auth/login", () => {
       .send({ email: email("unknown"), password: "password123" });
     expect(response.status).toBe(401);
     expect(response.body.error.message).toBe("Email o contraseña incorrectos.");
+  });
+
+  it("answers malformed JSON as a 400 without logging the raw body (which may hold a password)", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .set("Content-Type", "application/json")
+        .send('{"email":"ana@example.com","password":"s3cret-not-logged"');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+      expect(JSON.stringify(response.body)).not.toContain("s3cret-not-logged");
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 
