@@ -199,6 +199,24 @@ describe("AdminVariantImagesEditor", () => {
     );
   });
 
+  it("explains a 404 in Spanish instead of showing the API's generic English text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        json(404, {
+          error: { code: "NOT_FOUND", message: "The requested resource was not found." },
+        }),
+      ),
+    );
+    renderEditor([A, B, C]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Bajar «Perfil»" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No encontramos esta foto o variante. Puede haber cambiado en otra pestaña: recargá la página.",
+    );
+  });
+
   it("marks another photo as primary and confirms it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(200, { ...B, isPrimary: true }));
     vi.stubGlobal("fetch", fetchMock);

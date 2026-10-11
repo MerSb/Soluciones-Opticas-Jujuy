@@ -13,12 +13,19 @@ import { AdminImageUploadForm } from "./AdminImageUploadForm";
 type MoveDirection = "up" | "down";
 
 const GENERIC_ERROR = "No pudimos guardar el cambio. Intentá de nuevo.";
+const NOT_FOUND_ERROR =
+  "No encontramos esta foto o variante. Puede haber cambiado en otra pestaña: recargá la página.";
 const NETWORK_ERROR = "No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.";
 
 // Our API's 4xx messages are curated Spanish (e.g. the 409 for a stale
 // order); 5xx bodies and provider errors are never shown as-is.
 function describeError(error: unknown): string {
-  if (error instanceof ApiClientError) return error.status < 500 ? error.message : GENERIC_ERROR;
+  if (error instanceof ApiClientError) {
+    // The generic 404 body is English (route or record not found — e.g. the
+    // photo was deleted in another tab), so it gets its own sentence.
+    if (error.status === 404) return NOT_FOUND_ERROR;
+    return error.status < 500 ? error.message : GENERIC_ERROR;
+  }
   if (error instanceof TypeError) return NETWORK_ERROR;
   return GENERIC_ERROR;
 }
