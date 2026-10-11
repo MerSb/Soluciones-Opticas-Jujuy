@@ -1,5 +1,6 @@
 import type { FavoriteDto, ProductImageDto } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
+import { IMAGE_ORDER } from "../lib/image-order.js";
 import { ApiError } from "../lib/api-error.js";
 import { computeInStock } from "../lib/product-availability.js";
 
@@ -31,7 +32,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
               images: {
                 where: { isPrimary: true },
                 take: 1,
-                orderBy: { sortOrder: "asc" },
+                orderBy: IMAGE_ORDER,
                 select: { cloudinaryPublicId: true, alt: true },
               },
             },

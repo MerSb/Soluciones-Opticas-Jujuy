@@ -6,6 +6,7 @@ import type {
   StylePreference,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
+import { IMAGE_ORDER } from "../lib/image-order.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import {
@@ -84,7 +85,7 @@ const CANDIDATE_PRODUCT_SELECT = {
       images: {
         where: { isPrimary: true },
         take: 1,
-        orderBy: { sortOrder: "asc" as const },
+        orderBy: IMAGE_ORDER,
         select: { cloudinaryPublicId: true, alt: true },
       },
     },

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { IMAGE_ORDER } from "../lib/image-order.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import { normalizeShape } from "./recommendation/normalize.js";
@@ -93,7 +94,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
           stock: true,
           priceOverride: true,
           images: {
-            orderBy: { sortOrder: "asc" },
+            orderBy: IMAGE_ORDER,
             select: { cloudinaryPublicId: true, alt: true, isPrimary: true },
           },
         },
@@ -375,7 +376,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
       images: {
         where: { isPrimary: true },
         take: 1,
-        orderBy: { sortOrder: "asc" },
+        orderBy: IMAGE_ORDER,
         select: { cloudinaryPublicId: true, alt: true },
       },
     },
@@ -591,7 +592,7 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
           images: {
             where: { isPrimary: true },
             take: 1,
-            orderBy: { sortOrder: "asc" },
+            orderBy: IMAGE_ORDER,
             select: { cloudinaryPublicId: true, alt: true },
           },
         },

@@ -6,6 +6,7 @@ import type {
   CreateImageBody,
   CreateProductBody,
   CreateVariantBody,
+  ReorderImagesBody,
   UpdateImageBody,
   UpdateProductBody,
   UpdateVariantBody,
@@ -86,6 +87,12 @@ export const updateImage = asyncHandler(async (_req: Request, res: Response) => 
   };
   const body = res.locals.body as UpdateImageBody;
   res.json(await adminProductsService.updateImage(id, variantId, imageId, body));
+});
+
+export const reorderImages = asyncHandler(async (_req: Request, res: Response) => {
+  const { id, variantId } = res.locals.params as { id: string; variantId: string };
+  const body = res.locals.body as ReorderImagesBody;
+  res.json(await adminProductsService.reorderImages(id, variantId, body.imageIds));
 });
 
 export const deleteImage = asyncHandler(async (_req: Request, res: Response) => {

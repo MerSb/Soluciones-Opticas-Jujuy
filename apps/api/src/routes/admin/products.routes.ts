@@ -8,6 +8,7 @@ import {
   deleteVariant,
   getProduct,
   listProducts,
+  reorderImages,
   restoreProduct,
   setProductLensTypes,
   signImageUpload,
@@ -23,6 +24,7 @@ import {
   createVariantBodySchema,
   imageIdParamSchema,
   productIdParamSchema,
+  reorderImagesBodySchema,
   updateImageBodySchema,
   updateProductBodySchema,
   updateVariantBodySchema,
@@ -78,6 +80,12 @@ adminProductsRouter.post(
   validateParams(variantIdParamSchema),
   validateBody(createImageBodySchema),
   createImage,
+);
+adminProductsRouter.put(
+  "/:id/variants/:variantId/images/order",
+  validateParams(variantIdParamSchema),
+  validateBody(reorderImagesBodySchema),
+  reorderImages,
 );
 adminProductsRouter.patch(
   "/:id/variants/:variantId/images/:imageId",

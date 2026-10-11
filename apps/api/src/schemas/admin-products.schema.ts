@@ -93,7 +93,9 @@ export type UpdateVariantBody = z.infer<typeof updateVariantBodySchema>;
 export const createImageBodySchema = z.object({
   cloudinaryPublicId: z.string().trim().min(1).max(500),
   alt: z.string().trim().min(1).max(300),
-  sortOrder: z.number().int().nonnegative().max(1000).optional().default(0),
+  // Omitted (the admin UI never sends it): the image goes last — the
+  // service assigns max(sortOrder) + 1 under the variant lock.
+  sortOrder: z.number().int().nonnegative().max(1000).optional(),
   isPrimary: z.boolean().optional().default(false),
 });
 export type CreateImageBody = z.infer<typeof createImageBodySchema>;
@@ -105,6 +107,14 @@ export const updateImageBodySchema = z.object({
   isPrimary: z.boolean().optional(),
 });
 export type UpdateImageBody = z.infer<typeof updateImageBodySchema>;
+
+// The full new order of one variant's images, first to last. Duplicates
+// are rejected in the service (clear message); a list that doesn't match
+// the variant's current images exactly is a 409 (stale screen).
+export const reorderImagesBodySchema = z.object({
+  imageIds: z.array(z.string().uuid()).min(1).max(100),
+});
+export type ReorderImagesBody = z.infer<typeof reorderImagesBodySchema>;
 
 export const productIdParamSchema = z.object({ id: z.string().uuid() });
 

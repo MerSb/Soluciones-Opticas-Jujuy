@@ -80,6 +80,11 @@ export interface UpdateImageRequest {
   isPrimary?: boolean;
 }
 
+/** PUT .../variants/:variantId/images/order — every image of the variant, first to last. */
+export interface ReorderImagesRequest {
+  imageIds: string[];
+}
+
 export interface AdminVariantDto {
   id: string;
   productId: string;

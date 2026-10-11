@@ -36,6 +36,7 @@ const FIELD_LABELS: Record<string, string> = {
   alt: "el texto alternativo",
   sortOrder: "el orden",
   isPrimary: "la imagen principal",
+  imageIds: "las imágenes",
   lensWidth: "la medida",
   bridgeWidth: "la medida",
   templeLength: "la medida",

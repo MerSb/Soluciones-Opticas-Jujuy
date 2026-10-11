@@ -12,6 +12,7 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { generateUniqueSlug } from "../lib/slug.js";
 import { MAX_IMAGE_BYTES } from "../lib/image-validation.js";
+import { IMAGE_ORDER } from "../lib/image-order.js";
 import { computeIsComplete } from "../lib/product-completeness.js";
 import * as imageProvider from "./image-provider.service.js";
 import type {
@@ -47,7 +48,7 @@ const VARIANT_SELECT = {
   priceOverride: true,
   createdAt: true,
   updatedAt: true,
-  images: { orderBy: { sortOrder: "asc" as const }, select: IMAGE_SELECT },
+  images: { orderBy: IMAGE_ORDER, select: IMAGE_SELECT },
 } as const;
 
 const PRODUCT_DETAIL_SELECT = {
@@ -517,6 +518,46 @@ async function clearOtherPrimaryImages(
   });
 }
 
+// Every write to one variant's images (create, primary change, reorder,
+// delete + promotion) first locks the variant row, so those writes run
+// one at a time per variant. Without it, two concurrent "mark primary"
+// requests can each clear the other's snapshot and both commit — two
+// primaries. A partial unique index would be the database-level
+// guarantee, but that is a migration; this lock needs none. Returns
+// false when the variant no longer exists (deleted concurrently).
+async function lockVariantImages(
+  tx: Prisma.TransactionClient,
+  variantId: string,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM product_variants WHERE id = ${variantId}::uuid FOR UPDATE`;
+  return rows.length > 0;
+}
+
+function variantGone(variantId: string): ApiError {
+  return ApiError.notFound(`No variant found with id "${variantId}".`);
+}
+
+// The catalog card shows a variant's primary image only, so a variant
+// with images must always have exactly one: when none is left primary
+// (the primary was deleted, or older data never had one), the first image
+// in IMAGE_ORDER is promoted. Callers hold the variant lock.
+async function ensurePrimaryImage(tx: Prisma.TransactionClient, variantId: string): Promise<void> {
+  const primary = await tx.productImage.findFirst({
+    where: { variantId, isPrimary: true },
+    select: { id: true },
+  });
+  if (primary) return;
+  const first = await tx.productImage.findFirst({
+    where: { variantId },
+    orderBy: IMAGE_ORDER,
+    select: { id: true },
+  });
+  if (first) {
+    await tx.productImage.update({ where: { id: first.id }, data: { isPrimary: true } });
+  }
+}
+
 // Called *after* the browser has already uploaded the file straight to
 // Cloudinary (see signImageUpload below) — this only ever persists
 // metadata. §25 "orphan prevention": if that persistence itself fails
@@ -525,6 +566,9 @@ async function clearOtherPrimaryImages(
 // database referencing it. Best-effort cleanup is attempted before the
 // original error is rethrown — a failure during cleanup is logged, not
 // surfaced, so it never masks the real error the caller needs to see.
+//
+// A new image goes last (max sortOrder + 1) unless the caller sends an
+// explicit sortOrder, and the variant's first image is always primary.
 export async function createImage(
   productId: string,
   variantId: string,
@@ -534,16 +578,27 @@ export async function createImage(
 
   try {
     const row = await prisma.$transaction(async (tx) => {
-      if (body.isPrimary) {
+      if (!(await lockVariantImages(tx, variantId))) throw variantGone(variantId);
+      const siblings = await tx.productImage.aggregate({
+        where: { variantId },
+        _max: { sortOrder: true },
+        _count: { _all: true },
+      });
+      const hasPrimary =
+        (await tx.productImage.count({ where: { variantId, isPrimary: true } })) > 0;
+      const isPrimary = body.isPrimary || !hasPrimary;
+      if (isPrimary) {
         await clearOtherPrimaryImages(tx, variantId);
       }
+      const sortOrder =
+        body.sortOrder ?? (siblings._count._all === 0 ? 0 : (siblings._max.sortOrder ?? 0) + 1);
       return tx.productImage.create({
         data: {
           variantId,
           cloudinaryPublicId: body.cloudinaryPublicId,
           alt: body.alt,
-          sortOrder: body.sortOrder,
-          isPrimary: body.isPrimary,
+          sortOrder,
+          isPrimary,
         },
         select: IMAGE_SELECT,
       });
@@ -573,6 +628,20 @@ export async function updateImage(
   await requireImageOfVariant(productId, variantId, imageId);
 
   const row = await prisma.$transaction(async (tx) => {
+    if (!(await lockVariantImages(tx, variantId))) throw variantGone(variantId);
+    // Re-read under the lock: a concurrent request may have changed it.
+    const current = await tx.productImage.findFirst({
+      where: { id: imageId, variantId },
+      select: { isPrimary: true },
+    });
+    if (!current) {
+      throw ApiError.notFound(`No image found with id "${imageId}" on variant "${variantId}".`);
+    }
+    if (body.isPrimary === false && current.isPrimary) {
+      throw ApiError.conflict(
+        "La imagen principal no se puede desmarcar. Marcá otra imagen como principal.",
+      );
+    }
     if (body.isPrimary === true) {
       await clearOtherPrimaryImages(tx, variantId, imageId);
     }
@@ -590,6 +659,41 @@ export async function updateImage(
     });
   });
   return toImageDto(row);
+}
+
+// Rewrites sortOrder to 0..n-1 following `imageIds`, atomically. The list
+// must be exactly the variant's current images: a missing, extra, foreign
+// or unknown id means the admin's screen is stale (another upload or
+// delete happened), so nothing is written and the caller gets a 409.
+export async function reorderImages(
+  productId: string,
+  variantId: string,
+  imageIds: string[],
+): Promise<AdminImageDto[]> {
+  await requireVariantOfProduct(productId, variantId);
+  if (new Set(imageIds).size !== imageIds.length) {
+    throw ApiError.validation("El orden enviado tiene imágenes repetidas.");
+  }
+
+  const rows = await prisma.$transaction(async (tx) => {
+    if (!(await lockVariantImages(tx, variantId))) throw variantGone(variantId);
+    const current = await tx.productImage.findMany({ where: { variantId }, select: { id: true } });
+    const currentIds = new Set(current.map((image) => image.id));
+    if (current.length !== imageIds.length || imageIds.some((id) => !currentIds.has(id))) {
+      throw ApiError.conflict(
+        "Las imágenes de esta variante cambiaron. Recargá la página e intentá ordenar de nuevo.",
+      );
+    }
+    for (const [index, id] of imageIds.entries()) {
+      await tx.productImage.update({ where: { id }, data: { sortOrder: index } });
+    }
+    return tx.productImage.findMany({
+      where: { variantId },
+      orderBy: IMAGE_ORDER,
+      select: IMAGE_SELECT,
+    });
+  });
+  return rows.map(toImageDto);
 }
 
 // Explicit ordering, per §18/19 of the brief — there is no real
@@ -617,9 +721,23 @@ export async function deleteImage(
   imageId: string,
 ): Promise<void> {
   const image = await requireImageOfVariant(productId, variantId, imageId);
-  await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
+  // Never remove a remote file another image row still points to.
+  const sharedBy = await prisma.productImage.count({
+    where: { cloudinaryPublicId: image.cloudinaryPublicId, id: { not: imageId } },
+  });
+  if (sharedBy === 0) {
+    await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
+  }
   try {
-    await prisma.productImage.delete({ where: { id: imageId } });
+    // Delete + promotion are one transaction under the variant lock, so a
+    // concurrent "mark primary" or a second delete can never leave the
+    // variant with zero or two primaries.
+    await prisma.$transaction(async (tx) => {
+      if (!(await lockVariantImages(tx, variantId))) return; // variant (and image) already gone
+      const deleted = await tx.productImage.deleteMany({ where: { id: imageId, variantId } });
+      if (deleted.count === 0) return; // deleted concurrently — nothing left to do
+      await ensurePrimaryImage(tx, variantId);
+    });
   } catch (error) {
     console.error(
       "CRITICAL: Cloudinary asset deleted but the DB image row survived — orphaned reference",
