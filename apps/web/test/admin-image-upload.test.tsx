@@ -231,7 +231,9 @@ describe("Admin product image upload", () => {
     await user.click(screen.getByRole("button", { name: "Subir imagen" }));
 
     expect(await screen.findByText("Imagen subida correctamente.")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Imagen subida correctamente.");
+    expect(screen.getByRole("status", { name: "Estado de la carga" })).toHaveTextContent(
+      "Imagen subida correctamente.",
+    );
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls.some((url) => url.includes("/images/sign-upload"))).toBe(true);
     expect(urls.some((url) => url.startsWith("https://api.cloudinary.com/"))).toBe(true);
@@ -345,7 +347,9 @@ describe("Admin product image upload", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Subiendo…" }).closest("form")!);
 
     expect(screen.getByRole("button", { name: "Subiendo…" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("Subiendo imagen…");
+    expect(screen.getByRole("status", { name: "Estado de la carga" })).toHaveTextContent(
+      "Subiendo imagen…",
+    );
     expect(screen.getByLabelText("Cambiar imagen")).toBeDisabled();
     expect(
       fetchMock.mock.calls.filter((call) => String(call[0]).includes("sign-upload")),

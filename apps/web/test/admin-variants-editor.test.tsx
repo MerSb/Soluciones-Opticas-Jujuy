@@ -137,8 +137,8 @@ describe("AdminVariantsEditor — destructive action confirmation", () => {
       <AdminVariantsEditor productId="p1" variants={[VARIANT_WITH_TWO_IMAGES]} />,
     );
 
-    const deleteImageButtons = screen.getAllByRole("button", { name: "Eliminar" }).slice(1);
-    await userEvent.click(deleteImageButtons[0]!);
+    // Each photo's delete button names the photo it deletes.
+    await userEvent.click(screen.getAllByRole("button", { name: /^Eliminar «/ })[0]!);
     expect(window.confirm).toHaveBeenCalled();
     expect(onDeleteImage).not.toHaveBeenCalled();
   });

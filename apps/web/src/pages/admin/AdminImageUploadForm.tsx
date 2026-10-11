@@ -250,7 +250,7 @@ export function AdminImageUploadForm({
         </div>
       )}
 
-      <div role="status">
+      <div role="status" aria-label="Estado de la carga">
         {upload.isPending && <p className="text-sm text-text-muted">Subiendo imagen…</p>}
         {succeeded && <p className="text-sm text-success">{UPLOAD_SUCCESS_MESSAGE}</p>}
       </div>

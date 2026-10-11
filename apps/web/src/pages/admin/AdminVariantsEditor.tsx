@@ -1,19 +1,15 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { AdminImageDto, AdminVariantDto } from "@soluciones-opticas/shared";
+import type { AdminVariantDto } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
-import { ProductImage } from "../../components/products/ProductImage";
 import { ApiClientError } from "../../services/api-client";
 import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
-import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 import {
   useCreateVariantMutation,
-  useDeleteImageMutation,
   useDeleteVariantMutation,
-  useUpdateImageMutation,
   useUpdateVariantMutation,
 } from "../../services/queries/admin";
-import { AdminImageUploadForm } from "./AdminImageUploadForm";
+import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 
 export function AdminVariantsEditor({
   productId,
@@ -218,83 +214,10 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
         </p>
       )}
 
-      <ImagesEditor productId={productId} variantId={variant.id} images={variant.images} />
-    </div>
-  );
-}
-
-function ImagesEditor({
-  productId,
-  variantId,
-  images,
-}: {
-  productId: string;
-  variantId: string;
-  images: AdminImageDto[];
-}) {
-  const updateImage = useUpdateImageMutation(productId, variantId);
-  const deleteImage = useDeleteImageMutation(productId, variantId);
-
-  return (
-    <div className="mt-4 border-t border-border pt-4">
-      <p className="text-sm font-medium text-text">Imágenes</p>
-      <ul className="mt-2 flex flex-wrap gap-3">
-        {images.map((image) => (
-          <li key={image.id} className="w-28 text-center">
-            <ProductImage
-              publicId={image.cloudinaryPublicId}
-              alt={image.alt}
-              widths={CLOUDINARY_WIDTHS.adminThumbnail}
-              aspectRatio="1 / 1"
-              className="w-28 rounded-md"
-            />
-            <p className="mt-1 truncate text-xs text-text-muted" title={image.alt}>
-              {image.alt}
-            </p>
-            {image.isPrimary ? (
-              <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                Principal
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => updateImage.mutate({ imageId: image.id, body: { isPrimary: true } })}
-                disabled={updateImage.isPending}
-                className="mt-1 block text-xs font-medium text-primary hover:underline disabled:opacity-60"
-              >
-                Marcar principal
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("¿Eliminar esta imagen? Esta acción no se puede deshacer.")) {
-                  deleteImage.mutate(image.id);
-                }
-              }}
-              disabled={deleteImage.isPending}
-              className="mt-1 block text-xs font-medium text-danger hover:underline disabled:opacity-60"
-            >
-              Eliminar
-            </button>
-            {deleteImage.isError && deleteImage.variables === image.id && (
-              <p className="mt-1 text-xs text-danger">
-                {deleteImage.error instanceof ApiClientError
-                  ? deleteImage.error.message
-                  : "No se pudo eliminar."}
-              </p>
-            )}
-          </li>
-        ))}
-        {images.length === 0 && (
-          <li className="text-sm text-text-muted">Todavía no hay imágenes para esta variante.</li>
-        )}
-      </ul>
-
-      <AdminImageUploadForm
+      <AdminVariantImagesEditor
         productId={productId}
-        variantId={variantId}
-        isFirstImage={images.length === 0}
+        variantId={variant.id}
+        images={variant.images}
       />
     </div>
   );

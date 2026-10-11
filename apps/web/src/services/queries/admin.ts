@@ -15,12 +15,13 @@ import type {
   Paginated,
   UpdateBrandRequest,
   UpdateCategoryRequest,
+  ReorderImagesRequest,
   UpdateImageRequest,
   UpdateProductRequest,
   UpdateVariantRequest,
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
-import { apiDelete, apiGet, apiPatch, apiPost } from "../api-client";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../api-client";
 import { recommendationsQueryKey } from "./recommendations";
 
 export const adminBrandsQueryKey = ["admin", "brands"] as const;
@@ -315,6 +316,20 @@ export function useUpdateImageMutation(productId: string, variantId: string) {
       apiPatch<AdminImageDto>(
         `/api/admin/products/${productId}/variants/${variantId}/images/${imageId}`,
         body,
+      ),
+    onSuccess: () => invalidateProduct(queryClient, productId),
+  });
+}
+
+// The new order comes back from the API (the single source of truth): the
+// list is only redrawn after the server accepts it, never optimistically.
+export function useReorderImagesMutation(productId: string, variantId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (imageIds: string[]) =>
+      apiPut<AdminImageDto[]>(
+        `/api/admin/products/${productId}/variants/${variantId}/images/order`,
+        { imageIds } satisfies ReorderImagesRequest,
       ),
     onSuccess: () => invalidateProduct(queryClient, productId),
   });
