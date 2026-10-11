@@ -102,6 +102,17 @@ async function imagesOf(variantId: string): Promise<Img[]> {
   });
 }
 
+// The rule every image write must leave behind: exactly one primary, the
+// primary first, positions 0..n-1.
+async function expectInvariant(variantId: string) {
+  const images = await imagesOf(variantId);
+  if (images.length === 0) return images;
+  expect(images.map((i) => i.sortOrder)).toEqual(images.map((_, index) => index));
+  expect(images.filter((i) => i.isPrimary)).toHaveLength(1);
+  expect(images[0]!.isPrimary).toBe(true);
+  return images;
+}
+
 async function adminImages(productId: string, variantId: string): Promise<Img[]> {
   const detail = await admin.get(`/api/admin/products/${productId}`);
   return detail.body.variants.find((v: { id: string }) => v.id === variantId).images;
@@ -125,14 +136,47 @@ describe("image order on create", () => {
     expect((await adminImages(productId, variantId)).map((i) => i.id)).toEqual([a.id, b.id, c.id]);
   });
 
-  it("keeps a stable creation order for older images that all share sortOrder 0", async () => {
-    const { base, variantId, productId } = await newVariant();
-    const a = await addImage(base, "legacy-a", { sortOrder: 0 });
-    const b = await addImage(base, "legacy-b", { sortOrder: 0 });
-    const c = await addImage(base, "legacy-c", { sortOrder: 0 });
-    const ids = (await adminImages(productId, variantId)).map((i) => i.id);
-    expect(ids).toEqual([a.id, b.id, c.id]);
-    expect(ids).toEqual((await adminImages(productId, variantId)).map((i) => i.id));
+  it("an image created as primary later goes first; the others keep their order", async () => {
+    const { base, variantId } = await newVariant();
+    const a = await addImage(base, "cp-a");
+    const b = await addImage(base, "cp-b");
+    const c = await addImage(base, "cp-c", { isPrimary: true });
+    expect(c).toMatchObject({ isPrimary: true, sortOrder: 0 });
+    expect((await expectInvariant(variantId)).map((i) => i.id)).toEqual([c.id, a.id, b.id]);
+  });
+
+  it("older rows (all sortOrder 0, primary created last) still read primary-first, everywhere", async () => {
+    const { variantId, productId, slug } = await newVariant();
+    // Written straight to the DB, like images saved before these rules existed.
+    const rows = [];
+    for (const [label, isPrimary] of [
+      ["old-x", false],
+      ["old-y", false],
+      ["old-z", true],
+    ] as const) {
+      rows.push(
+        await prisma.productImage.create({
+          data: {
+            variantId,
+            cloudinaryPublicId: `test/${RUN_ID}/${label}`,
+            alt: label,
+            sortOrder: 0,
+            isPrimary,
+          },
+        }),
+      );
+    }
+    const [x, y, z] = rows;
+    const expected = [z!.id, x!.id, y!.id];
+
+    expect((await adminImages(productId, variantId)).map((i) => i.id)).toEqual(expected);
+    const detail = await request(app).get(`/api/products/${slug}`);
+    expect(detail.body.variants[0].images.map((i: { alt: string }) => i.alt)).toEqual([
+      "old-z",
+      "old-x",
+      "old-y",
+    ]);
+    expect(detail.body.variants[0].images[0].isPrimary).toBe(true);
   });
 });
 
@@ -143,23 +187,40 @@ describe("PUT .../images/order", () => {
     const b = await addImage(base, "rb");
     const c = await addImage(base, "rc");
 
-    const response = await admin.put(`${base}/order`).send({ imageIds: [c.id, a.id, b.id] });
+    const response = await admin.put(`${base}/order`).send({ imageIds: [a.id, c.id, b.id] });
 
     expect(response.status).toBe(200);
-    expect(response.body.map((i: Img) => [i.id, i.sortOrder])).toEqual([
-      [c.id, 0],
-      [a.id, 1],
-      [b.id, 2],
+    expect(response.body.map((i: Img) => [i.id, i.sortOrder, i.isPrimary])).toEqual([
+      [a.id, 0, true],
+      [c.id, 1, false],
+      [b.id, 2, false],
     ]);
-    // Order and primary are independent: the primary stays where it was.
-    expect(response.body.find((i: Img) => i.isPrimary).id).toBe(a.id);
 
     const publicDetail = await request(app).get(`/api/products/${slug}`);
     expect(publicDetail.status).toBe(200);
     expect(
       publicDetail.body.variants[0].images.map((i: { publicId: string }) => i.publicId),
-    ).toEqual([c, a, b].map((i) => i.cloudinaryPublicId));
-    expect((await imagesOf(variantId)).map((i) => i.id)).toEqual([c.id, a.id, b.id]);
+    ).toEqual([a, c, b].map((i) => i.cloudinaryPublicId));
+    expect((await expectInvariant(variantId)).map((i) => i.id)).toEqual([a.id, c.id, b.id]);
+  });
+
+  it("refuses an order that moves the primary out of first place (409), changing nothing", async () => {
+    const { base, variantId } = await newVariant();
+    const a = await addImage(base, "pf-a");
+    const b = await addImage(base, "pf-b");
+    const c = await addImage(base, "pf-c");
+
+    for (const imageIds of [
+      [b.id, a.id, c.id], // primary moved down
+      [c.id, b.id, a.id], // primary moved to the end
+    ]) {
+      const response = await admin.put(`${base}/order`).send({ imageIds });
+      expect(response.status).toBe(409);
+      expect(response.body.error.message).toBe(
+        "La foto principal siempre va primera. Para cambiarla, marcá otra foto como principal.",
+      );
+    }
+    expect((await expectInvariant(variantId)).map((i) => i.id)).toEqual([a.id, b.id, c.id]);
   });
 
   it("rejects duplicates (400), and missing, foreign or unknown ids (409) without changing anything", async () => {
@@ -258,7 +319,7 @@ describe("PUT .../images/order", () => {
 
     let response;
     try {
-      response = await admin.put(`${base}/order`).send({ imageIds: [c.id, b.id, a.id] });
+      response = await admin.put(`${base}/order`).send({ imageIds: [a.id, c.id, b.id] });
     } finally {
       delete (prisma as unknown as Record<string, unknown>).$transaction;
       consoleError.mockRestore();
@@ -292,10 +353,10 @@ describe("delete keeps exactly one primary", () => {
 
     expect((await admin.delete(`${base}/${a.id}`)).status).toBe(204);
 
-    const remaining = await imagesOf(variantId);
-    expect(remaining.map((i) => [i.id, i.isPrimary])).toEqual([
-      [c.id, true],
-      [b.id, false],
+    const remaining = await expectInvariant(variantId);
+    expect(remaining.map((i) => [i.id, i.isPrimary, i.sortOrder])).toEqual([
+      [c.id, true, 0],
+      [b.id, false, 1],
     ]);
   });
 
@@ -331,16 +392,41 @@ describe("delete keeps exactly one primary", () => {
 });
 
 describe("manual primary", () => {
-  it("marking another image primary leaves exactly one primary", async () => {
-    const { base, variantId } = await newVariant();
-    await addImage(base, "mp-a");
+  it("marking an image primary moves it to the first position; the others keep their relative order", async () => {
+    const { base, variantId, slug } = await newVariant();
+    const a = await addImage(base, "mp-a");
     const b = await addImage(base, "mp-b");
+    const c = await addImage(base, "mp-c");
+    const d = await addImage(base, "mp-d");
 
-    const response = await admin.patch(`${base}/${b.id}`).send({ isPrimary: true });
+    const response = await admin.patch(`${base}/${c.id}`).send({ isPrimary: true });
 
     expect(response.status).toBe(200);
-    const primaries = (await imagesOf(variantId)).filter((i) => i.isPrimary);
-    expect(primaries.map((i) => i.id)).toEqual([b.id]);
+    expect(response.body).toMatchObject({ id: c.id, isPrimary: true, sortOrder: 0 });
+    expect((await expectInvariant(variantId)).map((i) => i.id)).toEqual([c.id, a.id, b.id, d.id]);
+
+    // The public card, the detail gallery and the admin all start with it.
+    const list = await request(app).get("/api/products").query({ brand: brandSlug, limit: 50 });
+    expect(list.body.data.find((p: { slug: string }) => p.slug === slug).image.publicId).toBe(
+      c.cloudinaryPublicId,
+    );
+    const detail = await request(app).get(`/api/products/${slug}`);
+    expect(detail.body.variants[0].images[0]).toMatchObject({
+      publicId: c.cloudinaryPublicId,
+      isPrimary: true,
+    });
+  });
+
+  it("an explicit sortOrder can never push the primary out of first place", async () => {
+    const { base, variantId } = await newVariant();
+    const a = await addImage(base, "so-a");
+    const b = await addImage(base, "so-b");
+
+    const response = await admin.patch(`${base}/${a.id}`).send({ sortOrder: 9 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.sortOrder).toBe(0);
+    expect((await expectInvariant(variantId)).map((i) => i.id)).toEqual([a.id, b.id]);
   });
 
   it("refuses to unset the primary directly (409), so the variant never loses it", async () => {
@@ -373,6 +459,7 @@ describe("concurrency — per-variant serialization", () => {
       );
       expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
       expect(await primaryCount(variantId)).toBe(1);
+      await expectInvariant(variantId);
     }
   });
 
@@ -388,9 +475,8 @@ describe("concurrency — per-variant serialization", () => {
         admin.patch(`${base}/${c.id}`).send({ isPrimary: true }),
       ]);
 
-      const remaining = await imagesOf(variantId);
+      const remaining = await expectInvariant(variantId);
       expect(remaining.map((i) => i.id).sort()).toEqual([b.id, c.id].sort());
-      expect(remaining.filter((i) => i.isPrimary)).toHaveLength(1);
     }
   });
 
@@ -402,26 +488,24 @@ describe("concurrency — per-variant serialization", () => {
       ),
     );
     expect(responses.every((r) => r.status === 201)).toBe(true);
-    const images = await imagesOf(variantId);
-    expect(images.map((i) => i.sortOrder)).toEqual([0, 1, 2, 3, 4]);
-    expect(images.filter((i) => i.isPrimary)).toHaveLength(1);
+    const images = await expectInvariant(variantId);
+    expect(images).toHaveLength(5);
   });
 
   it("a reorder racing an upload either applies to the old set or is rejected — never a half state", async () => {
     const { base, variantId } = await newVariant();
     const a = await addImage(base, "race-a");
     const b = await addImage(base, "race-b");
+    const c = await addImage(base, "race-c0");
 
     const [reorder, upload] = await Promise.all([
-      admin.put(`${base}/order`).send({ imageIds: [b.id, a.id] }),
+      admin.put(`${base}/order`).send({ imageIds: [a.id, c.id, b.id] }),
       admin.post(base).send({ cloudinaryPublicId: `test/${RUN_ID}/race-c`, alt: "Race c" }),
     ]);
 
     expect(upload.status).toBe(201);
     expect([200, 409]).toContain(reorder.status);
-    const images = await imagesOf(variantId);
-    expect(images).toHaveLength(3);
-    expect(new Set(images.map((i) => i.sortOrder)).size).toBe(3);
-    expect(images.filter((i) => i.isPrimary)).toHaveLength(1);
+    const images = await expectInvariant(variantId);
+    expect(images).toHaveLength(4);
   });
 });

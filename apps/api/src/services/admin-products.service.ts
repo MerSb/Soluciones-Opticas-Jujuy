@@ -538,24 +538,36 @@ function variantGone(variantId: string): ApiError {
   return ApiError.notFound(`No variant found with id "${variantId}".`);
 }
 
-// The catalog card shows a variant's primary image only, so a variant
-// with images must always have exactly one: when none is left primary
-// (the primary was deleted, or older data never had one), the first image
-// in IMAGE_ORDER is promoted. Callers hold the variant lock.
-async function ensurePrimaryImage(tx: Prisma.TransactionClient, variantId: string): Promise<void> {
-  const primary = await tx.productImage.findFirst({
-    where: { variantId, isPrimary: true },
-    select: { id: true },
-  });
-  if (primary) return;
-  const first = await tx.productImage.findFirst({
+// The variant invariant every image write ends with (callers hold the
+// variant lock): a variant with images has exactly one primary, the
+// primary is always first, and positions are 0..n-1. Everything else
+// keeps its relative order. When no image is primary (the primary was
+// deleted, or older data never had one), the first in order is promoted —
+// so "delete the primary" promotes the next photo and keeps it first, and
+// "mark as primary" (set before calling this) moves that photo to the top.
+async function normalizeImageOrder(tx: Prisma.TransactionClient, variantId: string): Promise<void> {
+  // IMAGE_ORDER sorts the primary first, so images[0] is the primary when
+  // one exists — and the right one to promote when none does.
+  const images = await tx.productImage.findMany({
     where: { variantId },
     orderBy: IMAGE_ORDER,
-    select: { id: true },
+    select: { id: true, sortOrder: true, isPrimary: true },
   });
-  if (first) {
-    await tx.productImage.update({ where: { id: first.id }, data: { isPrimary: true } });
+  if (images.length === 0) return;
+  const primaryId = images[0]!.id;
+  if (!images[0]!.isPrimary || images.filter((image) => image.isPrimary).length !== 1) {
+    await clearOtherPrimaryImages(tx, variantId, primaryId);
+    await tx.productImage.update({ where: { id: primaryId }, data: { isPrimary: true } });
   }
+  for (const [index, image] of images.entries()) {
+    if (image.sortOrder !== index) {
+      await tx.productImage.update({ where: { id: image.id }, data: { sortOrder: index } });
+    }
+  }
+}
+
+async function readImage(tx: Prisma.TransactionClient, imageId: string) {
+  return tx.productImage.findUniqueOrThrow({ where: { id: imageId }, select: IMAGE_SELECT });
 }
 
 // Called *after* the browser has already uploaded the file straight to
@@ -567,8 +579,8 @@ async function ensurePrimaryImage(tx: Prisma.TransactionClient, variantId: strin
 // original error is rethrown — a failure during cleanup is logged, not
 // surfaced, so it never masks the real error the caller needs to see.
 //
-// A new image goes last (max sortOrder + 1) unless the caller sends an
-// explicit sortOrder, and the variant's first image is always primary.
+// A new image goes last (max sortOrder + 1); the variant's first image is
+// always primary. An image created as primary goes first (normalizeImageOrder).
 export async function createImage(
   productId: string,
   variantId: string,
@@ -592,7 +604,7 @@ export async function createImage(
       }
       const sortOrder =
         body.sortOrder ?? (siblings._count._all === 0 ? 0 : (siblings._max.sortOrder ?? 0) + 1);
-      return tx.productImage.create({
+      const created = await tx.productImage.create({
         data: {
           variantId,
           cloudinaryPublicId: body.cloudinaryPublicId,
@@ -600,8 +612,10 @@ export async function createImage(
           sortOrder,
           isPrimary,
         },
-        select: IMAGE_SELECT,
+        select: { id: true },
       });
+      await normalizeImageOrder(tx, variantId);
+      return readImage(tx, created.id);
     });
     return toImageDto(row);
   } catch (error) {
@@ -645,7 +659,7 @@ export async function updateImage(
     if (body.isPrimary === true) {
       await clearOtherPrimaryImages(tx, variantId, imageId);
     }
-    return tx.productImage.update({
+    await tx.productImage.update({
       where: { id: imageId },
       data: {
         ...(body.cloudinaryPublicId !== undefined
@@ -655,8 +669,12 @@ export async function updateImage(
         ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
         ...(body.isPrimary !== undefined ? { isPrimary: body.isPrimary } : {}),
       },
-      select: IMAGE_SELECT,
     });
+    // A new primary moves to the first position (the others keep their
+    // relative order); an explicit sortOrder can never push the primary
+    // out of first place.
+    await normalizeImageOrder(tx, variantId);
+    return readImage(tx, imageId);
   });
   return toImageDto(row);
 }
@@ -664,7 +682,8 @@ export async function updateImage(
 // Rewrites sortOrder to 0..n-1 following `imageIds`, atomically. The list
 // must be exactly the variant's current images: a missing, extra, foreign
 // or unknown id means the admin's screen is stale (another upload or
-// delete happened), so nothing is written and the caller gets a 409.
+// delete happened), so nothing is written and the caller gets a 409. The
+// primary must stay first — to change it, mark another image as primary.
 export async function reorderImages(
   productId: string,
   variantId: string,
@@ -677,16 +696,26 @@ export async function reorderImages(
 
   const rows = await prisma.$transaction(async (tx) => {
     if (!(await lockVariantImages(tx, variantId))) throw variantGone(variantId);
-    const current = await tx.productImage.findMany({ where: { variantId }, select: { id: true } });
+    const current = await tx.productImage.findMany({
+      where: { variantId },
+      select: { id: true, isPrimary: true },
+    });
     const currentIds = new Set(current.map((image) => image.id));
     if (current.length !== imageIds.length || imageIds.some((id) => !currentIds.has(id))) {
       throw ApiError.conflict(
         "Las imágenes de esta variante cambiaron. Recargá la página e intentá ordenar de nuevo.",
       );
     }
+    const primary = current.find((image) => image.isPrimary);
+    if (primary && imageIds[0] !== primary.id) {
+      throw ApiError.conflict(
+        "La foto principal siempre va primera. Para cambiarla, marcá otra foto como principal.",
+      );
+    }
     for (const [index, id] of imageIds.entries()) {
       await tx.productImage.update({ where: { id }, data: { sortOrder: index } });
     }
+    await normalizeImageOrder(tx, variantId);
     return tx.productImage.findMany({
       where: { variantId },
       orderBy: IMAGE_ORDER,
@@ -736,7 +765,7 @@ export async function deleteImage(
       if (!(await lockVariantImages(tx, variantId))) return; // variant (and image) already gone
       const deleted = await tx.productImage.deleteMany({ where: { id: imageId, variantId } });
       if (deleted.count === 0) return; // deleted concurrently — nothing left to do
-      await ensurePrimaryImage(tx, variantId);
+      await normalizeImageOrder(tx, variantId);
     });
   } catch (error) {
     console.error(

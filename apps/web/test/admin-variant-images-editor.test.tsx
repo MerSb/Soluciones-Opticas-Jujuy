@@ -80,12 +80,42 @@ describe("AdminVariantImagesEditor", () => {
     expect(screen.getByRole("button", { name: "Eliminar «Detalle»" })).toBeEnabled();
   });
 
-  it("disables impossible moves", () => {
+  it("disables moves past the ends, and locks moves that would take the primary out of first place", () => {
     renderEditor([A, B, C]);
     expect(screen.getByRole("button", { name: "Subir «Frente»" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Bajar «Frente»" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Subir «Detalle»" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Bajar «Detalle»" })).toBeDisabled();
+
+    // Still focusable (aria-disabled), with the rule as their description.
+    for (const name of ["Bajar «Frente»", "Subir «Perfil»"]) {
+      const locked = screen.getByRole("button", { name });
+      expect(locked).not.toBeDisabled();
+      expect(locked).toHaveAttribute("aria-disabled", "true");
+      expect(locked).toHaveAccessibleDescription(/La foto principal siempre va primera/);
+    }
+    expect(screen.getByRole("button", { name: "Bajar «Perfil»" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.getByRole("button", { name: "Subir «Detalle»" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(within(rows()[0]!).getByText("Siempre se muestra primera")).toBeInTheDocument();
+  });
+
+  it("explains instead of moving when a locked arrow is used, and calls no API", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    renderEditor([A, B, C]);
+    const before = order();
+
+    await userEvent.click(screen.getByRole("button", { name: "Bajar «Frente»" }));
+    expect(screen.getByRole("status", { name: "Estado de las fotos" })).toHaveTextContent(
+      "La foto principal siempre va primera. Para cambiarla, usá «Marcar como principal» en otra foto.",
+    );
+    screen.getByRole("button", { name: "Subir «Perfil»" }).focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(order()).toEqual(before);
   });
 
   it("sends the full new order, keeps showing the server's order until the refetch, then confirms and keeps focus on the moved photo", async () => {
@@ -100,12 +130,12 @@ describe("AdminVariantImagesEditor", () => {
     const view = renderEditor([A, B, C]);
     const before = order();
 
-    await userEvent.click(screen.getByRole("button", { name: "Bajar «Frente»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Bajar «Perfil»" }));
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
     expect(String(url)).toContain(`${BASE}/order`);
     expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body as string)).toEqual({ imageIds: ["b", "a", "c"] });
+    expect(JSON.parse(init.body as string)).toEqual({ imageIds: ["a", "c", "b"] });
     // While saving: nothing moved, every control is locked, progress is announced.
     expect(order()).toEqual(before);
     expect(screen.getByRole("button", { name: "Subir «Detalle»" })).toBeDisabled();
@@ -113,45 +143,41 @@ describe("AdminVariantImagesEditor", () => {
       "Guardando el orden…",
     );
 
-    release(
-      json(200, [
-        { ...B, sortOrder: 0 },
-        { ...A, sortOrder: 1 },
-        { ...C, sortOrder: 2 },
-      ]),
-    );
+    const saved = [A, { ...C, sortOrder: 1 }, { ...B, sortOrder: 2 }];
+    release(json(200, saved));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Subir «Detalle»" })).toBeEnabled(),
     );
     expect(order()).toEqual(before); // still the old props: no optimistic reorder
+    expect(screen.queryByText(/Orden guardado/)).toBeNull();
 
-    view.refetchWith([
-      { ...B, sortOrder: 0 },
-      { ...A, sortOrder: 1 },
-      { ...C, sortOrder: 2 },
-    ]);
+    view.refetchWith(saved);
 
     expect(
-      await screen.findByText(/Orden guardado: «Frente» quedó en la posición 2 de 3\./),
+      await screen.findByText(/Orden guardado: «Perfil» quedó en la posición 3 de 3\./),
     ).toBeInTheDocument();
-    expect(within(rows()[1]!).getByText("Frente")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Bajar «Frente»" })).toHaveFocus();
+    expect(within(rows()[2]!).getByText("Perfil")).toBeInTheDocument();
+    // "Bajar" is impossible at the end, so focus lands on the other arrow.
+    expect(screen.getByRole("button", { name: "Subir «Perfil»" })).toHaveFocus();
   });
 
-  it("moves focus to the other arrow when the moved photo reaches an end", async () => {
+  it("when a photo lands right under the primary, focus skips the locked arrow", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(200, [])));
     const view = renderEditor([A, B, C]);
 
-    await userEvent.click(screen.getByRole("button", { name: "Subir «Perfil»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Subir «Detalle»" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Bajar «Perfil»" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Eliminar «Frente»" })).toBeEnabled(),
     );
-    view.refetchWith([{ ...B, sortOrder: 0 }, { ...A, sortOrder: 1 }, C]);
+    view.refetchWith([A, { ...C, sortOrder: 1 }, { ...B, sortOrder: 2 }]);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Bajar «Perfil»" })).toHaveFocus(),
+      expect(screen.getByRole("button", { name: "Bajar «Detalle»" })).toHaveFocus(),
     );
-    expect(screen.getByRole("button", { name: "Subir «Perfil»" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Subir «Detalle»" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("shows the API's reason when the order is rejected, and leaves the list untouched", async () => {
@@ -217,25 +243,44 @@ describe("AdminVariantImagesEditor", () => {
     );
   });
 
-  it("marks another photo as primary and confirms it", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(json(200, { ...B, isPrimary: true }));
+  it("marking a photo as primary moves it to the top: confirmed and focused only once the refreshed list shows it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(200, { ...C, isPrimary: true, sortOrder: 0 }));
     vi.stubGlobal("fetch", fetchMock);
-    renderEditor([A, B, C]);
+    const view = renderEditor([A, B, C]);
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Marcar «Perfil» como foto principal" }),
+      screen.getByRole("button", { name: "Marcar «Detalle» como foto principal" }),
     );
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
-    expect(String(url)).toContain(`${BASE}/b`);
+    expect(String(url)).toContain(`${BASE}/c`);
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toEqual({ isPrimary: true });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Eliminar «Frente»" })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/pasó al primer lugar/)).toBeNull();
+
+    view.refetchWith([
+      { ...C, isPrimary: true, sortOrder: 0 },
+      { ...A, isPrimary: false, sortOrder: 1 },
+      { ...B, sortOrder: 2 },
+    ]);
+
     expect(
-      await screen.findByText("«Perfil» es ahora la foto principal del catálogo."),
+      await screen.findByText("«Detalle» es ahora la foto principal y pasó al primer lugar."),
     ).toBeInTheDocument();
+    expect(within(rows()[0]!).getByText("Detalle")).toBeInTheDocument();
+    expect(within(rows()[0]!).getByText("Principal")).toBeInTheDocument();
+    expect(rows()[0]).toHaveFocus();
+    expect(order().map((text) => text?.match(/Frente|Perfil|Detalle/)?.[0])).toEqual([
+      "Detalle",
+      "Frente",
+      "Perfil",
+    ]);
   });
 
-  it("warns that deleting the primary promotes the next photo, and does nothing if cancelled", async () => {
+  it("warns which photo becomes primary when deleting the primary, and does nothing if cancelled", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -244,9 +289,26 @@ describe("AdminVariantImagesEditor", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar «Frente»" }));
 
     expect(confirm.mock.calls[0]![0]).toBe(
-      "¿Eliminar la foto «Frente»? Es la foto principal: la siguiente foto del orden pasará a ser la principal. Esta acción no se puede deshacer.",
+      "¿Eliminar la foto «Frente»? Es la foto principal: «Perfil» pasará a ser la principal y quedará primera. Esta acción no se puede deshacer.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("confirms which photo became primary after deleting the primary", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 204, json: async () => null }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderEditor([A, B, C]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Eliminar «Frente»" }));
+
+    expect(
+      await screen.findByText(
+        "Foto eliminada. «Perfil» es ahora la foto principal y quedó primera.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("deletes a secondary photo after confirmation with a plain warning", async () => {
