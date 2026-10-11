@@ -1,5 +1,5 @@
-import { useId, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import type { AdminImageDto, AdminVariantDto } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ProductImage } from "../../components/products/ProductImage";
@@ -7,18 +7,13 @@ import { ApiClientError } from "../../services/api-client";
 import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 import {
-  ALLOWED_IMAGE_MIME_TYPES,
-  MAX_IMAGE_BYTES,
-  validateImageFile,
-} from "../../lib/image-validation";
-import {
   useCreateVariantMutation,
   useDeleteImageMutation,
   useDeleteVariantMutation,
   useUpdateImageMutation,
   useUpdateVariantMutation,
-  useUploadProductImageMutation,
 } from "../../services/queries/admin";
+import { AdminImageUploadForm } from "./AdminImageUploadForm";
 
 export function AdminVariantsEditor({
   productId,
@@ -296,124 +291,11 @@ function ImagesEditor({
         )}
       </ul>
 
-      <ImageUploadForm
+      <AdminImageUploadForm
         productId={productId}
         variantId={variantId}
         isFirstImage={images.length === 0}
       />
     </div>
-  );
-}
-
-function ImageUploadForm({
-  productId,
-  variantId,
-  isFirstImage,
-}: {
-  productId: string;
-  variantId: string;
-  isFirstImage: boolean;
-}) {
-  const upload = useUploadProductImageMutation(productId, variantId);
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [alt, setAlt] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const inputId = useId();
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0] ?? null;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    upload.reset();
-
-    if (!selected) return;
-    const error = validateImageFile(selected);
-    if (error) {
-      setValidationError(error);
-      return;
-    }
-    setValidationError(null);
-    setFile(selected);
-    setPreviewUrl(URL.createObjectURL(selected));
-  }
-
-  function resetForm() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    setAlt("");
-    setValidationError(null);
-  }
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!file) return;
-    upload.mutate({ file, alt, isPrimary: isFirstImage }, { onSuccess: () => resetForm() });
-  }
-
-  const uploadErrorMessage =
-    upload.error instanceof Error ? upload.error.message : "No se pudo subir la imagen.";
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-3 flex flex-wrap items-end gap-3" noValidate>
-      {previewUrl && (
-        // Preview only — never implies the upload has actually
-        // succeeded (§14): it's built from the local file the browser
-        // already has, shown while `upload` is still idle/pending.
-        <img
-          src={previewUrl}
-          alt=""
-          aria-hidden="true"
-          className="h-16 w-16 rounded-md border border-border object-cover"
-        />
-      )}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-text" htmlFor={inputId}>
-          Imagen (JPEG, PNG o WebP, máx. {MAX_IMAGE_BYTES / (1024 * 1024)} MB)
-        </label>
-        <input
-          id={inputId}
-          type="file"
-          accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
-          onChange={handleFileChange}
-          className="text-sm text-text"
-        />
-      </div>
-      <FormField
-        label="Texto alternativo"
-        value={alt}
-        onChange={(e) => setAlt(e.target.value)}
-        required
-        className="w-56"
-      />
-      <button
-        type="submit"
-        disabled={upload.isPending || !file || !alt}
-        className="rounded-md border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
-      >
-        {upload.isPending ? "Subiendo…" : "Subir imagen"}
-      </button>
-      {validationError && (
-        <p role="alert" className="w-full text-sm text-danger">
-          {validationError}
-        </p>
-      )}
-      {upload.isError && (
-        <div className="flex w-full items-center gap-2">
-          <p role="alert" className="text-sm text-danger">
-            {uploadErrorMessage}
-          </p>
-          <button
-            type="button"
-            onClick={() => upload.mutate({ file: file!, alt, isPrimary: isFirstImage })}
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Reintentar
-          </button>
-        </div>
-      )}
-    </form>
   );
 }
