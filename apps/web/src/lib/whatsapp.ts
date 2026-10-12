@@ -19,6 +19,10 @@ export interface WhatsAppProductContext {
    * message, so this needs no change when a final domain is set up.
    */
   productUrl?: string | null;
+  /** ADR-0028 — an accessory variant's presentation (e.g. a cleaner's size). */
+  presentation?: string | null;
+  /** ADR-0028 — "el accesorio" instead of "el modelo". */
+  isAccessory?: boolean;
   /**
    * Lens configuration (ADR-0023) — only for products that offer lenses.
    * Omitted entirely for every other product, so their message stays
@@ -50,14 +54,18 @@ export function buildProductInquiryMessage({
   productName,
   brandName,
   color,
+  presentation,
+  isAccessory,
   productUrl,
   lens,
 }: WhatsAppProductContext): string {
   const productPhrase = brandName ? `${productName} de ${brandName}` : productName;
+  const presentationPhrase = presentation ? `, presentación ${presentation}` : "";
   const colorPhrase = color ? `, color ${color}` : "";
   const linkPhrase = productUrl ? ` ${productUrl}` : "";
+  const noun = isAccessory ? "el accesorio" : "el modelo";
 
-  return `Hola, estoy interesado/a en el modelo ${productPhrase}${colorPhrase}${lensPhrase(lens)}. ¿Podrían darme más información?${linkPhrase}`;
+  return `Hola, estoy interesado/a en ${noun} ${productPhrase}${presentationPhrase}${colorPhrase}${lensPhrase(lens)}. ¿Podrían darme más información?${linkPhrase}`;
 }
 
 // Convenience wrapper for a call site that needs the full wa.me URL

@@ -36,6 +36,11 @@ function AlertList({
           <span className="min-w-0 truncate text-sm text-text">
             {product.name}
             <span className="text-text-muted"> · {product.brandName}</span>
+            {product.kind === "ACCESSORY" && (
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                Accesorio
+              </span>
+            )}
           </span>
           <Link
             to={`/admin/products/${product.id}`}
@@ -90,16 +95,24 @@ export function AdminDashboardPage() {
                   <AdminMetricCard key={key} label="" value="" isLoading />
                 ))
               : [
-                  { label: "Productos activos", value: data.metrics.activeProducts },
+                  // ADR-0028: frames and accessories counted apart; the
+                  // stock/image alerts below still cover both, tagged.
+                  { label: "Anteojos activos", value: data.metrics.activeFrames },
+                  {
+                    label: "Accesorios activos",
+                    value: data.metrics.activeAccessories,
+                    helperText: "Estuches, cordones, limpiadores y otros.",
+                  },
                   {
                     label: "Productos sin stock",
                     value: data.metrics.outOfStockProducts,
-                    helperText: "Sin ninguna variante con stock disponible.",
+                    helperText: "Anteojos y accesorios sin ninguna variante con stock disponible.",
                   },
                   {
                     label: "Productos sin imagen",
                     value: data.metrics.productsWithoutImages,
-                    helperText: "Sin ninguna foto cargada en ninguna variante.",
+                    helperText:
+                      "Anteojos y accesorios sin ninguna foto cargada en ninguna variante.",
                   },
                   { label: "Marcas activas", value: data.metrics.activeBrands },
                   { label: "Categorías activas", value: data.metrics.activeCategories },

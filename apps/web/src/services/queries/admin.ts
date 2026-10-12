@@ -161,6 +161,7 @@ export function useAdminProductsQuery(params: AdminProductsQuery) {
         limit: params.limit,
         q: params.q,
         includeDeleted: params.includeDeleted ? "true" : undefined,
+        kind: params.kind,
       }),
   });
 }

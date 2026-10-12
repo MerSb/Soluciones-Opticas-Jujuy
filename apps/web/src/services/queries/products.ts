@@ -36,6 +36,24 @@ export function useProductsQuery(filters: CatalogFilters) {
   });
 }
 
+export const ACCESSORIES_PER_PAGE = 24;
+
+// ADR-0028 — /accesorios: complete accessories sold individually. Its own
+// hook and key, not a CatalogFilters field: the frame catalog's filters
+// (shape, measurements...) don't apply to accessories.
+export function useAccessoriesQuery(page: number) {
+  return useQuery({
+    queryKey: ["products", "accessories", page],
+    queryFn: () =>
+      apiGet<Paginated<ProductListItem>>("/api/products", {
+        kind: "ACCESSORY",
+        page,
+        limit: ACCESSORIES_PER_PAGE,
+      }),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useProductQuery(slug: string | undefined) {
   return useQuery({
     queryKey: ["products", "detail", slug],

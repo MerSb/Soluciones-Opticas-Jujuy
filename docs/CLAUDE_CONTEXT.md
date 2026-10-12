@@ -90,6 +90,15 @@ documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
   seleccionable** (confirmado por el cliente). Se modela como `LensTreatment` incluido en cada
   `LensType` que corresponda; sin precio, sin selección. Lo carga el admin (no hay seed).
 
+**Accesorios — Fase 1** (ADR-0028)
+
+- Un accesorio es un `Product` con `kind = ACCESSORY` + `accessoryRole` (estuche, cordón, cordón
+  personalizado, limpiador, otro). Colores/presentaciones = variantes (`label` para presentaciones),
+  precio por `priceOverride`, stock por variante, imágenes con el pipeline existente.
+- Todo lo óptico (catálogo `/products`, filtros, recomendaciones, relacionados, quote/cristales,
+  contadores públicos) es solo `FRAME` (`lib/product-kind.ts`). `/accesorios` lista accesorios con
+  `soldIndividually`. `kind` es inmutable. Sin pedidos ni personalización todavía (Fases 2–4).
+
 **Envíos — Shipping V1** (ADR-0024, [`SHIPPING.md`](SHIPPING.md))
 
 - Métodos: `PICKUP` (Alvear 732, San Salvador de Jujuy — la `Branch` real) y `DELIVERY` solo en

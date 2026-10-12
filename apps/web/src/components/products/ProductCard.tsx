@@ -25,7 +25,7 @@ export function ProductCard({ product }: { product: ProductListItem }) {
           Sin stock
         </span>
       )}
-      <Link to={`/products/${product.slug}`} className="block">
+      <Link to={productPath(product)} className="block">
         {/* Card-level microinteraction (§15): a subtle 1.02 scale on
             hover, matching every other product/brand image treatment
             sitewide. Falls back to the branded placeholder when there's
@@ -41,13 +41,21 @@ export function ProductCard({ product }: { product: ProductListItem }) {
         <div className="p-4">
           <p className="text-xs uppercase tracking-wide text-text-muted">{product.brand.name}</p>
           <h3 className="mt-1 font-display text-base font-semibold text-text">{product.name}</h3>
-          <p className="mt-2 text-lg font-bold text-primary">{formatPrice(product.price)}</p>
+          <p className="mt-2 text-lg font-bold text-primary">
+            {product.priceFrom && <span className="text-sm font-medium">Desde </span>}
+            {formatPrice(product.price)}
+          </p>
           {sizeSummary && <p className="mt-1 text-xs text-text-muted">{sizeSummary}</p>}
           <ColorSwatchList colors={product.colors} />
         </div>
       </Link>
     </div>
   );
+}
+
+// ADR-0028: accessories live under /accesorios (same product page).
+export function productPath(product: Pick<ProductListItem, "slug" | "kind">): string {
+  return product.kind === "ACCESSORY" ? `/accesorios/${product.slug}` : `/products/${product.slug}`;
 }
 
 function buildSizeSummary(measurements: ProductListItem["frameMeasurements"]): string | null {

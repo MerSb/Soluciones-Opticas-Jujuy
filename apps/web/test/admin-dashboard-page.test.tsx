@@ -10,6 +10,8 @@ afterEach(() => {
 const SAMPLE_RESPONSE = {
   metrics: {
     activeProducts: 42,
+    activeFrames: 39,
+    activeAccessories: 6,
     outOfStockProducts: 3,
     productsWithoutImages: 2,
     activeBrands: 5,
@@ -19,7 +21,7 @@ const SAMPLE_RESPONSE = {
   alerts: {
     outOfStock: [
       { id: "p1", name: "Andina Aviador", brandName: "Andina Eyewear" },
-      { id: "p2", name: "Lumen Clásico", brandName: "Lumen Óptica" },
+      { id: "p2", name: "Limpiador QA", brandName: "Marca QA", kind: "ACCESSORY" },
     ],
     withoutImages: [{ id: "p3", name: "Cielo Runner", brandName: "Cielo Frames" }],
   },
@@ -41,8 +43,14 @@ describe("AdminDashboardPage", () => {
     stubDashboardFetch(SAMPLE_RESPONSE);
     renderWithProviders(<AdminDashboardPage />);
 
-    expect(await screen.findByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Productos activos")).toBeInTheDocument();
+    // ADR-0028: frames and accessories counted apart (fixture values differ
+    // from the total on purpose, so the total can't leak through).
+    expect(await screen.findByText("39")).toBeInTheDocument();
+    expect(screen.getByText("Anteojos activos")).toBeInTheDocument();
+    expect(screen.getByText("6")).toBeInTheDocument();
+    expect(screen.getByText("Accesorios activos")).toBeInTheDocument();
+    expect(screen.queryByText("Productos activos")).not.toBeInTheDocument();
+    expect(screen.getByText("Accesorio")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     // "Productos sin stock"/"Productos sin imagen" appear twice by
     // design — once as a KPI card label, once as the matching alert
@@ -83,8 +91,8 @@ describe("AdminDashboardPage", () => {
     );
     renderWithProviders(<AdminDashboardPage />);
 
-    expect(screen.queryByText("Productos activos")).not.toBeInTheDocument();
-    expect(screen.queryByText("42")).not.toBeInTheDocument();
+    expect(screen.queryByText("Anteojos activos")).not.toBeInTheDocument();
+    expect(screen.queryByText("39")).not.toBeInTheDocument();
   });
 
   it("shows a clear error message with a retry action on failure, never a stack trace", async () => {

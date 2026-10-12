@@ -7,15 +7,29 @@ interface VariantSelectorProps {
   onSelect: (variant: ProductVariantDto) => void;
 }
 
+// ADR-0028: accessory variants may be told apart by a presentation label
+// (e.g. a cleaner's size) instead of — or as well as — a color. Frames
+// never have a label, so their selector is unchanged.
+export function variantDisplayName(variant: ProductVariantDto): string {
+  if (variant.label && variant.color) return `${variant.label} · ${variant.color}`;
+  return variant.label ?? variant.color ?? "Único";
+}
+
 // Selecting a variant updates image/price/availability — all driven by
 // data the API already returns per-variant, nothing invented (§23).
 export function VariantSelector({ variants, selected, onSelect }: VariantSelectorProps) {
   if (variants.length <= 1) return null;
+  const byPresentation = variants.some((variant) => variant.label);
+  const heading = byPresentation ? "Presentación" : "Color";
 
   return (
     <div>
-      <span className="text-sm font-medium text-text">Color</span>
-      <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Elegir color">
+      <span className="text-sm font-medium text-text">{heading}</span>
+      <div
+        className="mt-2 flex flex-wrap gap-2"
+        role="group"
+        aria-label={`Elegir ${heading.toLowerCase()}`}
+      >
         {variants.map((variant) => {
           const isSelected = variant.id === selected.id;
           const swatch = variant.color ? getSwatchColor(variant.color) : null;
@@ -38,7 +52,7 @@ export function VariantSelector({ variants, selected, onSelect }: VariantSelecto
                   style={{ backgroundColor: swatch }}
                 />
               )}
-              {variant.color ?? "Único"}
+              {variantDisplayName(variant)}
             </button>
           );
         })}

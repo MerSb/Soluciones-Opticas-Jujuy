@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Inicio", end: true },
   { to: "/products", label: "Anteojos" },
   { to: "/products?category=promociones", label: "Promociones" },
+  { to: "/accesorios", label: "Accesorios" },
   { to: "/brands", label: "Marcas" },
   { to: "/about", label: "Nosotros" },
   { to: "/branches", label: "Sucursales" },
@@ -48,7 +49,7 @@ function isNavItemActive(item: NavItem, pathname: string, search: string): boole
 // layout-affecting border, so hover/active never shifts surrounding
 // text (§16 — "do not animate text position").
 function navLinkClassName(isActive: boolean): string {
-  return `relative py-1 text-sm font-semibold text-text-muted transition-colors after:absolute after:inset-x-0 after:-bottom-0.5 after:h-0.5 after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:text-text hover:after:scale-x-100 ${
+  return `relative whitespace-nowrap py-1 text-sm font-semibold text-text-muted transition-colors after:absolute after:inset-x-0 after:-bottom-0.5 after:h-0.5 after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:text-text hover:after:scale-x-100 ${
     isActive ? "text-primary after:scale-x-100" : ""
   }`;
 }
@@ -65,7 +66,7 @@ export function Header() {
 
   return (
     <header className="border-b border-border bg-surface">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 xl:gap-6 py-4 sm:px-6 lg:px-8">
         {/* The real logo — a self-contained round badge (its own teal
             background + the "Soluciones Ópticas" wordmark baked in), so
             no separate text label is rendered alongside it; that would
@@ -89,7 +90,10 @@ export function Header() {
             already used (confirmed live — see the header wrap fix
             history in FRONTEND_ARCHITECTURE.md). */}
         <nav aria-label="Principal" className="hidden lg:block">
-          <ul className="flex gap-5 xl:gap-7">
+          {/* gap-3/xl:gap-5 (was 5/7): "Accesorios" (ADR-0028) is the 8th
+              item — measured live, the wider gaps left the nav touching
+              "Administración" for an admin at 1024px and ≥1280px. */}
+          <ul className="flex gap-3 xl:gap-5">
             {NAV_ITEMS.map((item) => {
               const isActive = isNavItemActive(item, location.pathname, location.search);
               return (
@@ -111,14 +115,14 @@ export function Header() {
           {currentUser?.role === "ADMIN" && (
             <Link
               to="/admin/products"
-              className="hidden text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
+              className="hidden whitespace-nowrap text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
             >
               Administración
             </Link>
           )}
           <Link
             to={accountLink.to}
-            className="hidden text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
+            className="hidden whitespace-nowrap text-sm font-semibold text-text-muted transition-colors hover:text-primary sm:block"
           >
             {accountLink.label}
           </Link>

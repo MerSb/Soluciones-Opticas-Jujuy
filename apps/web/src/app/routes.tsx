@@ -52,6 +52,24 @@ export const routes: RouteObject[] = [
           return { Component: ProductDetailPage };
         },
       },
+      {
+        path: "accesorios",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { AccessoriesPage } = await import("../pages/AccessoriesPage");
+          return { Component: AccessoriesPage };
+        },
+      },
+      {
+        // ADR-0028: same page as products/:slug — the URL keeps the header
+        // on "Accesorios" and matches the breadcrumb.
+        path: "accesorios/:slug",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { ProductDetailPage } = await import("../pages/ProductDetailPage");
+          return { Component: ProductDetailPage };
+        },
+      },
       { path: "brands", element: <BrandsPage /> },
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },

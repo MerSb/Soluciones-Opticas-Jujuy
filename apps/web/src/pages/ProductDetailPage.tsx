@@ -116,11 +116,17 @@ export function ProductDetailPage() {
   // types → no configurator and the exact pre-existing page/message.
   const lensTypes = product.lensTypes ?? [];
   const offersLenses = lensTypes.length > 0;
+  // ADR-0028: an accessory page has no optical sections (measurements,
+  // personalized match, related frames). `?? "FRAME"` tolerates an API
+  // that doesn't send the field yet.
+  const isAccessory = (product.kind ?? "FRAME") === "ACCESSORY";
 
   const whatsappMessage = buildProductInquiryMessage({
     productName: product.name,
     brandName: product.brand.name,
     color: selectedVariant.color,
+    presentation: isAccessory ? selectedVariant.label : null,
+    isAccessory,
     productUrl: typeof window !== "undefined" ? window.location.href : null,
     lens: offersLenses ? summarizeLensSelection(lensSelection, lensTypes) : null,
   });
@@ -129,18 +135,33 @@ export function ProductDetailPage() {
     <>
       <SeoHead
         title={product.name}
-        description={`${product.name} de ${product.brand.name} — ${formatPrice(product.price)}. Disponible en Soluciones Ópticas.`}
-        canonicalPath={`/products/${product.slug}`}
+        description={
+          isAccessory
+            ? `${product.name} — ${formatPrice(product.price)}. Accesorio disponible en Soluciones Ópticas.`
+            : `${product.name} de ${product.brand.name} — ${formatPrice(product.price)}. Disponible en Soluciones Ópticas.`
+        }
+        canonicalPath={isAccessory ? `/accesorios/${product.slug}` : `/products/${product.slug}`}
         ogImage={ogImage}
       />
       <Container className="py-12">
         <Breadcrumbs
-          items={[
-            { label: "Inicio", to: "/" },
-            { label: "Anteojos", to: "/products" },
-            { label: product.category.name, to: `/products?category=${product.category.slug}` },
-            { label: product.name },
-          ]}
+          items={
+            isAccessory
+              ? [
+                  { label: "Inicio", to: "/" },
+                  { label: "Accesorios", to: "/accesorios" },
+                  { label: product.name },
+                ]
+              : [
+                  { label: "Inicio", to: "/" },
+                  { label: "Anteojos", to: "/products" },
+                  {
+                    label: product.category.name,
+                    to: `/products?category=${product.category.slug}`,
+                  },
+                  { label: product.name },
+                ]
+          }
         />
 
         <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-2">
@@ -175,8 +196,17 @@ export function ProductDetailPage() {
 
             {/* Product attributes — only ever the ones that actually
                 have data (§1: never render null/undefined/""/[]). */}
-            {(product.shape || selectedVariant.material || product.styles.length > 0) && (
+            {(product.shape ||
+              selectedVariant.material ||
+              product.styles.length > 0 ||
+              (isAccessory && selectedVariant.label)) && (
               <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                {isAccessory && selectedVariant.label && (
+                  <div className="flex gap-1.5">
+                    <dt className="text-text-muted">Presentación:</dt>
+                    <dd className="text-text">{selectedVariant.label}</dd>
+                  </div>
+                )}
                 {product.shape && (
                   <div className="flex gap-1.5">
                     <dt className="text-text-muted">Forma:</dt>
@@ -228,19 +258,21 @@ export function ProductDetailPage() {
               </div>
             )}
 
-            <div className="mt-8 border-t border-border pt-6">
-              <MeasurementsTable measurements={product.frameMeasurements} />
-            </div>
+            {!isAccessory && (
+              <div className="mt-8 border-t border-border pt-6">
+                <MeasurementsTable measurements={product.frameMeasurements} />
+              </div>
+            )}
 
             <div className="mt-8">
               <WhatsAppButton message={whatsappMessage}>Consultar por WhatsApp</WhatsAppButton>
             </div>
 
-            <ProductMatchSection slug={slug} />
+            {!isAccessory && <ProductMatchSection slug={slug} />}
           </div>
         </div>
 
-        <RelatedProductsSection slug={slug} />
+        {!isAccessory && <RelatedProductsSection slug={slug} />}
       </Container>
     </>
   );

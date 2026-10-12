@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useParams } from "react-router-dom";
-import type { StylePreference } from "@soluciones-opticas/shared";
+import type { AccessoryRole, StylePreference } from "@soluciones-opticas/shared";
 import { SeoHead } from "../../components/ui/SeoHead";
 import { StatusMessage } from "../../components/ui/StatusMessage";
 import { FormField } from "../../components/forms/FormField";
 import { PreferenceChipGroup } from "../../components/optical-profile/PreferenceChipGroup";
 import { FRAME_SHAPE_OPTIONS, STYLE_PREFERENCE_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { ApiClientError } from "../../services/api-client";
+import { ACCESSORY_ROLE_OPTIONS, accessoryRoleLabel } from "../../lib/accessories";
 import type { AdminVariantDto } from "@soluciones-opticas/shared";
 import {
   useAdminBrandsQuery,
@@ -70,6 +71,8 @@ export function AdminProductDetailPage() {
   const [shape, setShape] = useState("");
   const [basePrice, setBasePrice] = useState("");
   const [styles, setStyles] = useState<StylePreference[]>([]);
+  const [accessoryRole, setAccessoryRole] = useState<AccessoryRole | null>(null);
+  const [soldIndividually, setSoldIndividually] = useState(true);
   const [measurements, setMeasurements] = useState<MeasurementsState>({
     lensWidth: "",
     bridgeWidth: "",
@@ -86,6 +89,8 @@ export function AdminProductDetailPage() {
     setShape(product.shape ?? "");
     setBasePrice(product.basePrice.toString());
     setStyles(product.styles);
+    setAccessoryRole(product.accessoryRole);
+    setSoldIndividually(product.soldIndividually);
     setMeasurements({
       lensWidth: toMeasurement(product.frameMeasurements.lensWidth),
       bridgeWidth: toMeasurement(product.frameMeasurements.bridgeWidth),
@@ -97,7 +102,22 @@ export function AdminProductDetailPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!id) return;
+    if (!id || !product) return;
+    // ADR-0028: an accessory never sends frame fields (the API rejects them).
+    if (product.kind === "ACCESSORY") {
+      updateProduct.mutate({
+        id,
+        body: {
+          name,
+          brandId,
+          categoryId,
+          basePrice: Number(basePrice),
+          ...(accessoryRole ? { accessoryRole } : {}),
+          soldIndividually,
+        },
+      });
+      return;
+    }
     updateProduct.mutate({
       id,
       body: {
@@ -126,6 +146,8 @@ export function AdminProductDetailPage() {
     (c) => !c.deletedAt || c.id === product.category.id,
   );
 
+  const isAccessory = product.kind === "ACCESSORY";
+
   const errorMessage =
     updateProduct.error instanceof ApiClientError
       ? updateProduct.error.message
@@ -141,6 +163,9 @@ export function AdminProductDetailPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-display text-lg font-semibold text-text">{product.name}</h2>
+            <span className="rounded-full border border-border px-2 py-0.5 text-xs font-medium text-text-muted">
+              {isAccessory ? `Accesorio · ${accessoryRoleLabel(product.accessoryRole)}` : "Anteojo"}
+            </span>
             {!product.deletedAt && !product.isComplete && (
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                 Incompleto
@@ -189,7 +214,12 @@ export function AdminProductDetailPage() {
             required
           />
           <FormField
-            label="Precio base (ARS)"
+            label={isAccessory ? "Precio (ARS)" : "Precio base (ARS)"}
+            hint={
+              isAccessory
+                ? "Lo usa cada color o presentación que no tenga precio propio."
+                : undefined
+            }
             type="number"
             inputMode="decimal"
             min="0.01"
@@ -235,92 +265,133 @@ export function AdminProductDetailPage() {
             </select>
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="shape-input">
-              Forma
-            </label>
+          {isAccessory ? (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="role-select">
+                Tipo de accesorio
+              </label>
+              <select
+                id="role-select"
+                value={accessoryRole ?? ""}
+                onChange={(event) => setAccessoryRole(event.target.value as AccessoryRole)}
+                className="w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text"
+              >
+                {ACCESSORY_ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="shape-input">
+                Forma
+              </label>
+              <input
+                id="shape-input"
+                list="shape-options"
+                value={shape}
+                onChange={(event) => setShape(event.target.value)}
+                className="w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text"
+              />
+              <datalist id="shape-options">
+                {FRAME_SHAPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.label} />
+                ))}
+              </datalist>
+            </div>
+          )}
+        </div>
+
+        {isAccessory && (
+          <label className="flex items-start gap-2 text-sm text-text">
             <input
-              id="shape-input"
-              list="shape-options"
-              value={shape}
-              onChange={(event) => setShape(event.target.value)}
-              className="w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text"
+              type="checkbox"
+              checked={soldIndividually}
+              onChange={(event) => setSoldIndividually(event.target.checked)}
+              className="mt-0.5 accent-[var(--color-primary)]"
             />
-            <datalist id="shape-options">
-              {FRAME_SHAPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.label} />
-              ))}
-            </datalist>
-          </div>
-        </div>
+            <span>
+              Se vende por separado
+              <span className="block text-xs text-text-muted">
+                Si lo desmarcás, deja de aparecer en la sección Accesorios de la tienda.
+              </span>
+            </span>
+          </label>
+        )}
 
-        <div>
-          <h3 className="font-display text-base font-semibold text-text">
-            Medidas del armazón (opcional)
-          </h3>
-          <p className="mt-1 text-sm text-text-muted">
-            Estas medidas suelen estar impresas en la parte interna de la patilla del armazón.
-          </p>
-          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <FormField
-              label="Ancho del lente (mm)"
-              type="number"
-              inputMode="decimal"
-              value={measurements.lensWidth}
-              onChange={(e) => setMeasurements((m) => ({ ...m, lensWidth: e.target.value }))}
-            />
-            <FormField
-              label="Ancho del puente (mm)"
-              type="number"
-              inputMode="decimal"
-              value={measurements.bridgeWidth}
-              onChange={(e) => setMeasurements((m) => ({ ...m, bridgeWidth: e.target.value }))}
-            />
-            <FormField
-              label="Largo de patilla (mm)"
-              type="number"
-              inputMode="decimal"
-              value={measurements.templeLength}
-              onChange={(e) => setMeasurements((m) => ({ ...m, templeLength: e.target.value }))}
-            />
-            <FormField
-              label="Altura del lente (mm)"
-              type="number"
-              inputMode="decimal"
-              value={measurements.lensHeight}
-              onChange={(e) => setMeasurements((m) => ({ ...m, lensHeight: e.target.value }))}
-            />
-            <FormField
-              label="Ancho del armazón (mm)"
-              type="number"
-              inputMode="decimal"
-              value={measurements.frameWidth}
-              onChange={(e) => setMeasurements((m) => ({ ...m, frameWidth: e.target.value }))}
-            />
-          </div>
-        </div>
+        {!isAccessory && (
+          <>
+            <div>
+              <h3 className="font-display text-base font-semibold text-text">
+                Medidas del armazón (opcional)
+              </h3>
+              <p className="mt-1 text-sm text-text-muted">
+                Estas medidas suelen estar impresas en la parte interna de la patilla del armazón.
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <FormField
+                  label="Ancho del lente (mm)"
+                  type="number"
+                  inputMode="decimal"
+                  value={measurements.lensWidth}
+                  onChange={(e) => setMeasurements((m) => ({ ...m, lensWidth: e.target.value }))}
+                />
+                <FormField
+                  label="Ancho del puente (mm)"
+                  type="number"
+                  inputMode="decimal"
+                  value={measurements.bridgeWidth}
+                  onChange={(e) => setMeasurements((m) => ({ ...m, bridgeWidth: e.target.value }))}
+                />
+                <FormField
+                  label="Largo de patilla (mm)"
+                  type="number"
+                  inputMode="decimal"
+                  value={measurements.templeLength}
+                  onChange={(e) => setMeasurements((m) => ({ ...m, templeLength: e.target.value }))}
+                />
+                <FormField
+                  label="Altura del lente (mm)"
+                  type="number"
+                  inputMode="decimal"
+                  value={measurements.lensHeight}
+                  onChange={(e) => setMeasurements((m) => ({ ...m, lensHeight: e.target.value }))}
+                />
+                <FormField
+                  label="Ancho del armazón (mm)"
+                  type="number"
+                  inputMode="decimal"
+                  value={measurements.frameWidth}
+                  onChange={(e) => setMeasurements((m) => ({ ...m, frameWidth: e.target.value }))}
+                />
+              </div>
+            </div>
 
-        <div>
-          <h3 className="font-display text-base font-semibold text-text">Estilos</h3>
-          <p className="mt-1 text-sm text-text-muted">
-            Usado por el motor de recomendaciones para comparar contra las preferencias de estilo de
-            cada cliente.
-          </p>
-          <div className="mt-3">
-            <PreferenceChipGroup
-              legend="Estilos"
-              options={STYLE_PREFERENCE_OPTIONS}
-              selected={styles}
-              onToggle={(value) =>
-                setStyles((current) =>
-                  current.includes(value)
-                    ? current.filter((v) => v !== value)
-                    : [...current, value],
-                )
-              }
-            />
-          </div>
-        </div>
+            <div>
+              <h3 className="font-display text-base font-semibold text-text">Estilos</h3>
+              <p className="mt-1 text-sm text-text-muted">
+                Usado por el motor de recomendaciones para comparar contra las preferencias de
+                estilo de cada cliente.
+              </p>
+              <div className="mt-3">
+                <PreferenceChipGroup
+                  legend="Estilos"
+                  options={STYLE_PREFERENCE_OPTIONS}
+                  selected={styles}
+                  onToggle={(value) =>
+                    setStyles((current) =>
+                      current.includes(value)
+                        ? current.filter((v) => v !== value)
+                        : [...current, value],
+                    )
+                  }
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         {errorMessage && (
           <p role="alert" className="text-sm text-danger">
@@ -343,12 +414,18 @@ export function AdminProductDetailPage() {
       </form>
 
       <div className="mt-12">
-        <AdminVariantsEditor productId={product.id} variants={product.variants} />
+        <AdminVariantsEditor
+          productId={product.id}
+          variants={product.variants}
+          kind={product.kind}
+        />
       </div>
 
-      <div className="mt-12">
-        <AdminProductLensTypesSection product={product} />
-      </div>
+      {!isAccessory && (
+        <div className="mt-12">
+          <AdminProductLensTypesSection product={product} />
+        </div>
+      )}
     </div>
   );
 }

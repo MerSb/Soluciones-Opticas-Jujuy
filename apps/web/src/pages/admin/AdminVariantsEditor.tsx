@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { AdminVariantDto } from "@soluciones-opticas/shared";
+import type { AdminVariantDto, ProductKind } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ApiClientError } from "../../services/api-client";
 import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
@@ -11,16 +11,31 @@ import {
 } from "../../services/queries/admin";
 import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 
+const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
+// An empty stock field must never be saved as 0 by accident (Number("")
+// is 0); 0 typed on purpose is still accepted.
+const isBlank = (value: string) => value.trim() === "";
+const STOCK_REQUIRED = "Ingresá el stock (0 si no hay unidades).";
+const priceOrNull = (value: string) => (value.trim() === "" ? null : Number(value));
+
+// ADR-0028: an accessory's variants are its colors or presentations
+// (e.g. a cleaner's sizes), each with its own optional price. A frame's
+// variants keep exactly the existing form and card.
 export function AdminVariantsEditor({
   productId,
   variants,
+  kind = "FRAME",
 }: {
   productId: string;
   variants: AdminVariantDto[];
+  kind?: ProductKind;
 }) {
+  const isAccessory = kind === "ACCESSORY";
   const createVariant = useCreateVariantMutation(productId);
   const [color, setColor] = useState("");
   const [material, setMaterial] = useState("");
+  const [label, setLabel] = useState("");
+  const [priceOverride, setPriceOverride] = useState("");
   const [sku, setSku] = useState("");
   const [stock, setStock] = useState("0");
 
@@ -32,11 +47,16 @@ export function AdminVariantsEditor({
         material: material.trim() === "" ? null : material,
         sku,
         stock: Number(stock),
+        ...(isAccessory
+          ? { label: blankToNull(label), priceOverride: priceOrNull(priceOverride) }
+          : {}),
       },
       {
         onSuccess: () => {
           setColor("");
           setMaterial("");
+          setLabel("");
+          setPriceOverride("");
           setSku("");
           setStock("0");
         },
@@ -49,16 +69,23 @@ export function AdminVariantsEditor({
 
   return (
     <div>
-      <h3 className="font-display text-base font-semibold text-text">Variantes</h3>
+      <h3 className="font-display text-base font-semibold text-text">
+        {isAccessory ? "Colores y presentaciones" : "Variantes"}
+      </h3>
       <p className="mt-1 text-sm text-text-muted">
-        Cada variante representa un color/material con su propio SKU y stock. Las imágenes se suben
-        por variante, directo a nuestro proveedor de imágenes.
+        {isAccessory
+          ? "Cada color o presentación tiene su propio SKU, stock y fotos. Si no le ponés precio propio, usa el precio del accesorio."
+          : "Cada variante representa un color/material con su propio SKU y stock. Las imágenes se suben por variante, directo a nuestro proveedor de imágenes."}
       </p>
 
       <div className="mt-4 space-y-4">
-        {variants.map((variant) => (
-          <VariantCard key={variant.id} productId={productId} variant={variant} />
-        ))}
+        {variants.map((variant) =>
+          isAccessory ? (
+            <AccessoryVariantCard key={variant.id} productId={productId} variant={variant} />
+          ) : (
+            <VariantCard key={variant.id} productId={productId} variant={variant} />
+          ),
+        )}
         {variants.length === 0 && (
           <p className="text-sm text-text-muted">Todavía no hay variantes cargadas.</p>
         )}
@@ -106,6 +133,27 @@ export function AdminVariantsEditor({
             ))}
           </datalist>
         </div>
+        {isAccessory && (
+          <>
+            <FormField
+              label="Presentación (opcional)"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              maxLength={100}
+              className="w-44"
+            />
+            <FormField
+              label="Precio propio (opcional)"
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={priceOverride}
+              onChange={(e) => setPriceOverride(e.target.value)}
+              className="w-40"
+            />
+          </>
+        )}
         <FormField
           label="SKU"
           value={sku}
@@ -120,14 +168,19 @@ export function AdminVariantsEditor({
           step="1"
           value={stock}
           onChange={(e) => setStock(e.target.value)}
+          error={isBlank(stock) ? STOCK_REQUIRED : undefined}
           className="w-28"
         />
         <button
           type="submit"
-          disabled={createVariant.isPending || sku.trim() === ""}
+          disabled={createVariant.isPending || sku.trim() === "" || isBlank(stock)}
           className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
         >
-          {createVariant.isPending ? "Agregando…" : "Agregar variante"}
+          {createVariant.isPending
+            ? "Agregando…"
+            : isAccessory
+              ? "Agregar color o presentación"
+              : "Agregar variante"}
         </button>
       </form>
       {createError && (
@@ -177,6 +230,8 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
             value={stock}
             onChange={(e) => setStock(e.target.value)}
             aria-label={`Stock de ${variant.sku}`}
+            aria-invalid={isBlank(stock)}
+            aria-describedby={isBlank(stock) ? `stock-hint-${variant.id}` : undefined}
             className="w-20 rounded-md border border-border bg-surface-muted px-2 py-1.5 text-sm text-text"
           />
           <button
@@ -184,7 +239,7 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
             onClick={() =>
               updateVariant.mutate({ variantId: variant.id, body: { stock: Number(stock) } })
             }
-            disabled={updateVariant.isPending || Number(stock) === variant.stock}
+            disabled={updateVariant.isPending || isBlank(stock) || Number(stock) === variant.stock}
             className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
           >
             {updateVariant.isPending ? "Guardando…" : "Guardar stock"}
@@ -203,9 +258,136 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
           </button>
         </div>
       </div>
+      {isBlank(stock) && (
+        <p id={`stock-hint-${variant.id}`} className="mt-1 text-xs text-danger">
+          {STOCK_REQUIRED}
+        </p>
+      )}
       {updateError && (
         <p role="alert" className="mt-1 text-xs text-danger">
           No pudimos guardar el stock: {updateError}
+        </p>
+      )}
+      {deleteError && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          {deleteError}
+        </p>
+      )}
+
+      <AdminVariantImagesEditor
+        productId={productId}
+        variantId={variant.id}
+        images={variant.images}
+      />
+    </div>
+  );
+}
+
+function AccessoryVariantCard({
+  productId,
+  variant,
+}: {
+  productId: string;
+  variant: AdminVariantDto;
+}) {
+  const updateVariant = useUpdateVariantMutation(productId);
+  const deleteVariant = useDeleteVariantMutation(productId);
+  const [label, setLabel] = useState(variant.label ?? "");
+  const [price, setPrice] = useState(variant.priceOverride?.toString() ?? "");
+  const [stock, setStock] = useState(variant.stock.toString());
+
+  const title =
+    [variant.label, variant.color, variant.material].filter(Boolean).join(" · ") || "Única";
+  const stockMissing = isBlank(stock);
+  const changed =
+    blankToNull(label) !== variant.label ||
+    priceOrNull(price) !== variant.priceOverride ||
+    Number(stock) !== variant.stock;
+
+  function save() {
+    updateVariant.mutate({
+      variantId: variant.id,
+      body: { label: blankToNull(label), priceOverride: priceOrNull(price), stock: Number(stock) },
+    });
+  }
+
+  const updateError =
+    updateVariant.error instanceof ApiClientError ? updateVariant.error.message : undefined;
+  const deleteError =
+    deleteVariant.error instanceof ApiClientError ? deleteVariant.error.message : undefined;
+
+  return (
+    <div className="rounded-md border border-border p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="flex flex-wrap items-center gap-2 font-medium text-text">
+            {title}
+            {variant.stock === 0 && (
+              <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
+                Agotado
+              </span>
+            )}
+          </p>
+          <p className="text-sm text-text-muted">SKU: {variant.sku}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirmDeleteVariant(variant.images.length)) deleteVariant.mutate(variant.id);
+          }}
+          disabled={deleteVariant.isPending}
+          className="text-sm font-medium text-danger hover:underline disabled:opacity-60"
+        >
+          Eliminar
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <FormField
+          label="Presentación"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={100}
+          className="w-44"
+        />
+        <FormField
+          label="Precio propio"
+          type="number"
+          inputMode="decimal"
+          min="0.01"
+          step="0.01"
+          placeholder="Precio base"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          className="w-40"
+        />
+        <FormField
+          label="Stock"
+          type="number"
+          min="0"
+          step="1"
+          value={stock}
+          onChange={(e) => setStock(e.target.value)}
+          error={stockMissing ? STOCK_REQUIRED : undefined}
+          className="w-28"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={updateVariant.isPending || !changed || stockMissing}
+          className="rounded-md border border-border px-3 py-2.5 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
+        >
+          {updateVariant.isPending ? "Guardando…" : "Guardar"}
+        </button>
+      </div>
+      <div role="status" aria-label={`Estado de ${title}`}>
+        {updateVariant.isSuccess && !changed && (
+          <p className="mt-1 text-xs text-success">Cambios guardados.</p>
+        )}
+      </div>
+      {updateError && (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          No pudimos guardar los cambios: {updateError}
         </p>
       )}
       {deleteError && (
