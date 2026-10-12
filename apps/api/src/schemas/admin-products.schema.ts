@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { StylePreference } from "@soluciones-opticas/shared";
 import { paginationSchema } from "./common.schema.js";
+import { ACCESSORY_ROLES, PRODUCT_KINDS } from "../lib/product-kind.js";
 
 // Runtime value list, declared here rather than imported from
 // @soluciones-opticas/shared — same reasoning as
@@ -25,10 +26,16 @@ const nullableShortText = z.string().trim().min(1).max(200).nullable();
 const nullableMeasurement = z.number().positive().max(500).nullable().optional();
 const stylesList = z.array(z.enum(STYLE_PREFERENCES)).max(20).optional();
 
+// Kind-specific rules (role required for accessories, no optical
+// attributes on accessories, kind immutable) live in the service, with
+// Spanish messages — and in CHECKs in the database (ADR-0028).
 export const createProductBodySchema = z.object({
   name: productName,
   brandId: z.string().uuid(),
   categoryId: z.string().uuid(),
+  kind: z.enum(PRODUCT_KINDS).optional().default("FRAME"),
+  accessoryRole: z.enum(ACCESSORY_ROLES).optional(),
+  soldIndividually: z.boolean().optional(),
   shape: nullableShortText.optional(),
   styles: stylesList,
   basePrice: z.number().positive().max(10_000_000),
@@ -45,6 +52,10 @@ export const updateProductBodySchema = z.object({
   name: productName.optional(),
   brandId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
+  // Accepted only to refuse a change with a clear message (immutable).
+  kind: z.enum(PRODUCT_KINDS).optional(),
+  accessoryRole: z.enum(ACCESSORY_ROLES).optional(),
+  soldIndividually: z.boolean().optional(),
   shape: nullableShortText.optional(),
   styles: stylesList,
   basePrice: z.number().positive().max(10_000_000).optional(),
@@ -59,15 +70,18 @@ export type UpdateProductBody = z.infer<typeof updateProductBodySchema>;
 export const adminProductsListQuerySchema = paginationSchema.extend({
   q: z.string().trim().min(1).max(200).optional(),
   includeDeleted: z.coerce.boolean().optional().default(false),
+  kind: z.enum(PRODUCT_KINDS).optional(),
 });
 export type AdminProductsListQuery = z.infer<typeof adminProductsListQuerySchema>;
 
 const sku = z.string().trim().min(1).max(100);
 const nullableColorOrMaterial = z.string().trim().min(1).max(200).nullable();
+const nullableLabel = z.string().trim().min(1).max(100).nullable();
 
 export const createVariantBodySchema = z.object({
   color: nullableColorOrMaterial.optional(),
   material: nullableColorOrMaterial.optional(),
+  label: nullableLabel.optional(),
   sku,
   stock: z.number().int().nonnegative().max(1_000_000).optional().default(0),
   priceOverride: z.number().positive().max(10_000_000).nullable().optional(),
@@ -77,6 +91,7 @@ export type CreateVariantBody = z.infer<typeof createVariantBodySchema>;
 export const updateVariantBodySchema = z.object({
   color: nullableColorOrMaterial.optional(),
   material: nullableColorOrMaterial.optional(),
+  label: nullableLabel.optional(),
   sku: sku.optional(),
   stock: z.number().int().nonnegative().max(1_000_000).optional(),
   priceOverride: z.number().positive().max(10_000_000).nullable().optional(),

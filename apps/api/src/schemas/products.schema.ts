@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paginationSchema } from "./common.schema.js";
+import { PRODUCT_KINDS } from "../lib/product-kind.js";
 
 // Allowlisted — never derived from the raw query string. "relevance"
 // only makes sense paired with a search term; enforced below.
@@ -25,6 +26,9 @@ export const productsListQuerySchema = paginationSchema
     minPrice: z.coerce.number().nonnegative().optional(),
     maxPrice: z.coerce.number().nonnegative().optional(),
     sort: z.enum(PRODUCT_SORT_VALUES).optional(),
+    // ADR-0028: the catalog lists frames unless /accesorios asks for
+    // accessories (only those sold individually).
+    kind: z.enum(PRODUCT_KINDS).optional().default("FRAME"),
   })
   .refine(
     (query) =>

@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma.js";
 import { IMAGE_ORDER } from "../lib/image-order.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
+import { FRAME_WHERE } from "../lib/product-kind.js";
 import {
   calculateProfileCoverage,
   coverageToConfidenceLevel,
@@ -138,8 +139,9 @@ function toCandidateProductRow(product: {
 // (verified — see docs/adr/0020-recommendation-engine-v1.md
 // "Performance"), not N+1.
 async function loadCandidateProducts(): Promise<CandidateProductRow[]> {
+  // ADR-0028: the engine scores frames only — never accessories.
   const products = await prisma.product.findMany({
-    where: { deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    where: { deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...FRAME_WHERE },
     select: CANDIDATE_PRODUCT_SELECT,
   });
   return products.map(toCandidateProductRow);
@@ -152,7 +154,7 @@ async function loadCandidateProducts(): Promise<CandidateProductRow[]> {
 // an incomplete product exists.
 async function loadCandidateProductBySlug(slug: string): Promise<CandidateProductRow | null> {
   const product = await prisma.product.findUnique({
-    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...FRAME_WHERE },
     select: CANDIDATE_PRODUCT_SELECT,
   });
   return product ? toCandidateProductRow(product) : null;
@@ -192,6 +194,8 @@ function toRecommendationDto(
     product: {
       name: product.name,
       slug: product.slug,
+      kind: "FRAME",
+      priceFrom: false,
       brand: product.brand,
       category: product.category,
       shape: product.shape,

@@ -8,7 +8,8 @@ export async function listCategories(): Promise<CategorySummary[]> {
     select: {
       name: true,
       slug: true,
-      _count: { select: { products: { where: { deletedAt: null } } } },
+      // Frames only: accessories live in their own section (ADR-0028).
+      _count: { select: { products: { where: { deletedAt: null, kind: "FRAME" } } } },
     },
   });
 

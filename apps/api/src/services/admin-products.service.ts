@@ -1,10 +1,12 @@
 import { Prisma } from "@prisma/client";
 import type {
+  AccessoryRole,
   AdminImageDto,
   AdminProductDetail,
   AdminProductListItem,
   AdminVariantDto,
   Paginated,
+  ProductKind,
   StylePreference,
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
@@ -43,6 +45,7 @@ const VARIANT_SELECT = {
   productId: true,
   color: true,
   material: true,
+  label: true,
   sku: true,
   stock: true,
   priceOverride: true,
@@ -55,6 +58,9 @@ const PRODUCT_DETAIL_SELECT = {
   id: true,
   name: true,
   slug: true,
+  kind: true,
+  accessoryRole: true,
+  soldIndividually: true,
   shape: true,
   styles: true,
   basePrice: true,
@@ -79,6 +85,9 @@ const PRODUCT_LIST_SELECT = {
   id: true,
   name: true,
   slug: true,
+  kind: true,
+  accessoryRole: true,
+  soldIndividually: true,
   shape: true,
   styles: true,
   basePrice: true,
@@ -121,6 +130,7 @@ function toVariantDto(row: VariantRow): AdminVariantDto {
     productId: row.productId,
     color: row.color,
     material: row.material,
+    label: row.label,
     sku: row.sku,
     stock: row.stock,
     priceOverride: row.priceOverride?.toNumber() ?? null,
@@ -137,6 +147,9 @@ function toProductDetailDto(row: ProductDetailRow): AdminProductDetail {
     slug: row.slug,
     brand: row.brand,
     category: row.category,
+    kind: row.kind,
+    accessoryRole: row.accessoryRole,
+    soldIndividually: row.soldIndividually,
     shape: row.shape,
     styles: row.styles as StylePreference[],
     basePrice: row.basePrice.toNumber(),
@@ -166,6 +179,9 @@ function toProductListItemDto(row: ProductListRow): AdminProductListItem {
     slug: row.slug,
     brand: row.brand,
     category: row.category,
+    kind: row.kind,
+    accessoryRole: row.accessoryRole,
+    soldIndividually: row.soldIndividually,
     shape: row.shape,
     styles: row.styles as StylePreference[],
     basePrice: row.basePrice.toNumber(),
@@ -189,12 +205,13 @@ function toProductListItemDto(row: ProductListRow): AdminProductListItem {
 export async function listAdminProducts(
   query: AdminProductsListQuery,
 ): Promise<Paginated<AdminProductListItem>> {
-  const { page, limit, q, includeDeleted } = query;
+  const { page, limit, q, includeDeleted, kind } = query;
   const offset = (page - 1) * limit;
 
   const where: Prisma.ProductWhereInput = {
     ...(includeDeleted ? {} : { deletedAt: null }),
     ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
+    ...(kind ? { kind } : {}),
   };
 
   const [rows, total] = await Promise.all([
@@ -233,10 +250,16 @@ export async function setProductLensTypes(
   id: string,
   body: SetProductLensTypesBody,
 ): Promise<AdminProductDetail> {
-  const product = await prisma.product.findUnique({ where: { id }, select: { id: true } });
+  const product = await prisma.product.findUnique({
+    where: { id },
+    select: { id: true, kind: true },
+  });
   if (!product) throw ApiError.notFound(`No product found with id "${id}".`);
 
   const lensTypeIds = [...new Set(body.lensTypeIds)];
+  if (product.kind === "ACCESSORY" && lensTypeIds.length > 0) {
+    throw ApiError.validation("Los accesorios no se combinan con cristales.");
+  }
   const found = await prisma.lensType.findMany({
     where: { id: { in: lensTypeIds } },
     select: {
@@ -275,7 +298,52 @@ async function assertActiveBrandAndCategory(brandId: string, categoryId: string)
   }
 }
 
+// ADR-0028 rules per kind, with the field in `details.fieldErrors` (same
+// shape as a Zod flatten) so the admin form can mark it. The database
+// CHECKs enforce the same invariants; these give the Spanish message.
+const FRAME_ONLY_FIELDS = [
+  "shape",
+  "lensWidth",
+  "bridgeWidth",
+  "templeLength",
+  "lensHeight",
+  "frameWidth",
+] as const;
+
+function kindError(field: string, message: string): ApiError {
+  return ApiError.validation(message, { formErrors: [], fieldErrors: { [field]: [message] } });
+}
+
+function assertKindRules(
+  kind: ProductKind,
+  body: Partial<Pick<CreateProductBody, (typeof FRAME_ONLY_FIELDS)[number] | "styles">> & {
+    accessoryRole?: AccessoryRole;
+    soldIndividually?: boolean;
+  },
+): void {
+  if (kind === "FRAME") {
+    if (body.accessoryRole !== undefined) {
+      throw kindError("accessoryRole", "Solo los accesorios tienen tipo de accesorio.");
+    }
+    if (body.soldIndividually === false) {
+      throw kindError("soldIndividually", "Los anteojos siempre se venden individualmente.");
+    }
+    return;
+  }
+  const optical =
+    FRAME_ONLY_FIELDS.find((field) => body[field] !== undefined && body[field] !== null) ??
+    (body.styles && body.styles.length > 0 ? "styles" : undefined);
+  if (optical) {
+    throw kindError(optical, "Los accesorios no llevan forma, estilos ni medidas de armazón.");
+  }
+}
+
 export async function createProduct(body: CreateProductBody): Promise<AdminProductDetail> {
+  const kind = body.kind;
+  assertKindRules(kind, body);
+  if (kind === "ACCESSORY" && !body.accessoryRole) {
+    throw kindError("accessoryRole", "Elegí el tipo de accesorio.");
+  }
   await assertActiveBrandAndCategory(body.brandId, body.categoryId);
 
   const slug = await generateUniqueSlug(
@@ -289,6 +357,9 @@ export async function createProduct(body: CreateProductBody): Promise<AdminProdu
       slug,
       brandId: body.brandId,
       categoryId: body.categoryId,
+      kind,
+      accessoryRole: kind === "ACCESSORY" ? body.accessoryRole : null,
+      soldIndividually: kind === "ACCESSORY" ? (body.soldIndividually ?? true) : true,
       shape: body.shape ?? null,
       styles: body.styles ?? [],
       basePrice: body.basePrice,
@@ -308,12 +379,16 @@ export async function updateProduct(
   body: UpdateProductBody,
 ): Promise<AdminProductDetail> {
   await getAdminProduct(id);
+  const current = await prisma.product.findUniqueOrThrow({
+    where: { id },
+    select: { brandId: true, categoryId: true, kind: true },
+  });
+  if (body.kind !== undefined && body.kind !== current.kind) {
+    throw kindError("kind", "El tipo de producto no se puede cambiar. Creá un producto nuevo.");
+  }
+  assertKindRules(current.kind, body);
 
   if (body.brandId !== undefined || body.categoryId !== undefined) {
-    const current = await prisma.product.findUniqueOrThrow({
-      where: { id },
-      select: { brandId: true, categoryId: true },
-    });
     await assertActiveBrandAndCategory(
       body.brandId ?? current.brandId,
       body.categoryId ?? current.categoryId,
@@ -326,6 +401,8 @@ export async function updateProduct(
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.brandId !== undefined ? { brandId: body.brandId } : {}),
       ...(body.categoryId !== undefined ? { categoryId: body.categoryId } : {}),
+      ...(body.accessoryRole !== undefined ? { accessoryRole: body.accessoryRole } : {}),
+      ...(body.soldIndividually !== undefined ? { soldIndividually: body.soldIndividually } : {}),
       ...(body.shape !== undefined ? { shape: body.shape } : {}),
       ...(body.styles !== undefined ? { styles: body.styles } : {}),
       ...(body.basePrice !== undefined ? { basePrice: body.basePrice } : {}),
@@ -380,17 +457,35 @@ async function requireVariantOfProduct(productId: string, variantId: string): Pr
   return variant;
 }
 
+// ADR-0028: a presentation label belongs to accessory variants only;
+// clearing it (null) is always allowed.
+async function assertLabelAllowed(productId: string, label: string | null | undefined) {
+  if (label === undefined || label === null) return;
+  const product = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: { kind: true },
+  });
+  if (product.kind !== "ACCESSORY") {
+    throw kindError(
+      "label",
+      "Solo los colores o presentaciones de accesorios llevan presentación.",
+    );
+  }
+}
+
 export async function createVariant(
   productId: string,
   body: CreateVariantBody,
 ): Promise<AdminVariantDto> {
   await getAdminProduct(productId);
+  await assertLabelAllowed(productId, body.label);
   try {
     const row = await prisma.productVariant.create({
       data: {
         productId,
         color: body.color ?? null,
         material: body.material ?? null,
+        label: body.label ?? null,
         sku: body.sku,
         stock: body.stock,
         priceOverride: body.priceOverride ?? null,
@@ -409,12 +504,14 @@ export async function updateVariant(
   body: UpdateVariantBody,
 ): Promise<AdminVariantDto> {
   await requireVariantOfProduct(productId, variantId);
+  await assertLabelAllowed(productId, body.label);
   try {
     const row = await prisma.productVariant.update({
       where: { id: variantId },
       data: {
         ...(body.color !== undefined ? { color: body.color } : {}),
         ...(body.material !== undefined ? { material: body.material } : {}),
+        ...(body.label !== undefined ? { label: body.label } : {}),
         ...(body.sku !== undefined ? { sku: body.sku } : {}),
         ...(body.stock !== undefined ? { stock: body.stock } : {}),
         ...(body.priceOverride !== undefined ? { priceOverride: body.priceOverride } : {}),

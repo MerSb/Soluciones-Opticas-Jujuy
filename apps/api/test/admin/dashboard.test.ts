@@ -207,6 +207,8 @@ describe("GET /api/admin/dashboard", () => {
         "outOfStockProducts",
         "productsWithoutImages",
         "activeBrands",
+        "activeFrames",
+        "activeAccessories",
         "activeCategories",
         "registeredUsers",
       ].sort(),
@@ -334,10 +336,10 @@ describe("GET /api/admin/dashboard", () => {
       expect(names).toEqual([1, 2, 3, 4, 5].map(capName));
     });
 
-    it("each alert item is exactly {id, name, brandName} — no raw Prisma row", async () => {
+    it("each alert item is exactly {id, name, brandName, kind} — no raw Prisma row", async () => {
       const response = await adminAgent.get("/api/admin/dashboard");
       const item = response.body.alerts.outOfStock[0];
-      expect(Object.keys(item).sort()).toEqual(["brandName", "id", "name"].sort());
+      expect(Object.keys(item).sort()).toEqual(["brandName", "id", "kind", "name"].sort());
       expect(typeof item.brandName).toBe("string");
     });
 

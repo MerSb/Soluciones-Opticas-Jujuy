@@ -7,6 +7,8 @@ import { renderWithProviders } from "./test-utils";
 const product: ProductListItem = {
   name: "Andina Aviador",
   slug: "andina-aviador",
+  kind: "FRAME",
+  priceFrom: false,
   brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
   category: { name: "Anteojos de Sol", slug: "anteojos-de-sol" },
   shape: "aviator",

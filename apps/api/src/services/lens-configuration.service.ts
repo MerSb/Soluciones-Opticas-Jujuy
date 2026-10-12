@@ -7,6 +7,7 @@ import type {
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
+import { FRAME_WHERE } from "../lib/product-kind.js";
 import {
   configurationTotal,
   effectiveLensPrice,
@@ -102,8 +103,9 @@ export async function resolveEyewearConfiguration(
   slug: string,
   input: EyewearConfigurationInput,
 ): Promise<EyewearConfigurationQuote> {
+  // ADR-0028: only frames take lenses — an accessory 404s like an unknown slug.
   const product = await prisma.product.findFirst({
-    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...FRAME_WHERE },
     select: { id: true, name: true, slug: true, basePrice: true },
   });
   if (!product) throw ApiError.notFound(`No product found with slug "${slug}".`);

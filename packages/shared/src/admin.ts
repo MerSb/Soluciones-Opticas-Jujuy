@@ -10,7 +10,7 @@
 // surface, and vice versa.
 
 import type { StylePreference } from "./optical-profile.js";
-import type { FrameMeasurements } from "./catalog.js";
+import type { AccessoryRole, FrameMeasurements, ProductKind } from "./catalog.js";
 
 export interface AdminBrandDto {
   id: string;
@@ -90,6 +90,7 @@ export interface AdminVariantDto {
   productId: string;
   color: string | null;
   material: string | null;
+  label: string | null;
   sku: string;
   stock: number;
   priceOverride: number | null;
@@ -101,6 +102,7 @@ export interface AdminVariantDto {
 export interface CreateVariantRequest {
   color?: string | null;
   material?: string | null;
+  label?: string | null;
   sku: string;
   stock?: number;
   priceOverride?: number | null;
@@ -109,6 +111,7 @@ export interface CreateVariantRequest {
 export interface UpdateVariantRequest {
   color?: string | null;
   material?: string | null;
+  label?: string | null;
   sku?: string;
   stock?: number;
   priceOverride?: number | null;
@@ -132,6 +135,9 @@ export interface AdminProductListItem {
   slug: string;
   brand: AdminBrandRef;
   category: AdminCategoryRef;
+  kind: ProductKind;
+  accessoryRole: AccessoryRole | null;
+  soldIndividually: boolean;
   shape: string | null;
   styles: StylePreference[];
   basePrice: number;
@@ -151,6 +157,9 @@ export interface AdminProductDetail {
   slug: string;
   brand: AdminBrandRef;
   category: AdminCategoryRef;
+  kind: ProductKind;
+  accessoryRole: AccessoryRole | null;
+  soldIndividually: boolean;
   shape: string | null;
   styles: StylePreference[];
   basePrice: number;
@@ -169,10 +178,17 @@ export interface AdminProductDetail {
 }
 
 // No `slug` field here either, same reasoning as UpdateBrandRequest.
+/** Frame fields (shape, styles, measurements) are rejected for accessories. */
 export interface CreateProductRequest {
   name: string;
   brandId: string;
   categoryId: string;
+  /** Defaults to FRAME. Immutable afterwards. */
+  kind?: ProductKind;
+  /** Required for ACCESSORY, forbidden for FRAME. */
+  accessoryRole?: AccessoryRole;
+  /** ACCESSORY only; defaults to true. */
+  soldIndividually?: boolean;
   shape?: string | null;
   styles?: StylePreference[];
   basePrice: number;
@@ -187,6 +203,10 @@ export interface UpdateProductRequest {
   name?: string;
   brandId?: string;
   categoryId?: string;
+  /** ACCESSORY only. */
+  accessoryRole?: AccessoryRole;
+  /** ACCESSORY only. */
+  soldIndividually?: boolean;
   shape?: string | null;
   styles?: StylePreference[];
   basePrice?: number;
@@ -202,6 +222,8 @@ export interface AdminProductsQuery {
   limit?: number;
   q?: string;
   includeDeleted?: boolean;
+  /** Omitted: every kind. */
+  kind?: ProductKind;
 }
 
 // Returned by POST .../images/sign-upload — everything the browser needs
@@ -228,7 +250,11 @@ export interface UploadSignatureDto {
 // docs/ADMIN_DASHBOARD_V2.md for the exact definition behind each
 // field.
 export interface AdminDashboardMetrics {
+  /** Frames + accessories (kept for compatibility). */
   activeProducts: number;
+  /** ADR-0028 — the same count split by kind. */
+  activeFrames: number;
+  activeAccessories: number;
   outOfStockProducts: number;
   productsWithoutImages: number;
   activeBrands: number;
@@ -242,6 +268,7 @@ export interface AdminDashboardAlertProduct {
   id: string;
   name: string;
   brandName: string;
+  kind: ProductKind;
 }
 
 export interface AdminDashboardResponse {

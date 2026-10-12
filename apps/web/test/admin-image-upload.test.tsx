@@ -15,6 +15,7 @@ const VARIANT: AdminVariantDto = {
   productId: PRODUCT_ID,
   color: "Negro",
   material: "Metal",
+  label: null,
   sku: "SKU-1",
   stock: 5,
   priceOverride: null,

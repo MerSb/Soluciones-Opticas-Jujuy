@@ -14,6 +14,7 @@ const VARIANT_NO_IMAGES = {
   productId: "p1",
   color: "Negro",
   material: "Metal",
+  label: null,
   sku: "SKU-1",
   stock: 5,
   priceOverride: null,

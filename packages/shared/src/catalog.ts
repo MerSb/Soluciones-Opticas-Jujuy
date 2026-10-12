@@ -7,6 +7,11 @@
 import type { StylePreference } from "./optical-profile.js";
 import type { PublicLensTypeDto } from "./lens.js";
 
+/** ADR-0028 — FRAME is eyewear; ACCESSORY is a case, cord, cleaner... */
+export type ProductKind = "FRAME" | "ACCESSORY";
+/** ADR-0028 — what an accessory is. */
+export type AccessoryRole = "CASE" | "CORD" | "CUSTOM_CORD" | "CLEANER" | "OTHER";
+
 export interface FrameMeasurements {
   lensWidth: number | null;
   bridgeWidth: number | null;
@@ -34,6 +39,10 @@ export interface ProductImageDto {
 export interface ProductListItem {
   name: string;
   slug: string;
+  kind: ProductKind;
+  /** ADR-0028: true when `price` is the lowest of several presentation
+   * prices (shown as "Desde $X"). Always false for frames. */
+  priceFrom: boolean;
   brand: BrandRef;
   category: CategoryRef;
   shape: string | null;
@@ -57,6 +66,8 @@ export interface ProductVariantDto {
   id: string;
   color: string | null;
   material: string | null;
+  /** Accessory presentation (e.g. a cleaner's size); null for frames. */
+  label: string | null;
   sku: string;
   price: number;
   inStock: boolean;
@@ -66,6 +77,9 @@ export interface ProductVariantDto {
 export interface ProductDetail {
   name: string;
   slug: string;
+  kind: ProductKind;
+  /** Null for frames. */
+  accessoryRole: AccessoryRole | null;
   brand: BrandRef;
   category: CategoryRef;
   shape: string | null;

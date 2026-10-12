@@ -85,6 +85,17 @@ model Product {
   /// docs/adr/0021-admin-catalog-management.md for the full decision.
   styles StylePreference[] @default([]) @map("styles")
 
+  /// ADR-0028. FRAME = eyewear (every product before accessories existed);
+  /// ACCESSORY = case, cord, cleaner... Frame-only features (lens
+  /// compatibility, recommendations, optical filters, measurements) only
+  /// ever consider FRAME. Immutable after creation.
+  kind             ProductKind    @default(FRAME)
+  /// Required for ACCESSORY, null for FRAME — CHECK in the migration.
+  accessoryRole    AccessoryRole? @map("accessory_role")
+  /// Accessories only: listed in /accesorios and purchasable on their own.
+  /// Always true for frames (CHECK in the migration).
+  soldIndividually Boolean        @default(true) @map("sold_individually")
+
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -100,6 +111,7 @@ model Product {
 
   @@index([brandId])
   @@index([categoryId])
+  @@index([kind])
   // A GIN trigram index on `name` (pg_trgm), backing GET /products?q=,
   // is created via raw SQL in the initial migration — see ADR-0014 for
   // why this is not declared here through Prisma's postgresqlExtensions
@@ -118,6 +130,9 @@ model ProductVariant {
   color    String?
   material String?
   sku      String  @unique
+  /// Presentation of an accessory variant without a color (e.g. a cleaner's
+  /// size). Free text entered by the admin; null for frames. ADR-0028.
+  label    String?
 
   /// CHECK (stock >= 0) is added as raw SQL in the first migration —
   /// Prisma schema has no declarative CHECK constraint syntax. Plain
@@ -517,6 +532,22 @@ enum ColorFamily {
 
 /// Deliberately small and explainable (§14 of the optical-profile
 /// brief) — not a fine-grained taxonomy.
+/// ADR-0028.
+enum ProductKind {
+  FRAME
+  ACCESSORY
+}
+
+/// ADR-0028. What an accessory is — decides where it may be used later
+/// (included case/cord slots). OTHER covers anything not listed yet.
+enum AccessoryRole {
+  CASE
+  CORD
+  CUSTOM_CORD
+  CLEANER
+  OTHER
+}
+
 enum StylePreference {
   CLASSIC
   MODERN

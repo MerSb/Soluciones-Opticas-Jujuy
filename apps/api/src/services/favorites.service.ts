@@ -3,10 +3,14 @@ import { prisma } from "../lib/prisma.js";
 import { IMAGE_ORDER } from "../lib/image-order.js";
 import { ApiError } from "../lib/api-error.js";
 import { computeInStock } from "../lib/product-availability.js";
+import { PUBLIC_KIND_WHERE } from "../lib/product-kind.js";
+import { listingPrice } from "../lib/listing-price.js";
 
 export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
   const favorites = await prisma.favorite.findMany({
-    where: { userId, product: { deletedAt: null } },
+    // ADR-0028: never list a product whose page would 404 (an accessory
+    // that stopped being sold on its own).
+    where: { userId, product: { deletedAt: null, ...PUBLIC_KIND_WHERE } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -15,6 +19,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
         select: {
           name: true,
           slug: true,
+          kind: true,
           shape: true,
           styles: true,
           basePrice: true,
@@ -29,6 +34,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
             select: {
               color: true,
               stock: true,
+              priceOverride: true,
               images: {
                 where: { isPrimary: true },
                 take: 1,
@@ -63,11 +69,19 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
       product: {
         name: favorite.product.name,
         slug: favorite.product.slug,
+        kind: favorite.product.kind,
         brand: favorite.product.brand,
         category: favorite.product.category,
         shape: favorite.product.shape,
         styles: favorite.product.styles,
-        price: favorite.product.basePrice.toNumber(),
+        ...listingPrice(
+          favorite.product.kind,
+          favorite.product.basePrice.toNumber(),
+          favorite.product.variants.map((variant) => ({
+            stock: variant.stock,
+            priceOverride: variant.priceOverride?.toNumber() ?? null,
+          })),
+        ),
         frameMeasurements: {
           lensWidth: favorite.product.lensWidth,
           bridgeWidth: favorite.product.bridgeWidth,
@@ -84,8 +98,9 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
 }
 
 export async function addFavorite(userId: string, slug: string): Promise<void> {
+  // ADR-0028: only what has a public page can be favorited.
   const product = await prisma.product.findUnique({
-    where: { slug, deletedAt: null },
+    where: { slug, deletedAt: null, ...PUBLIC_KIND_WHERE },
     select: { id: true },
   });
   if (!product) {

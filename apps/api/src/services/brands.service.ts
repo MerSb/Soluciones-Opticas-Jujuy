@@ -13,7 +13,8 @@ export async function listBrands(): Promise<BrandSummary[]> {
       slug: true,
       logoPublicId: true,
       description: true,
-      _count: { select: { products: { where: { deletedAt: null } } } },
+      // Frames only: accessories live in their own section (ADR-0028).
+      _count: { select: { products: { where: { deletedAt: null, kind: "FRAME" } } } },
     },
   });
 

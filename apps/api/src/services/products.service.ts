@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { IMAGE_ORDER } from "../lib/image-order.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
+import { FRAME_WHERE, PUBLIC_KIND_WHERE, catalogKindWhere } from "../lib/product-kind.js";
+import { listingPrice } from "../lib/listing-price.js";
 import { normalizeShape } from "./recommendation/normalize.js";
 import { PRODUCT_LENS_TYPES_ARGS, toPublicLensTypeDto } from "./lens-configuration.service.js";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
@@ -12,6 +14,7 @@ import type {
   Paginated,
   ProductDetail,
   ProductImageDto,
+  ProductKind,
   ProductListItem,
   StylePreference,
 } from "@soluciones-opticas/shared";
@@ -20,6 +23,7 @@ interface CoreProductRow {
   id: string;
   name: string;
   slug: string;
+  kind: ProductKind;
   shape: string | null;
   styles: string[];
   basePrice: number;
@@ -36,6 +40,7 @@ interface RawSearchRow {
   id: string;
   name: string;
   slug: string;
+  kind: ProductKind;
   shape: string | null;
   styles: string[];
   basePrice: number;
@@ -70,11 +75,14 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
   // An incomplete product (no variant, or a variant with no image) must
   // 404 exactly like a nonexistent one — never reveal that it exists as
   // some kind of draft (Real Catalog Readiness).
+  // ADR-0028: a frame, or an accessory sold on its own.
   const product = await prisma.product.findUnique({
-    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...PUBLIC_KIND_WHERE },
     select: {
       name: true,
       slug: true,
+      kind: true,
+      accessoryRole: true,
       shape: true,
       styles: true,
       basePrice: true,
@@ -90,6 +98,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
           id: true,
           color: true,
           material: true,
+          label: true,
           sku: true,
           stock: true,
           priceOverride: true,
@@ -110,6 +119,8 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
   return {
     name: product.name,
     slug: product.slug,
+    kind: product.kind,
+    accessoryRole: product.accessoryRole,
     brand: product.brand,
     category: product.category,
     shape: product.shape,
@@ -126,6 +137,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
       id: variant.id,
       color: variant.color,
       material: variant.material,
+      label: variant.label,
       sku: variant.sku,
       // Effective price: the variant's override when set, else the
       // product's base price. Not the raw priceOverride column — a
@@ -141,7 +153,11 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
         isPrimary: image.isPrimary,
       })),
     })),
-    lensTypes: product.lensTypes.map(({ lensType }) => toPublicLensTypeDto(lensType)),
+    // Accessories never carry lens types (refused by the admin API).
+    lensTypes:
+      product.kind === "FRAME"
+        ? product.lensTypes.map(({ lensType }) => toPublicLensTypeDto(lensType))
+        : [],
   };
 }
 
@@ -170,6 +186,7 @@ async function filterProducts(
     ...(query.shape ? { shape: query.shape } : {}),
     AND: [
       COMPLETE_PRODUCT_WHERE,
+      catalogKindWhere(query.kind),
       // `some` compiles to a WHERE EXISTS subquery — a product with N
       // matching variants is still returned once, never duplicated.
       ...(hasVariantFilter
@@ -205,6 +222,7 @@ async function filterProducts(
         id: true,
         name: true,
         slug: true,
+        kind: true,
         shape: true,
         styles: true,
         basePrice: true,
@@ -272,6 +290,10 @@ async function searchProducts(
       WHERE v.product_id = p.id
     )`,
     Prisma.sql`p.name % ${q}`,
+    // ADR-0028 — same rule as catalogKindWhere() (lib/product-kind.ts).
+    query.kind === "ACCESSORY"
+      ? Prisma.sql`p.kind = 'ACCESSORY' AND p.sold_individually = true`
+      : Prisma.sql`p.kind = 'FRAME'`,
   ];
 
   if (query.brand) conditions.push(Prisma.sql`b.slug = ${query.brand}`);
@@ -294,7 +316,7 @@ async function searchProducts(
   const orderByClause = toRawOrderBy(query.sort);
 
   const rows = await prisma.$queryRaw<RawSearchRow[]>`
-    SELECT p.id, p.name, p.slug, p.shape, p.styles,
+    SELECT p.id, p.name, p.slug, p.kind, p.shape, p.styles,
            p.base_price::float8 AS "basePrice",
            p.lens_width::float8 AS "lensWidth",
            p.bridge_width::float8 AS "bridgeWidth",
@@ -325,6 +347,7 @@ async function searchProducts(
       id: row.id,
       name: row.name,
       slug: row.slug,
+      kind: row.kind,
       shape: row.shape,
       styles: row.styles,
       basePrice: row.basePrice,
@@ -373,6 +396,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
       productId: true,
       color: true,
       stock: true,
+      priceOverride: true,
       images: {
         where: { isPrimary: true },
         take: 1,
@@ -384,7 +408,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
 
   const colorsByProduct = new Map<string, Set<string>>();
   const imageByProduct = new Map<string, ProductImageDto>();
-  const variantsByProduct = new Map<string, { stock: number }[]>();
+  const variantsByProduct = new Map<string, { stock: number; priceOverride: number | null }[]>();
 
   for (const variant of variants) {
     if (variant.color) {
@@ -401,18 +425,22 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
       });
     }
     const productVariants = variantsByProduct.get(variant.productId) ?? [];
-    productVariants.push({ stock: variant.stock });
+    productVariants.push({
+      stock: variant.stock,
+      priceOverride: variant.priceOverride?.toNumber() ?? null,
+    });
     variantsByProduct.set(variant.productId, productVariants);
   }
 
   return rows.map((row) => ({
     name: row.name,
     slug: row.slug,
+    kind: row.kind,
     brand: row.brand,
     category: row.category,
     shape: row.shape,
     styles: row.styles as StylePreference[],
-    price: row.basePrice,
+    ...listingPrice(row.kind, row.basePrice, variantsByProduct.get(row.id) ?? []),
     frameMeasurements: {
       lensWidth: row.lensWidth,
       bridgeWidth: row.bridgeWidth,
@@ -527,6 +555,8 @@ function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
   return {
     name: row.name,
     slug: row.slug,
+    kind: "FRAME", // candidates are frames only (FRAME_WHERE)
+    priceFrom: false,
     brand: row.brand,
     category: row.category,
     shape: row.shape,
@@ -555,9 +585,10 @@ function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
 // exists.
 export async function getRelatedProducts(slug: string): Promise<ProductListItem[] | null> {
   const target = await prisma.product.findUnique({
-    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE },
+    where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...PUBLIC_KIND_WHERE },
     select: {
       id: true,
+      kind: true,
       brandId: true,
       categoryId: true,
       shape: true,
@@ -566,9 +597,12 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
     },
   });
   if (!target) return null;
+  // Related products compare frame attributes (shape, styles, price band):
+  // frames only, and nothing for an accessory page (ADR-0028).
+  if (target.kind !== "FRAME") return [];
 
   const candidates = await prisma.product.findMany({
-    where: { deletedAt: null, id: { not: target.id }, ...COMPLETE_PRODUCT_WHERE },
+    where: { deletedAt: null, id: { not: target.id }, ...COMPLETE_PRODUCT_WHERE, ...FRAME_WHERE },
     select: {
       id: true,
       name: true,

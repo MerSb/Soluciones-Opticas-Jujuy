@@ -1,4 +1,5 @@
 import type {
+  ProductKind,
   AdminDashboardAlertProduct,
   AdminDashboardResponse,
 } from "@soluciones-opticas/shared";
@@ -28,6 +29,7 @@ const WITHOUT_IMAGES_WHERE = {
 const ALERT_SELECT = {
   id: true,
   name: true,
+  kind: true,
   brand: { select: { name: true } },
 } as const;
 
@@ -37,14 +39,16 @@ const ALERT_LIMIT = 5;
 function toAlertProduct(row: {
   id: string;
   name: string;
+  kind: ProductKind;
   brand: { name: string };
 }): AdminDashboardAlertProduct {
-  return { id: row.id, name: row.name, brandName: row.brand.name };
+  return { id: row.id, name: row.name, brandName: row.brand.name, kind: row.kind };
 }
 
 export async function getAdminDashboard(): Promise<AdminDashboardResponse> {
   const [
-    activeProducts,
+    activeFrames,
+    activeAccessories,
     outOfStockProducts,
     productsWithoutImages,
     activeBrands,
@@ -53,7 +57,8 @@ export async function getAdminDashboard(): Promise<AdminDashboardResponse> {
     outOfStockAlerts,
     withoutImagesAlerts,
   ] = await Promise.all([
-    prisma.product.count({ where: { deletedAt: null } }),
+    prisma.product.count({ where: { deletedAt: null, kind: "FRAME" } }),
+    prisma.product.count({ where: { deletedAt: null, kind: "ACCESSORY" } }),
     prisma.product.count({ where: OUT_OF_STOCK_WHERE }),
     prisma.product.count({ where: WITHOUT_IMAGES_WHERE }),
     prisma.brand.count({ where: { deletedAt: null } }),
@@ -78,7 +83,9 @@ export async function getAdminDashboard(): Promise<AdminDashboardResponse> {
 
   return {
     metrics: {
-      activeProducts,
+      activeProducts: activeFrames + activeAccessories,
+      activeFrames,
+      activeAccessories,
       outOfStockProducts,
       productsWithoutImages,
       activeBrands,
