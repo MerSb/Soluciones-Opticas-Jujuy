@@ -1,13 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { PublicLensTypeDto } from "@soluciones-opticas/shared";
 import { IncludedAccessoriesSection } from "./IncludedAccessoriesSection";
-import { useEyewearQuoteQuery, useIncludedAccessoriesQuery } from "../../services/queries/products";
+import {
+  includedAccessoriesQueryKey,
+  useEyewearQuoteQuery,
+  useIncludedAccessoriesQuery,
+} from "../../services/queries/products";
+import { ApiClientError } from "../../services/api-client";
 import { toConfigurationInput, type LensSelection } from "../../lib/lens-configuration";
 import {
   isChoiceComplete,
   normalizeChoice,
   offersIncludedAccessories,
-  optionName,
+  optionDisplayName,
   toSelection,
   type AccessoryChoice,
 } from "../../lib/included-accessories";
@@ -36,36 +42,80 @@ export function FrameIncludedAccessories({
   onChange: (choice: AccessoryChoice) => void;
   onSummary: (summary: IncludedAccessoriesSummary | null) => void;
 }) {
+  const queryClient = useQueryClient();
   const offerQuery = useIncludedAccessoriesQuery();
   const offer = offersIncludedAccessories(offerQuery.data) ? offerQuery.data : null;
   const effective = offer ? normalizeChoice(offer, choice) : choice;
   const complete = Boolean(offer && isChoiceComplete(offer, effective));
   const lensInput = toConfigurationInput(variantId, lensSelection, lensTypes);
+  const lensComplete = lensInput !== null;
   const quote = useEyewearQuoteQuery(
     slug,
     complete ? lensInput : null,
     complete ? toSelection(effective) : null,
   );
 
-  const quoted = !quote.isFetching && !quote.isError ? quote.data?.accessories : null;
-  const total = quote.data?.totalWithAccessories;
-  const summaryKey =
-    complete && quoted && total !== undefined ? JSON.stringify([quoted, total]) : null;
+  // Only a quote fetched for exactly the current selection counts.
+  // keepPreviousData hands back the previous selection's quote while a new
+  // one loads — and while the query is disabled because the lens choice is
+  // incomplete — so the summary and the WhatsApp message would otherwise
+  // show a total for something the buyer no longer has selected.
+  const current =
+    complete &&
+    lensComplete &&
+    !quote.isPlaceholderData &&
+    !quote.isError &&
+    quote.data?.accessories &&
+    quote.data.totalWithAccessories !== undefined
+      ? quote.data
+      : undefined;
 
+  // An accessory sold out after the offer was loaded (409): refresh the
+  // offer once — normalizeChoice then drops the sold-out color — and keep
+  // the reason on screen until the buyer picks again. The quote itself is
+  // not retried, so this can't loop.
+  const [notice, setNotice] = useState<string | null>(null);
+  const conflict =
+    quote.isError && quote.error instanceof ApiClientError && quote.error.status === 409
+      ? quote.error
+      : null;
   useEffect(() => {
-    if (!summaryKey || !quoted || total === undefined) {
-      onSummary(null);
-      return;
-    }
-    onSummary({
-      caseName: quoted.case ? optionName(quoted.case) : null,
-      cordName: quoted.cord ? optionName(quoted.cord) : null,
-      personalizedCordName: quoted.customCord ? optionName(quoted.customCord) : null,
-      surcharge: quoted.surcharge,
-      estimatedTotal: total,
-    });
-    // summaryKey serializes every value used above, so it alone decides
-    // when the summary changes (onSummary is a stable state setter).
+    if (!conflict) return;
+    setNotice(conflict.message);
+    void queryClient.invalidateQueries({ queryKey: includedAccessoriesQueryKey });
+    // One run per failed request: the error object is stable per failure.
+  }, [conflict]);
+
+  // Keep the page's choice in step with the offer, so a color that stopped
+  // being offered is dropped for good (not revived if it comes back).
+  const effectiveKey = JSON.stringify(effective);
+  useEffect(() => {
+    if (offer && effectiveKey !== JSON.stringify(choice)) onChange(effective);
+    // effectiveKey serializes the only value that matters here.
+  }, [effectiveKey]);
+
+  const accessories = current?.accessories;
+  const summary: IncludedAccessoriesSummary | null =
+    offer && accessories && current?.totalWithAccessories !== undefined
+      ? {
+          caseName: accessories.case
+            ? optionDisplayName(accessories.case, offer.case.options)
+            : null,
+          cordName: accessories.cord
+            ? optionDisplayName(accessories.cord, offer.cord.options)
+            : null,
+          personalizedCordName: accessories.customCord
+            ? optionDisplayName(accessories.customCord, offer.customCord.options)
+            : null,
+          surcharge: accessories.surcharge,
+          estimatedTotal: current.totalWithAccessories,
+        }
+      : null;
+  const summaryKey = JSON.stringify(summary);
+  useEffect(() => {
+    onSummary(summary);
+    // summaryKey serializes the summary itself, so it alone decides when
+    // it changes (onSummary is a stable state setter).
   }, [summaryKey]);
 
   if (!offer) return null;
@@ -74,10 +124,14 @@ export function FrameIncludedAccessories({
     <IncludedAccessoriesSection
       offer={offer}
       choice={effective}
-      onChange={onChange}
+      onChange={(next) => {
+        setNotice(null);
+        onChange(next);
+      }}
       complete={complete}
-      lensIncomplete={complete && lensInput === null}
-      quote={quote}
+      lensIncomplete={complete && !lensComplete}
+      notice={notice}
+      quote={{ data: current, isError: quote.isError, error: quote.error }}
     />
   );
 }

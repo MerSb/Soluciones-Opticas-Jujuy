@@ -121,6 +121,15 @@ colors. The standard cord can be replaced by a personalized cord for a fixed sur
   "Gratis" or personalized cord "+$4.000", "Total estimado". The WhatsApp message adds the chosen
   accessories, the surcharge, the estimated total and an availability disclaimer — only once the
   server has quoted a complete selection.
+- **Quote freshness (predeploy fix):** the summary and the WhatsApp message use only a quote fetched
+  for exactly the current selection — never TanStack Query's placeholder (previous) data, and nothing
+  while the lens choice is incomplete. A 409 (accessory sold out meanwhile) refreshes the offer once,
+  drops the sold-out color from the choice, keeps the reason on screen until the buyer picks again,
+  and is not retried.
+- **Two options that would read the same** in one slot (e.g. two case models in the same color) are
+  named apart with the real product name, and within one product with the presentation label.
+- Copy: "El diseño del cordón personalizado se acuerda por WhatsApp" and "Precio y disponibilidad
+  sujetos a confirmación" (page and message). No personalization data is collected.
 - **Not decided here (client):** colors, stock, personalization content (no text/name is collected),
   standalone prices, brand/category, policy when no included accessory is available (today: the
   page says so and the pair is still quotable).

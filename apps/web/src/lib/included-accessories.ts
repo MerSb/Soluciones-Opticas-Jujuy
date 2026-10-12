@@ -78,6 +78,31 @@ export function optionName(option: Pick<IncludedAccessoryOption, "color" | "labe
   return option.color ?? option.label ?? "Único";
 }
 
+/** optionName, disambiguated when another option of the same slot would
+ * read the same (e.g. two case models in the same color): adds the real
+ * product name and, within one product, the presentation. Never invents a
+ * name — two identical rows stay identical. */
+export function optionDisplayName(
+  item: Pick<IncludedAccessoryOption, "productName" | "color" | "label">,
+  slotOptions: Pick<IncludedAccessoryOption, "productName" | "color" | "label">[],
+): string {
+  const base = optionName(item);
+  const twins = slotOptions.filter((option) => optionName(option) === base);
+  if (twins.length < 2) return base;
+  const parts = [base];
+  if (twins.some((option) => option.productName !== item.productName)) {
+    parts.push(item.productName);
+  }
+  if (
+    item.label &&
+    item.label !== base &&
+    twins.some((option) => option.productName === item.productName && option.label !== item.label)
+  ) {
+    parts.push(item.label);
+  }
+  return parts.join(" · ");
+}
+
 /** Drops choices that are no longer on offer (sold out or removed since the
  * page loaded) and the personalized-cord flag when none is offered — the
  * page never quotes or messages a stale selection. */

@@ -120,9 +120,11 @@ export function useEyewearQuoteQuery(
 
 // ADR-0028 Phase 2 — the cases/cords on offer with every pair of eyewear
 // (in-stock variants only). Same for every frame, so one shared key.
+export const includedAccessoriesQueryKey = ["accessories", "included"] as const;
+
 export function useIncludedAccessoriesQuery(enabled = true) {
   return useQuery({
-    queryKey: ["accessories", "included"],
+    queryKey: includedAccessoriesQueryKey,
     queryFn: () => apiGet<IncludedAccessoriesDto>("/api/accessories/included"),
     enabled,
     staleTime: 60_000,

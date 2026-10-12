@@ -8,7 +8,7 @@ import { getSwatchColor } from "../../lib/color-swatches";
 import { formatPrice } from "../../lib/format-price";
 import { ApiClientError } from "../../services/api-client";
 import type { AccessoryChoice } from "../../lib/included-accessories";
-import { optionName } from "../../lib/included-accessories";
+import { optionDisplayName } from "../../lib/included-accessories";
 
 // ADR-0028 Phase 2 — "Personalizá tus accesorios incluidos". Every pair
 // includes one case and one standard cord at no cost; the cord can be
@@ -42,7 +42,7 @@ function OptionGroup({
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         {options.map((option) => {
-          const label = optionName(option);
+          const label = optionDisplayName(option, options);
           const swatch = option.color ? getSwatchColor(option.color) : null;
           const checked = selected === option.variantId;
           return (
@@ -78,6 +78,14 @@ function OptionGroup({
   );
 }
 
+type QuoteState = {
+  /** The quote for exactly the current selection — undefined while it
+   * loads, after an error, or when the selection is incomplete. */
+  data: EyewearConfigurationQuote | undefined;
+  isError: boolean;
+  error: unknown;
+};
+
 function Unavailable({ what }: { what: string }) {
   return (
     <p className="text-sm text-text-muted">
@@ -92,6 +100,7 @@ export function IncludedAccessoriesSection({
   onChange,
   complete,
   lensIncomplete,
+  notice,
   quote,
 }: {
   offer: IncludedAccessoriesDto;
@@ -100,12 +109,9 @@ export function IncludedAccessoriesSection({
   complete: boolean;
   /** A lens configuration still missing a variety: no total yet. */
   lensIncomplete: boolean;
-  quote: {
-    data: EyewearConfigurationQuote | undefined;
-    isError: boolean;
-    error: unknown;
-    isFetching: boolean;
-  };
+  /** Why the last choice was dropped (an accessory sold out meanwhile). */
+  notice: string | null;
+  quote: QuoteState;
 }) {
   const summaryId = useId();
   const surcharge = formatPrice(offer.customCord.surcharge);
@@ -155,7 +161,8 @@ export function IncludedAccessoriesSection({
                   <span>
                     Quiero el cordón personalizado <strong>(+{surcharge})</strong>
                     <span className="block text-xs text-text-muted">
-                      Reemplaza al cordón estándar incluido.
+                      Reemplaza al cordón estándar incluido. El diseño del cordón personalizado se
+                      acuerda por WhatsApp.
                     </span>
                   </span>
                 </label>
@@ -186,26 +193,29 @@ export function IncludedAccessoriesSection({
           ))}
       </div>
 
+      {notice && (
+        <p role="alert" className="mt-5 text-sm text-danger">
+          {notice} Actualizamos los colores disponibles: elegí otro.
+        </p>
+      )}
+
       <div className="mt-5" aria-live="polite">
-        <Summary complete={complete} lensIncomplete={lensIncomplete} quote={quote} />
+        <Summary offer={offer} complete={complete} lensIncomplete={lensIncomplete} quote={quote} />
       </div>
     </section>
   );
 }
 
 function Summary({
+  offer,
   complete,
   lensIncomplete,
   quote,
 }: {
+  offer: IncludedAccessoriesDto;
   complete: boolean;
   lensIncomplete: boolean;
-  quote: {
-    data: EyewearConfigurationQuote | undefined;
-    isError: boolean;
-    error: unknown;
-    isFetching: boolean;
-  };
+  quote: QuoteState;
 }) {
   if (!complete) {
     return (
@@ -222,6 +232,9 @@ function Summary({
     );
   }
   if (quote.isError) {
+    // A sold-out accessory (409) is explained by the notice above, and the
+    // refreshed offer has already dropped it: nothing more to say here.
+    if (quote.error instanceof ApiClientError && quote.error.status === 409) return null;
     return (
       <p role="alert" className="text-sm text-danger">
         {quote.error instanceof ApiClientError && quote.error.status < 500
@@ -231,7 +244,7 @@ function Summary({
     );
   }
   const data = quote.data;
-  if (!data?.accessories || quote.isFetching) {
+  if (!data?.accessories) {
     return <p className="text-sm text-text-muted">Calculando el total…</p>;
   }
   const { accessories } = data;
@@ -248,20 +261,22 @@ function Summary({
     <dl aria-label="Resumen con accesorios" className="rounded-md border border-border p-4 text-sm">
       {row("Anteojo", formatPrice(data.framePrice))}
       {data.lens && row("Cristales", formatPrice(data.lensPrice), data.lens.lensTypeName)}
-      {accessories.case && row("Estuche incluido", "Gratis", optionName(accessories.case))}
-      {accessories.cord && row("Cordón", "Gratis", optionName(accessories.cord))}
+      {accessories.case &&
+        row("Estuche incluido", "Gratis", optionDisplayName(accessories.case, offer.case.options))}
+      {accessories.cord &&
+        row("Cordón", "Gratis", optionDisplayName(accessories.cord, offer.cord.options))}
       {accessories.customCord &&
         row(
           "Cordón personalizado",
           `+${formatPrice(accessories.surcharge)}`,
-          optionName(accessories.customCord),
+          optionDisplayName(accessories.customCord, offer.customCord.options),
         )}
       <div className="mt-3 flex justify-between gap-4 border-t border-border pt-3 font-semibold">
         <dt className="text-text">Total estimado</dt>
         <dd className="text-primary">{formatPrice(data.totalWithAccessories ?? data.total)}</dd>
       </div>
       <p className="mt-2 text-xs text-text-muted">
-        Precio y disponibilidad sujetos a confirmación por WhatsApp.
+        Precio y disponibilidad sujetos a confirmación.
       </p>
     </dl>
   );

@@ -58,7 +58,10 @@ function accessoriesPhrase(accessories: WhatsAppProductContext["includedAccessor
       : null,
   ].filter(Boolean);
   const list = items.length > 0 ? ` Accesorios: ${items.join(", ")}.` : "";
-  return `${list} Total estimado: ${formatPrice(accessories.estimatedTotal)}. Entiendo que la disponibilidad está sujeta a confirmación.`;
+  const design = accessories.personalizedCordName
+    ? " El diseño del cordón personalizado se acuerda por WhatsApp."
+    : "";
+  return `${list} Total estimado: ${formatPrice(accessories.estimatedTotal)}. Entiendo que el precio y la disponibilidad están sujetos a confirmación.${design}`;
 }
 
 function lensPhrase(lens: WhatsAppProductContext["lens"]): string {
