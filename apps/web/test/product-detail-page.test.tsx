@@ -94,6 +94,18 @@ function mockFetch(
       if (path.endsWith("/related")) {
         return overrides.related ?? { ok: true, status: 200, json: async () => ({ data: [] }) };
       }
+      // ADR-0028 Phase 2: no accessories set up → no section.
+      if (path === "/api/accessories/included") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            case: { configured: false, options: [] },
+            cord: { configured: false, options: [] },
+            customCord: { configured: false, options: [], surcharge: 4000 },
+          }),
+        };
+      }
       if (path.startsWith("/api/recommendations/")) {
         return (
           overrides.recommendation ?? {

@@ -1,5 +1,7 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type {
+  IncludedAccessoriesDto,
+  IncludedAccessoriesSelection,
   EyewearConfigurationInput,
   EyewearConfigurationQuote,
   Paginated,
@@ -95,18 +97,35 @@ export function useRelatedProductsQuery(slug: string | undefined) {
 export function useEyewearQuoteQuery(
   slug: string | undefined,
   input: EyewearConfigurationInput | null,
+  // ADR-0028 Phase 2 — ids of the included accessories, when quoted.
+  accessories?: IncludedAccessoriesSelection | null,
 ) {
   return useQuery({
-    queryKey: ["products", "detail", slug, "quote", input],
+    queryKey: ["products", "detail", slug, "quote", input, accessories ?? null],
     queryFn: () =>
       apiGet<EyewearConfigurationQuote>(`/api/products/${slug}/quote`, {
         variantId: input?.variantId,
         lensTypeId: input?.lens?.lensTypeId,
         lensOptionId: input?.lens?.lensOptionId ?? undefined,
         graduationMode: input?.graduationMode,
+        caseVariantId: accessories?.caseVariantId ?? undefined,
+        cordVariantId: accessories?.cordVariantId ?? undefined,
+        customCordVariantId: accessories?.customCordVariantId ?? undefined,
       }),
     enabled: Boolean(slug && input),
     placeholderData: keepPreviousData,
+    retry: false,
+  });
+}
+
+// ADR-0028 Phase 2 — the cases/cords on offer with every pair of eyewear
+// (in-stock variants only). Same for every frame, so one shared key.
+export function useIncludedAccessoriesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ["accessories", "included"],
+    queryFn: () => apiGet<IncludedAccessoriesDto>("/api/accessories/included"),
+    enabled,
+    staleTime: 60_000,
     retry: false,
   });
 }

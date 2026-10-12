@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ProductVariantDto } from "@soluciones-opticas/shared";
 import { SeoHead } from "../components/ui/SeoHead";
@@ -13,6 +14,11 @@ import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
 import { LensConfigurator } from "../components/products/LensConfigurator";
+import {
+  FrameIncludedAccessories,
+  type IncludedAccessoriesSummary,
+} from "../components/products/FrameIncludedAccessories";
+import { EMPTY_ACCESSORY_CHOICE, type AccessoryChoice } from "../lib/included-accessories";
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
 import { formatPrice } from "../lib/format-price";
 import { buildProductInquiryMessage } from "../lib/whatsapp";
@@ -39,6 +45,9 @@ export function ProductDetailPage() {
   const { data: product, isLoading, isError, error } = useProductQuery(slug);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [lensSelection, setLensSelection] = useState<LensSelection>(FRAME_ONLY_SELECTION);
+  // ADR-0028 Phase 2 — included case/cord choice and its quoted summary.
+  const [accessoryChoice, setAccessoryChoice] = useState<AccessoryChoice>(EMPTY_ACCESSORY_CHOICE);
+  const [accessorySummary, setAccessorySummary] = useState<IncludedAccessoriesSummary | null>(null);
 
   if (isLoading) {
     return (
@@ -129,6 +138,7 @@ export function ProductDetailPage() {
     isAccessory,
     productUrl: typeof window !== "undefined" ? window.location.href : null,
     lens: offersLenses ? summarizeLensSelection(lensSelection, lensTypes) : null,
+    includedAccessories: isAccessory ? null : accessorySummary,
   });
 
   return (
@@ -259,6 +269,20 @@ export function ProductDetailPage() {
             )}
 
             {!isAccessory && (
+              <FrameIncludedAccessoriesSlot>
+                <FrameIncludedAccessories
+                  slug={product.slug}
+                  variantId={selectedVariant.id}
+                  lensTypes={lensTypes}
+                  lensSelection={lensSelection}
+                  choice={accessoryChoice}
+                  onChange={setAccessoryChoice}
+                  onSummary={setAccessorySummary}
+                />
+              </FrameIncludedAccessoriesSlot>
+            )}
+
+            {!isAccessory && (
               <div className="mt-8 border-t border-border pt-6">
                 <MeasurementsTable measurements={product.frameMeasurements} />
               </div>
@@ -276,6 +300,12 @@ export function ProductDetailPage() {
       </Container>
     </>
   );
+}
+
+// Spacing/divider only around a rendered accessories section (it renders
+// nothing until the store has set up a case or a cord).
+function FrameIncludedAccessoriesSlot({ children }: { children: ReactNode }) {
+  return <div className="mt-8 border-t border-border pt-6 empty:hidden">{children}</div>;
 }
 
 function ProductDetailSkeleton() {

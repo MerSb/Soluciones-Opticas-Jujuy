@@ -507,3 +507,32 @@ describe("predeploy fixes (web)", () => {
     expect(screen.getByRole("button", { name: "Agregar color o presentación" })).toBeEnabled();
   });
 });
+
+describe("admin — included accessory hints (Phase 2)", () => {
+  it("explains how each type is used, with the surcharge from the API", async () => {
+    stubApi({
+      "GET /api/admin/products/p1": () => adminAccessory({ accessoryRole: "CUSTOM_CORD" }),
+      "GET /api/admin/brands": () => BRANDS,
+      "GET /api/admin/categories": () => CATEGORIES,
+      "GET /api/accessories/included": () => ({
+        case: { configured: false, options: [] },
+        cord: { configured: false, options: [] },
+        customCord: { configured: false, options: [], surcharge: 4000 },
+      }),
+    });
+    renderAt("/admin/products/p1", [
+      { path: "/admin/products/:id", element: <AdminProductDetailPage /> },
+    ]);
+    expect(
+      await screen.findByText(
+        /^Sus colores con stock se ofrecen como cordón personalizado \(\+\$\s4\.000\), que reemplaza al cordón estándar\.$/,
+      ),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Tipo de accesorio"), "CASE");
+    expect(
+      screen.getByText(
+        "Sus colores con stock se ofrecen como estuche incluido, sin costo, en todos los anteojos.",
+      ),
+    ).toBeInTheDocument();
+  });
+});

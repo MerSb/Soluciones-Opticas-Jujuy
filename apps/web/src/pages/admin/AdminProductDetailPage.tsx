@@ -8,7 +8,14 @@ import { FormField } from "../../components/forms/FormField";
 import { PreferenceChipGroup } from "../../components/optical-profile/PreferenceChipGroup";
 import { FRAME_SHAPE_OPTIONS, STYLE_PREFERENCE_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { ApiClientError } from "../../services/api-client";
-import { ACCESSORY_ROLE_OPTIONS, accessoryRoleLabel } from "../../lib/accessories";
+import {
+  ACCESSORY_ROLE_OPTIONS,
+  accessoryRoleLabel,
+  accessoryRoleUsage,
+} from "../../lib/accessories";
+import { useIncludedAccessoriesQuery } from "../../services/queries/products";
+import { isIncludedAccessoriesDto } from "../../lib/included-accessories";
+import { formatPrice } from "../../lib/format-price";
 import type { AdminVariantDto } from "@soluciones-opticas/shared";
 import {
   useAdminBrandsQuery,
@@ -64,6 +71,11 @@ export function AdminProductDetailPage() {
   const updateProduct = useUpdateProductMutation();
   const deleteProduct = useDeleteProductMutation();
   const restoreProduct = useRestoreProductMutation();
+  // ADR-0028 Phase 2 — the personalized-cord surcharge, from the API.
+  const includedOffer = useIncludedAccessoriesQuery();
+  const includedSurchargeText = isIncludedAccessoriesDto(includedOffer.data)
+    ? formatPrice(includedOffer.data.customCord.surcharge)
+    : null;
 
   const [name, setName] = useState("");
   const [brandId, setBrandId] = useState("");
@@ -282,6 +294,9 @@ export function AdminProductDetailPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1.5 text-xs text-text-muted">
+                {accessoryRoleUsage(accessoryRole, includedSurchargeText)}
+              </p>
             </div>
           ) : (
             <div>

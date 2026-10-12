@@ -95,9 +95,53 @@ whether regular cases/cords are sold on their own; cleaner sizes, brand and phot
 no case/cord color is in stock; same or different selections for several units; brand used for
 accessories; hide vs delete a discontinued color.
 
+## Phase 2 — included case and cord (local, 2026-10-12)
+
+Every pair of eyewear includes one case and one standard cord at no cost; the buyer picks their
+colors. The standard cord can be replaced by a personalized cord for a fixed surcharge.
+
+- **No migration.** The surcharge is `CUSTOM_CORD_SURCHARGE` (ARS 4.000, `Decimal`) in
+  `apps/api/src/lib/accessory-policy.ts` — the single source; the web always shows the value the API
+  returns. It is not the personalized cord product's `basePrice`, which stays its standalone price.
+- **Eligibility** (`included-accessories.service.ts`): an accessory product (not soft-deleted) with
+  role `CASE`, `CORD` or `CUSTOM_CORD`, whether or not it is also `soldIndividually`. Only variants
+  with `stock > 0` are offered; stock is never shown to the buyer.
+- **API:** `GET /api/accessories/included` → `{case, cord, customCord: {…, surcharge}}`, each slot
+  `{configured, options}` (`configured` = the store has set that slot up). The frame quote
+  (`GET /api/products/:slug/quote`) accepts optional `caseVariantId`, `cordVariantId`,
+  `customCordVariantId` and adds `accessories` + `totalWithAccessories`; `total` keeps its meaning
+  (frame + lens). Without accessory params the quote is unchanged (`accessories: null`).
+- **Completeness (server-validated):** a case when cases are in stock; exactly one cord — standard
+  or personalized — when either is in stock; both cords → 400. A slot with nothing in stock is not
+  required and the page says so ("Por el momento no hay …"). Unknown, deleted or wrong-role variant
+  → 400; sold out at quote time → 409.
+- **Read-only:** selecting, quoting or opening WhatsApp never reserves or decrements stock.
+- **Frame page:** "Personalizá tus accesorios incluidos" — hidden while no case/cord is configured
+  (the feature is dormant until the store loads them). Summary: frame, lens, case "Gratis", cord
+  "Gratis" or personalized cord "+$4.000", "Total estimado". The WhatsApp message adds the chosen
+  accessories, the surcharge, the estimated total and an availability disclaimer — only once the
+  server has quoted a complete selection.
+- **Not decided here (client):** colors, stock, personalization content (no text/name is collected),
+  standalone prices, brand/category, policy when no included accessory is available (today: the
+  page says so and the pair is still quotable).
+
+### Payments V1 compatibility (design only, not implemented)
+
+- Order line per included accessory as a child `OrderItem` of the frame line (`parentItemId`,
+  `role = INCLUDED_CASE | INCLUDED_CORD | CUSTOM_CORD`) with name/color/label snapshots.
+- Included case/cord: `unitPrice = 0`. Personalized cord: `unitPrice = CUSTOM_CORD_SURCHARGE`
+  snapshot at checkout — never the client's number; checkout re-runs `resolveIncludedAccessories`.
+- Stock: reserved through the existing per-`variantId` summed reservation, so a case shared by two
+  pairs reserves 2; released/committed with the order like any line.
+- Mercado Pago: zero-price lines are left out of `items` (or folded into the frame line's
+  description); the surcharge line is included so the charged total equals the order total.
+- Idempotency: the order is built from the server quote; resubmitting the same cart must not
+  duplicate child lines (child lines are created with the parent in one transaction).
+- Accessories still never show a cart button until Payments V1 ships.
+
 ## Phases
 
-1. **Catalog (this ADR):** model, admin, `/accesorios`, frame-only filters.
-2. Included case/cord selection on the frame page (quote extended, WhatsApp summary).
+1. **Catalog:** model, admin, `/accesorios`, frame-only filters.
+2. **Included case/cord selection** on the frame page (quote extended, WhatsApp summary) — above.
 3. Cart, checkout and order items (on top of Payments V1).
 4. Personalization, once defined.

@@ -2,6 +2,8 @@
 // construct one by hand or duplicate a phone number. See
 // components/ui/WhatsAppButton.tsx, the only consumer that should ever
 // need this directly.
+import { formatPrice } from "./format-price";
+
 export function buildWhatsAppUrl(phoneNumber: string, message?: string): string {
   const digitsOnly = phoneNumber.replace(/[^\d]/g, "");
   const query = message ? `?text=${encodeURIComponent(message)}` : "";
@@ -23,6 +25,16 @@ export interface WhatsAppProductContext {
   presentation?: string | null;
   /** ADR-0028 — "el accesorio" instead of "el modelo". */
   isAccessory?: boolean;
+  /** ADR-0028 Phase 2 — only for a complete, server-quoted selection;
+   * omitted otherwise so the message never promises an accessory. */
+  includedAccessories?: {
+    caseName: string | null;
+    cordName: string | null;
+    personalizedCordName: string | null;
+    /** From the quote (ARS). */
+    surcharge: number;
+    estimatedTotal: number;
+  } | null;
   /**
    * Lens configuration (ADR-0023) — only for products that offer lenses.
    * Omitted entirely for every other product, so their message stays
@@ -34,6 +46,19 @@ export interface WhatsAppProductContext {
     lensOptionName?: string | null;
     customGraduation?: boolean;
   } | null;
+}
+
+function accessoriesPhrase(accessories: WhatsAppProductContext["includedAccessories"]): string {
+  if (!accessories) return "";
+  const items = [
+    accessories.caseName ? `estuche ${accessories.caseName} (incluido, sin cargo)` : null,
+    accessories.cordName ? `cordón ${accessories.cordName} (incluido, sin cargo)` : null,
+    accessories.personalizedCordName
+      ? `cordón personalizado ${accessories.personalizedCordName} (+${formatPrice(accessories.surcharge)})`
+      : null,
+  ].filter(Boolean);
+  const list = items.length > 0 ? ` Accesorios: ${items.join(", ")}.` : "";
+  return `${list} Total estimado: ${formatPrice(accessories.estimatedTotal)}. Entiendo que la disponibilidad está sujeta a confirmación.`;
 }
 
 function lensPhrase(lens: WhatsAppProductContext["lens"]): string {
@@ -58,6 +83,7 @@ export function buildProductInquiryMessage({
   isAccessory,
   productUrl,
   lens,
+  includedAccessories,
 }: WhatsAppProductContext): string {
   const productPhrase = brandName ? `${productName} de ${brandName}` : productName;
   const presentationPhrase = presentation ? `, presentación ${presentation}` : "";
@@ -65,7 +91,7 @@ export function buildProductInquiryMessage({
   const linkPhrase = productUrl ? ` ${productUrl}` : "";
   const noun = isAccessory ? "el accesorio" : "el modelo";
 
-  return `Hola, estoy interesado/a en ${noun} ${productPhrase}${presentationPhrase}${colorPhrase}${lensPhrase(lens)}. ¿Podrían darme más información?${linkPhrase}`;
+  return `Hola, estoy interesado/a en ${noun} ${productPhrase}${presentationPhrase}${colorPhrase}${lensPhrase(lens)}.${accessoriesPhrase(includedAccessories)} ¿Podrían darme más información?${linkPhrase}`;
 }
 
 // Convenience wrapper for a call site that needs the full wa.me URL

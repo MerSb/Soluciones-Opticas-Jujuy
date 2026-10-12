@@ -6,7 +6,10 @@ import { SeoHead } from "../../components/ui/SeoHead";
 import { FormField } from "../../components/forms/FormField";
 import { ApiClientError } from "../../services/api-client";
 import { FRAME_SHAPE_OPTIONS } from "../../lib/optical-profile-taxonomy";
-import { ACCESSORY_ROLE_OPTIONS } from "../../lib/accessories";
+import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
+import { useIncludedAccessoriesQuery } from "../../services/queries/products";
+import { isIncludedAccessoriesDto } from "../../lib/included-accessories";
+import { formatPrice } from "../../lib/format-price";
 import {
   useAdminBrandsQuery,
   useAdminCategoriesQuery,
@@ -20,6 +23,11 @@ export function AdminNewProductPage() {
   const { data: brands } = useAdminBrandsQuery();
   const { data: categories } = useAdminCategoriesQuery();
   const createProduct = useCreateProductMutation();
+  // ADR-0028 Phase 2 — the personalized-cord surcharge, from the API.
+  const includedOffer = useIncludedAccessoriesQuery();
+  const includedSurchargeText = isIncludedAccessoriesDto(includedOffer.data)
+    ? formatPrice(includedOffer.data.customCord.surcharge)
+    : null;
 
   const [name, setName] = useState("");
   const [brandId, setBrandId] = useState("");
@@ -178,6 +186,9 @@ export function AdminNewProductPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1.5 text-xs text-text-muted">
+                {accessoryRoleUsage(accessoryRole || null, includedSurchargeText)}
+              </p>
             </div>
             <label className="flex items-start gap-2 text-sm text-text">
               <input

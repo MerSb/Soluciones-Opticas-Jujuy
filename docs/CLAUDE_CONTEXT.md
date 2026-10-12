@@ -97,7 +97,12 @@ documento enlazado. Última actualización: Shipping V1 — Fase A (2026-09-13).
   precio por `priceOverride`, stock por variante, imágenes con el pipeline existente.
 - Todo lo óptico (catálogo `/products`, filtros, recomendaciones, relacionados, quote/cristales,
   contadores públicos) es solo `FRAME` (`lib/product-kind.ts`). `/accesorios` lista accesorios con
-  `soldIndividually`. `kind` es inmutable. Sin pedidos ni personalización todavía (Fases 2–4).
+  `soldIndividually`. `kind` es inmutable.
+- **Fase 2:** cada anteojo incluye estuche + cordón sin cargo (el cliente elige color); el cordón
+  personalizado lo reemplaza por `CUSTOM_CORD_SURCHARGE` ($4.000, `lib/accessory-policy.ts`).
+  `GET /api/accessories/included` + params opcionales en el quote; solo variantes con stock; nunca
+  reserva ni descuenta stock. Sección oculta mientras no haya estuches/cordones cargados. Pedidos y
+  personalización: Fases 3–4.
 
 **Envíos — Shipping V1** (ADR-0024, [`SHIPPING.md`](SHIPPING.md))
 
