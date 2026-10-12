@@ -5,6 +5,7 @@
 //
 // A lens option (tint/variety) is never a frame ProductVariant: the
 // variant is the physical frame, these describe what goes inside it.
+import type { IncludedAccessoriesQuote } from "./accessories.js";
 
 /** NONE = no prescription. CUSTOM = the shop contacts the customer after
  * the order to advise and complete the prescription. Never carries
@@ -86,4 +87,10 @@ export interface EyewearConfigurationQuote {
   /** framePrice + lensPrice, summed as Decimal server-side. Custom
    * graduation never adds to it in V1. */
   total: number;
+  /** ADR-0028 Phase 2 — present only when the quote was asked for the
+   * included accessories; null otherwise. */
+  accessories?: IncludedAccessoriesQuote | null;
+  /** total + accessories.surcharge (Decimal, server-side); equals total
+   * when no accessories were quoted. */
+  totalWithAccessories?: number;
 }

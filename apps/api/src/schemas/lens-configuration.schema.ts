@@ -13,5 +13,9 @@ export const eyewearQuoteQuerySchema = z.object({
   lensTypeId: z.string().uuid().optional(),
   lensOptionId: z.string().uuid().optional(),
   graduationMode: z.enum(GRADUATION_MODES).optional().default("NONE"),
+  // ADR-0028 Phase 2 — included accessories (ids only, never prices).
+  caseVariantId: z.string().uuid().optional(),
+  cordVariantId: z.string().uuid().optional(),
+  customCordVariantId: z.string().uuid().optional(),
 });
 export type EyewearQuoteQuery = z.infer<typeof eyewearQuoteQuerySchema>;

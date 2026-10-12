@@ -6,3 +6,4 @@ export * from "./recommendations.js";
 export * from "./admin.js";
 export * from "./lens.js";
 export * from "./shipping.js";
+export * from "./accessories.js";

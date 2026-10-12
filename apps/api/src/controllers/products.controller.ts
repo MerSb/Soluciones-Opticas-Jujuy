@@ -5,6 +5,8 @@ import * as productsService from "../services/products.service.js";
 import * as lensConfigurationService from "../services/lens-configuration.service.js";
 import type { ProductsListQuery } from "../schemas/products.schema.js";
 import type { EyewearQuoteQuery } from "../schemas/lens-configuration.schema.js";
+import { Prisma } from "@prisma/client";
+import * as includedAccessoriesService from "../services/included-accessories.service.js";
 
 export const listProducts = asyncHandler(async (_req: Request, res: Response) => {
   const query = res.locals.query as ProductsListQuery;
@@ -34,8 +36,15 @@ export const getRelatedProducts = asyncHandler(async (_req: Request, res: Respon
 // side effects — no stock change, no cart, no order.
 export const getQuote = asyncHandler(async (_req: Request, res: Response) => {
   const { slug } = res.locals.params as { slug: string };
-  const { variantId, lensTypeId, lensOptionId, graduationMode } = res.locals
-    .query as EyewearQuoteQuery;
+  const {
+    variantId,
+    lensTypeId,
+    lensOptionId,
+    graduationMode,
+    caseVariantId,
+    cordVariantId,
+    customCordVariantId,
+  } = res.locals.query as EyewearQuoteQuery;
   if (!lensTypeId && lensOptionId) {
     throw ApiError.validation("Elegí un cristal antes de elegir una variedad.");
   }
@@ -44,5 +53,23 @@ export const getQuote = asyncHandler(async (_req: Request, res: Response) => {
     lens: lensTypeId ? { lensTypeId, lensOptionId: lensOptionId ?? null } : null,
     graduationMode,
   });
-  res.json(quote);
+  // ADR-0028 Phase 2 — the included accessories are validated separately
+  // (same rules the future checkout will use) and only add the
+  // personalized-cord surcharge; `total` keeps its meaning (frame + lens).
+  const selection = {
+    caseVariantId: caseVariantId ?? null,
+    cordVariantId: cordVariantId ?? null,
+    customCordVariantId: customCordVariantId ?? null,
+  };
+  if (!includedAccessoriesService.hasAccessorySelection(selection)) {
+    res.json({ ...quote, accessories: null, totalWithAccessories: quote.total });
+    return;
+  }
+  const { quote: accessories, surcharge } =
+    await includedAccessoriesService.resolveIncludedAccessories(selection);
+  res.json({
+    ...quote,
+    accessories,
+    totalWithAccessories: new Prisma.Decimal(quote.total).plus(surcharge).toNumber(),
+  });
 });

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { healthRouter } from "./health.routes.js";
 import { productsRouter } from "./products.routes.js";
+import { accessoriesRouter } from "./accessories.routes.js";
 import { brandsRouter } from "./brands.routes.js";
 import { categoriesRouter } from "./categories.routes.js";
 import { branchesRouter } from "./branches.routes.js";
@@ -15,6 +16,7 @@ export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
 apiRouter.use("/products", productsRouter);
+apiRouter.use("/accessories", accessoriesRouter);
 apiRouter.use("/brands", brandsRouter);
 apiRouter.use("/categories", categoriesRouter);
 apiRouter.use("/branches", branchesRouter);
