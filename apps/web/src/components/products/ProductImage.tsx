@@ -13,6 +13,8 @@ interface ProductImageProps {
   className?: string;
   /** Above-the-fold usage (e.g. the product-detail main image) — skips lazy-loading. */
   eager?: boolean;
+  /** The page's likely LCP image: fetched first (implies eager). */
+  priority?: boolean;
   /**
    * "cover" (default) fills the frame and may crop — right for frames,
    * photographed landscape. "contain" shows the whole product, centered
@@ -42,6 +44,7 @@ export function ProductImage({
   aspectRatio = "4 / 3",
   className,
   eager = false,
+  priority = false,
   fit = "cover",
 }: ProductImageProps) {
   const [failed, setFailed] = useState(false);
@@ -71,7 +74,8 @@ export function ProductImage({
         srcSet={srcSet ?? undefined}
         sizes={sizes}
         alt={alt}
-        loading={eager ? "eager" : "lazy"}
+        loading={eager || priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : undefined}
         decoding="async"
         onError={() => setFailed(true)}
         className={`h-full w-full ${fit === "contain" ? "object-contain object-center" : "object-cover"}`}

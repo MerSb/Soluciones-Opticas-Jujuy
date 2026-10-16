@@ -46,6 +46,17 @@ export function AccessoriesPage() {
               : ""}
         </p>
         <div className="mt-8" aria-busy={isLoading}>
+          {/* The count line is always there (empty while loading) so the
+              grid doesn't jump down when the list arrives (CLS). */}
+          {!isError && (
+            <p className="mb-4 min-h-5 text-sm text-text-muted" aria-hidden="true">
+              {!isLoading && data && data.data.length > 0
+                ? data.pagination.total === 1
+                  ? "1 accesorio"
+                  : `${data.pagination.total} accesorios`
+                : null}
+            </p>
+          )}
           {isLoading && (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
               {SKELETON_KEYS.map((key) => (
@@ -82,14 +93,9 @@ export function AccessoriesPage() {
 
           {!isLoading && !isError && data && data.data.length > 0 && (
             <>
-              <p className="mb-4 text-sm text-text-muted" aria-hidden="true">
-                {data.pagination.total === 1
-                  ? "1 accesorio"
-                  : `${data.pagination.total} accesorios`}
-              </p>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {data.data.map((product) => (
-                  <ProductCard key={product.slug} product={product} />
+                {data.data.map((product, index) => (
+                  <ProductCard key={product.slug} product={product} priority={index < 3} />
                 ))}
               </div>
             </>

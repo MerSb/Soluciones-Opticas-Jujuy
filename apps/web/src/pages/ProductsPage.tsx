@@ -171,8 +171,8 @@ export function ProductsPage() {
 
               {!isLoading && !isError && data && data.data.length > 0 && (
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                  {data.data.map((product) => (
-                    <ProductCard key={product.slug} product={product} />
+                  {data.data.map((product, index) => (
+                    <ProductCard key={product.slug} product={product} priority={index < 3} />
                   ))}
                 </div>
               )}

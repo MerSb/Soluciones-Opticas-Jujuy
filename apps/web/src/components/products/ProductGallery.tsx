@@ -49,9 +49,11 @@ export function ProductGallery({
                 index === selectedIndex ? "border-primary" : "border-border"
               }`}
             >
+              {/* The button is named by the sr-only text below; the
+                  thumbnail itself is decorative (no repeated alt). */}
               <ProductImage
                 publicId={image.publicId}
-                alt={image.alt}
+                alt=""
                 widths={CLOUDINARY_WIDTHS.detailThumbnail}
                 aspectRatio="1 / 1"
                 className="h-full w-full"

@@ -16,7 +16,9 @@ import { StatusMessage } from "../components/ui/StatusMessage";
 // otherwise fires on first paint for any route using `lazy`.
 function RouteLoadingFallback() {
   return (
-    <Container className="py-16">
+    // min-h: keeps the footer below the fold while a lazy route loads, so
+    // it doesn't jump down when the page arrives (CLS).
+    <Container className="min-h-[70vh] py-16">
       <StatusMessage variant="loading" message="Cargando página…" />
     </Container>
   );

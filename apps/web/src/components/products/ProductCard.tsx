@@ -10,7 +10,14 @@ import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 // related, recommendations) — per Customer Experience V2, an
 // improvement that's genuinely universal belongs directly on
 // ProductCard rather than as a per-context wrapper concern.
-export function ProductCard({ product }: { product: ProductListItem }) {
+export function ProductCard({
+  product,
+  priority = false,
+}: {
+  product: ProductListItem;
+  /** First cards of a grid: their photo is likely the page's LCP. */
+  priority?: boolean;
+}) {
   const sizeSummary = buildSizeSummary(product.frameMeasurements);
   // Accessories (e.g. upright cleaner bottles) are shown whole, never
   // cropped and never zoomed; frames keep the full-bleed photo.
@@ -40,6 +47,7 @@ export function ProductCard({ product }: { product: ProductListItem }) {
           sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
           aspectRatio="4 / 3"
           fit={isAccessory ? "contain" : "cover"}
+          priority={priority}
           className={
             isAccessory
               ? "w-full"
