@@ -431,6 +431,7 @@ export function AdminProductDetailPage() {
       <div className="mt-12">
         <AdminVariantsEditor
           productId={product.id}
+          productSlug={product.slug}
           variants={product.variants}
           kind={product.kind}
         />

@@ -3,6 +3,7 @@ import {
   createImage,
   createProduct,
   createVariant,
+  createVariantsBatch,
   deleteImage,
   deleteProduct,
   deleteVariant,
@@ -22,6 +23,7 @@ import {
   createImageBodySchema,
   createProductBodySchema,
   createVariantBodySchema,
+  createVariantsBatchBodySchema,
   imageIdParamSchema,
   productIdParamSchema,
   reorderImagesBodySchema,
@@ -57,6 +59,13 @@ adminProductsRouter.post(
   validateParams(productIdParamSchema),
   validateBody(createVariantBodySchema),
   createVariant,
+);
+// ADR-0028 — accessories: several colors at once (all or nothing).
+adminProductsRouter.post(
+  "/:id/variants/batch",
+  validateParams(productIdParamSchema),
+  validateBody(createVariantsBatchBodySchema),
+  createVariantsBatch,
 );
 adminProductsRouter.patch(
   "/:id/variants/:variantId",

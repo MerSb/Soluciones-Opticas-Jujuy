@@ -35,3 +35,45 @@ export function accessoryRoleUsage(
       return "No se ofrece como accesorio incluido; se vende por separado si está activada esa opción.";
   }
 }
+
+/**
+ * Colors offered as a palette when loading an accessory's variants. Only
+ * a starting point: the admin picks the ones that really exist (nothing
+ * is assigned automatically) and can add any other color by name.
+ */
+export const ACCESSORY_COLOR_PALETTE = [
+  "Negro",
+  "Blanco",
+  "Gris",
+  "Azul",
+  "Celeste",
+  "Rosado",
+  "Rojo",
+  "Verde",
+  "Violeta",
+  "Marrón",
+  "Dorado",
+  "Plateado",
+  "Transparente",
+] as const;
+
+/** Same color for the store: case, accents and spacing don't matter
+ * (mirrors the API's duplicate rule). */
+export function colorKey(color: string): string {
+  return color
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** A suggested SKU for a new color — editable by the admin. */
+export function suggestSku(productSlug: string, color: string): string {
+  const part = (value: string) =>
+    colorKey(value)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toUpperCase();
+  return `${part(productSlug)}-${part(color)}`.slice(0, 100);
+}

@@ -88,6 +88,24 @@ export const createVariantBodySchema = z.object({
 });
 export type CreateVariantBody = z.infer<typeof createVariantBodySchema>;
 
+// Accessories: several colors in one go. Color and stock are required per
+// row — a stock is never assumed — and the whole batch is one transaction.
+export const createVariantsBatchBodySchema = z.object({
+  variants: z
+    .array(
+      z.object({
+        color: z.string().trim().min(1).max(200),
+        stock: z.number().int().nonnegative().max(1_000_000),
+        sku,
+        label: nullableLabel.optional(),
+        priceOverride: z.number().positive().max(10_000_000).nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(30),
+});
+export type CreateVariantsBatchBody = z.infer<typeof createVariantsBatchBodySchema>;
+
 export const updateVariantBodySchema = z.object({
   color: nullableColorOrMaterial.optional(),
   material: nullableColorOrMaterial.optional(),

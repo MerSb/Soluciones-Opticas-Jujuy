@@ -6,6 +6,7 @@ import type {
   CreateImageBody,
   CreateProductBody,
   CreateVariantBody,
+  CreateVariantsBatchBody,
   ReorderImagesBody,
   UpdateImageBody,
   UpdateProductBody,
@@ -59,6 +60,12 @@ export const createVariant = asyncHandler(async (_req: Request, res: Response) =
   const { id } = res.locals.params as { id: string };
   const body = res.locals.body as CreateVariantBody;
   res.status(201).json(await adminProductsService.createVariant(id, body));
+});
+
+export const createVariantsBatch = asyncHandler(async (_req: Request, res: Response) => {
+  const { id } = res.locals.params as { id: string };
+  const body = res.locals.body as CreateVariantsBatchBody;
+  res.status(201).json(await adminProductsService.createVariantsBatch(id, body));
 });
 
 export const updateVariant = asyncHandler(async (_req: Request, res: Response) => {

@@ -10,6 +10,7 @@ import {
   useUpdateVariantMutation,
 } from "../../services/queries/admin";
 import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
+import { AccessoryColorPicker } from "./AccessoryColorPicker";
 
 const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 // An empty stock field must never be saved as 0 by accident (Number("")
@@ -23,10 +24,13 @@ const priceOrNull = (value: string) => (value.trim() === "" ? null : Number(valu
 // variants keep exactly the existing form and card.
 export function AdminVariantsEditor({
   productId,
+  productSlug = "",
   variants,
   kind = "FRAME",
 }: {
   productId: string;
+  /** For suggested SKUs of new accessory colors. */
+  productSlug?: string;
   variants: AdminVariantDto[];
   kind?: ProductKind;
 }) {
@@ -90,6 +94,19 @@ export function AdminVariantsEditor({
           <p className="text-sm text-text-muted">Todavía no hay variantes cargadas.</p>
         )}
       </div>
+
+      {isAccessory && (
+        <div className="mt-6">
+          <AccessoryColorPicker
+            productId={productId}
+            productSlug={productSlug}
+            variants={variants}
+          />
+          <p className="mt-6 text-sm font-medium text-text">
+            ¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:
+          </p>
+        </div>
+      )}
 
       <form
         onSubmit={handleCreate}
@@ -179,7 +196,7 @@ export function AdminVariantsEditor({
           {createVariant.isPending
             ? "Agregando…"
             : isAccessory
-              ? "Agregar color o presentación"
+              ? "Agregar presentación"
               : "Agregar variante"}
         </button>
       </form>
@@ -201,6 +218,17 @@ function confirmDeleteVariant(imageCount: number): boolean {
       ? `Esta variante tiene ${imageCount} ${imageCount === 1 ? "imagen cargada" : "imágenes cargadas"}. Al eliminarla también se eliminarán sus imágenes y stock. Esta acción no se puede deshacer.`
       : "Al eliminar esta variante también se eliminará su información de stock. Esta acción no se puede deshacer.";
   return window.confirm(message);
+}
+
+// Accessories: removing a color is final, while running out is not — so
+// the warning points to stock 0 first. (No order, prize or saved quote
+// references a variant in this schema; quotes are never stored.)
+function confirmDeleteAccessoryVariant(name: string, imageCount: number): boolean {
+  const images =
+    imageCount > 0 ? ` y ${imageCount === 1 ? "su imagen" : `sus ${imageCount} imágenes`}` : "";
+  return window.confirm(
+    `Vas a eliminar «${name}»${images}. Dejará de ofrecerse en la tienda y no se puede deshacer.\n\nSi solo se agotó, mejor poné su stock en 0: sigue cargado y vuelve a ofrecerse cuando haya unidades.`,
+  );
 }
 
 function VariantCard({ productId, variant }: { productId: string; variant: AdminVariantDto }) {
@@ -333,7 +361,9 @@ function AccessoryVariantCard({
         <button
           type="button"
           onClick={() => {
-            if (confirmDeleteVariant(variant.images.length)) deleteVariant.mutate(variant.id);
+            if (confirmDeleteAccessoryVariant(title, variant.images.length)) {
+              deleteVariant.mutate(variant.id);
+            }
           }}
           disabled={deleteVariant.isPending}
           className="text-sm font-medium text-danger hover:underline disabled:opacity-60"

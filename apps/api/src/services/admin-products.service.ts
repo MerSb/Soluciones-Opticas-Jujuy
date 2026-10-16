@@ -22,6 +22,7 @@ import type {
   CreateImageBody,
   CreateProductBody,
   CreateVariantBody,
+  CreateVariantsBatchBody,
   UpdateImageBody,
   UpdateProductBody,
   UpdateVariantBody,
@@ -473,12 +474,100 @@ async function assertLabelAllowed(productId: string, label: string | null | unde
   }
 }
 
+// An accessory can't have the same color (and presentation) twice:
+// "Negro" and " negro " or "Marrón"/"marron" are the same variant.
+// Frames keep their existing rules.
+export function variantKey(color: string | null, label: string | null): string {
+  const norm = (value: string | null) =>
+    (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  return `${norm(color)}|${norm(label)}`;
+}
+
+function duplicateColorError(color: string | null, label: string | null): ApiError {
+  const name = [color, label].filter(Boolean).join(" · ") || "sin color";
+  return ApiError.conflict(`El color «${name}» ya está cargado en este accesorio.`);
+}
+
+async function assertNoDuplicateAccessoryVariant(
+  productId: string,
+  color: string | null,
+  label: string | null,
+  exceptVariantId?: string,
+) {
+  const product = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: { kind: true, variants: { select: { id: true, color: true, label: true } } },
+  });
+  if (product.kind !== "ACCESSORY") return;
+  const key = variantKey(color, label);
+  const clash = product.variants.some(
+    (variant) => variant.id !== exceptVariantId && variantKey(variant.color, variant.label) === key,
+  );
+  if (clash) throw duplicateColorError(color, label);
+}
+
+/** Accessories only: several colors at once, all or nothing. */
+export async function createVariantsBatch(
+  productId: string,
+  body: CreateVariantsBatchBody,
+): Promise<AdminVariantDto[]> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { kind: true, deletedAt: true, variants: { select: { color: true, label: true } } },
+  });
+  if (!product) throw ApiError.notFound("El producto no existe.");
+  if (product.kind !== "ACCESSORY") {
+    throw kindError("variants", "Solo los accesorios cargan varios colores a la vez.");
+  }
+  const seen = new Set(product.variants.map((variant) => variantKey(variant.color, variant.label)));
+  const skus = new Set<string>();
+  for (const row of body.variants) {
+    const key = variantKey(row.color, row.label ?? null);
+    if (seen.has(key)) throw duplicateColorError(row.color, row.label ?? null);
+    seen.add(key);
+    if (skus.has(row.sku.toLowerCase())) {
+      throw ApiError.conflict(`El SKU "${row.sku}" está repetido en la lista.`);
+    }
+    skus.add(row.sku.toLowerCase());
+  }
+  let currentSku: string | undefined;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const created: AdminVariantDto[] = [];
+      for (const row of body.variants) {
+        currentSku = row.sku;
+        const variant = await tx.productVariant.create({
+          data: {
+            productId,
+            color: row.color,
+            label: row.label ?? null,
+            sku: row.sku,
+            stock: row.stock,
+            priceOverride: row.priceOverride ?? null,
+          },
+          select: VARIANT_SELECT,
+        });
+        created.push(toVariantDto(variant));
+      }
+      return created;
+    });
+  } catch (error) {
+    throw toSkuConflictOrRethrow(error, currentSku);
+  }
+}
+
 export async function createVariant(
   productId: string,
   body: CreateVariantBody,
 ): Promise<AdminVariantDto> {
   await getAdminProduct(productId);
   await assertLabelAllowed(productId, body.label);
+  await assertNoDuplicateAccessoryVariant(productId, body.color ?? null, body.label ?? null);
   try {
     const row = await prisma.productVariant.create({
       data: {
@@ -503,8 +592,16 @@ export async function updateVariant(
   variantId: string,
   body: UpdateVariantBody,
 ): Promise<AdminVariantDto> {
-  await requireVariantOfProduct(productId, variantId);
+  const current = await requireVariantOfProduct(productId, variantId);
   await assertLabelAllowed(productId, body.label);
+  if (body.color !== undefined || body.label !== undefined) {
+    await assertNoDuplicateAccessoryVariant(
+      productId,
+      body.color !== undefined ? body.color : current.color,
+      body.label !== undefined ? body.label : current.label,
+      variantId,
+    );
+  }
   try {
     const row = await prisma.productVariant.update({
       where: { id: variantId },

@@ -126,6 +126,14 @@ export function ProductDetailPage() {
   const selectedVariant: ProductVariantDto =
     product.variants.find((variant) => variant.id === selectedVariantId) ?? firstVariant;
 
+  // ADR-0028: an accessory color without its own photos keeps the
+  // product's general photo (from the first variant that has one), said
+  // as such — never recolored. Frames keep their per-variant gallery.
+  const generalPhotoFallback = isAccessoryKind(product.kind) && selectedVariant.images.length === 0;
+  const galleryImages = generalPhotoFallback
+    ? (product.variants.find((variant) => variant.images.length > 0)?.images ?? [])
+    : selectedVariant.images;
+
   const primaryImage =
     selectedVariant.images.find((image) => image.isPrimary) ?? selectedVariant.images[0];
   const ogImage = primaryImage
@@ -204,7 +212,14 @@ export function ProductDetailPage() {
         <Breadcrumbs items={breadcrumbItems} />
 
         <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-2">
-          <ProductGallery images={selectedVariant.images} fit={isAccessory ? "contain" : "cover"} />
+          <div>
+            <ProductGallery images={galleryImages} fit={isAccessory ? "contain" : "cover"} />
+            {generalPhotoFallback && galleryImages.length > 0 && (
+              <p className="mt-2 text-sm text-text-muted">
+                Foto general del producto: el color puede variar.
+              </p>
+            )}
+          </div>
 
           <div>
             {/* Wraps on very narrow screens so "Agregar a favoritos" never overflows. */}
@@ -288,6 +303,7 @@ export function ProductDetailPage() {
                       params: { item_id: product.slug, variant: variantDisplayName(variant) },
                     });
                   }}
+                  showAvailability={isAccessory}
                 />
               </div>
             )}
@@ -356,4 +372,9 @@ function ProductDetailSkeleton() {
       </div>
     </div>
   );
+}
+
+// `?? "FRAME"` tolerates an API that doesn't send the field yet.
+function isAccessoryKind(kind: string | undefined): boolean {
+  return (kind ?? "FRAME") === "ACCESSORY";
 }
