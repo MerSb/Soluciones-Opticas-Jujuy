@@ -43,3 +43,13 @@ export interface FavoriteDto {
   createdAt: string;
   product: ProductListItem;
 }
+
+/**
+ * GET /api/auth/session — who is signed in, without a 401 for visitors.
+ * `canRefresh`: no valid access token, but the browser sent a refresh
+ * cookie, so a silent POST /api/auth/refresh is worth trying.
+ */
+export interface SessionDto {
+  user: SafeUserDto | null;
+  canRefresh: boolean;
+}

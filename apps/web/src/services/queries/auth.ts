@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { LoginRequest, RegisterRequest, SafeUserDto } from "@soluciones-opticas/shared";
+import type {
+  LoginRequest,
+  RegisterRequest,
+  SafeUserDto,
+  SessionDto,
+} from "@soluciones-opticas/shared";
 import { apiGet, apiPost, ApiClientError } from "../api-client";
 import { favoritesQueryKey } from "./favorites";
 import { recommendationsQueryKey } from "./recommendations";
@@ -10,10 +15,44 @@ import { recommendationsQueryKey } from "./recommendations";
 // never duplicated per-component state.
 export const authMeQueryKey = ["auth", "me"] as const;
 
+function isSessionDto(value: unknown): value is SessionDto {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "user" in value &&
+    typeof (value as { canRefresh?: unknown }).canRefresh === "boolean"
+  );
+}
+
+/**
+ * Who is signed in, or null for a visitor — without the 401s (and the
+ * silent refresh attempts they trigger) that GET /api/auth/me returns for
+ * every anonymous page load. Refreshes only when the server says the
+ * browser holds a refresh cookie. Falls back to /me if /session isn't
+ * available (e.g. an older API during a deploy).
+ */
+async function fetchCurrentUser(): Promise<SafeUserDto | null> {
+  let session: unknown;
+  try {
+    session = await apiGet<unknown>("/api/auth/session");
+  } catch {
+    return apiGet<SafeUserDto>("/api/auth/me");
+  }
+  if (!isSessionDto(session)) return apiGet<SafeUserDto>("/api/auth/me");
+  if (session.user || !session.canRefresh) return session.user;
+  try {
+    await apiPost("/api/auth/refresh");
+  } catch {
+    return null;
+  }
+  const renewed = await apiGet<unknown>("/api/auth/session");
+  return isSessionDto(renewed) ? renewed.user : null;
+}
+
 export function useCurrentUserQuery() {
   return useQuery({
     queryKey: authMeQueryKey,
-    queryFn: () => apiGet<SafeUserDto>("/api/auth/me"),
+    queryFn: fetchCurrentUser,
     // A 401 here already survived one silent refresh attempt inside the
     // API client — retrying it again at the query layer would just
     // repeat a failed refresh for no benefit.

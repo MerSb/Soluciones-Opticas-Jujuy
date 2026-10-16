@@ -100,6 +100,7 @@ function ContactForm() {
             name="name"
             type="text"
             required
+            maxLength={100}
             autoComplete="name"
             className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
@@ -114,6 +115,7 @@ function ContactForm() {
             name="email"
             type="email"
             required
+            maxLength={254}
             autoComplete="email"
             className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
@@ -128,13 +130,16 @@ function ContactForm() {
             name="message"
             rows={4}
             required
+            maxLength={2000}
             className="mt-1 block w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-text focus-visible:border-primary"
           />
         </div>
 
+        {/* Secondary on purpose: this form doesn't send yet, so the page's
+            primary action is the WhatsApp button above (audit point 20). */}
         <button
           type="submit"
-          className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-surface hover:bg-primary-dark"
+          className="rounded-md border border-border px-5 py-2.5 text-sm font-medium text-text hover:border-primary"
         >
           Enviar mensaje
         </button>

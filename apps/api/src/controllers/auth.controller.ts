@@ -1,7 +1,14 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../lib/async-handler.js";
 import { ApiError } from "../lib/api-error.js";
-import { REFRESH_TOKEN_COOKIE, clearAuthCookies, setAuthCookies } from "../lib/cookies.js";
+import type { SessionDto } from "@soluciones-opticas/shared";
+import {
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  clearAuthCookies,
+  setAuthCookies,
+} from "../lib/cookies.js";
+import { verifyAccessToken } from "../lib/jwt.js";
 import * as authService from "../services/auth.service.js";
 import * as usersService from "../services/users.service.js";
 import type { LoginBody, RegisterBody } from "../schemas/auth.schema.js";
@@ -42,4 +49,30 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 export const me = asyncHandler(async (req: Request, res: Response) => {
   const user = await usersService.getSafeUserById(req.auth!.userId);
   res.json(user);
+});
+
+// Anonymous visitors are the common case: answer 200 { user: null }
+// instead of a 401, so loading a page doesn't log errors or spend the
+// refresh rate limit. Same token checks as `authenticate`; never sets or
+// rotates cookies. `canRefresh` only says whether the browser sent its
+// own refresh cookie (scoped to /api/auth).
+export const session = asyncHandler(async (req: Request, res: Response) => {
+  res.set("Cache-Control", "no-store");
+  const token = req.cookies?.[ACCESS_TOKEN_COOKIE] as string | undefined;
+  if (token) {
+    try {
+      const payload = verifyAccessToken(token);
+      const user = await usersService.findSafeUserById(payload.sub);
+      if (user) {
+        res.json({ user, canRefresh: false } satisfies SessionDto);
+        return;
+      }
+    } catch {
+      // Expired or invalid access token: treated as no session below.
+    }
+  }
+  res.json({
+    user: null,
+    canRefresh: Boolean(req.cookies?.[REFRESH_TOKEN_COOKIE]),
+  } satisfies SessionDto);
 });

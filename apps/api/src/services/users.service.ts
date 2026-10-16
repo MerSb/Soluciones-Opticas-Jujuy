@@ -13,11 +13,13 @@ const SAFE_USER_SELECT = {
   role: true,
 } satisfies Prisma.UserSelect;
 
+/** null when the account doesn't exist (or was deleted). */
+export async function findSafeUserById(id: string): Promise<SafeUserDto | null> {
+  return prisma.user.findFirst({ where: { id, deletedAt: null }, select: SAFE_USER_SELECT });
+}
+
 export async function getSafeUserById(id: string): Promise<SafeUserDto> {
-  const user = await prisma.user.findFirst({
-    where: { id, deletedAt: null },
-    select: SAFE_USER_SELECT,
-  });
+  const user = await findSafeUserById(id);
   // A valid access token pointing at a user that no longer exists reads
   // to the client as "your session isn't valid," not "not found" — the
   // account, not a route, is what's missing.
