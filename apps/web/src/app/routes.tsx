@@ -6,6 +6,8 @@ import { AboutPage } from "../pages/AboutPage";
 import { BranchesPage } from "../pages/BranchesPage";
 import { ContactPage } from "../pages/ContactPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { LegalPage } from "../pages/LegalPage";
+import { COOKIE_POLICY, LEGAL_NOTICE, PRIVACY_POLICY } from "../content/legal-content";
 import { Container } from "../components/ui/Container";
 import { StatusMessage } from "../components/ui/StatusMessage";
 
@@ -74,6 +76,9 @@ export const routes: RouteObject[] = [
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },
       { path: "contact", element: <ContactPage /> },
+      { path: "aviso-legal", element: <LegalPage document={LEGAL_NOTICE} /> },
+      { path: "privacidad", element: <LegalPage document={PRIVACY_POLICY} /> },
+      { path: "cookies", element: <LegalPage document={COOKIE_POLICY} /> },
       // login/register/account: lazy, same reasoning as products — only
       // a subset of visitors ever reach them, so the public catalog
       // majority shouldn't pay for this code in their initial bundle
