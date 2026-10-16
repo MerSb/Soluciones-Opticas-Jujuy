@@ -13,7 +13,9 @@ export function Layout() {
         Saltar al contenido principal
       </a>
       <Header />
-      <main id="main-content" className="flex-1">
+      {/* min-h-svh: the footer starts below the fold, so loading states
+          (lazy route, skeleton grid, short results) never shift it in view. */}
+      <main id="main-content" className="min-h-svh flex-1">
         <Outlet />
       </main>
       <Footer />
