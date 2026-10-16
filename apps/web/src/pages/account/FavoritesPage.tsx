@@ -43,7 +43,7 @@ export function FavoritesPage() {
 
   return (
     <div>
-      <SeoHead title="Mis favoritos" />
+      <SeoHead noIndex title="Mis favoritos" />
 
       {isLoading && (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">

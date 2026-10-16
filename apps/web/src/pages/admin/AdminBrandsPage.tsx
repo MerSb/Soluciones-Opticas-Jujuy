@@ -35,7 +35,7 @@ export function AdminBrandsPage() {
 
   return (
     <div>
-      <SeoHead title="Marcas — Administración" />
+      <SeoHead noIndex title="Marcas — Administración" />
       <h2 className="font-display text-lg font-semibold text-text">Nueva marca</h2>
       <form onSubmit={handleCreate} className="mt-3 flex flex-wrap items-end gap-3" noValidate>
         <FormField

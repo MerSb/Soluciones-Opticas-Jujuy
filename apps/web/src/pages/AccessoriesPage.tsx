@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { WhatsAppButton } from "../components/ui/WhatsAppButton";
@@ -27,11 +27,7 @@ export function AccessoriesPage() {
 
   return (
     <>
-      <SeoHead
-        title="Accesorios"
-        description="Accesorios para tus anteojos en Soluciones Ópticas."
-        canonicalPath="/accesorios"
-      />
+      <StaticRouteSeo route="accessories" />
       <Container className="py-12">
         <h1 ref={headingRef} tabIndex={-1} className="font-display text-3xl text-text outline-none">
           Accesorios

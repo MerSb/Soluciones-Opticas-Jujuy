@@ -38,7 +38,7 @@ export function AdminLensTypesPage() {
 
   return (
     <div>
-      <SeoHead title="Cristales — Administración" />
+      <SeoHead noIndex title="Cristales — Administración" />
       <h2 className="font-display text-lg font-semibold text-text">Nuevo tipo de cristal</h2>
       <p className="mt-1 text-sm text-text-muted">
         Después de crearlo podés cargar sus variedades, tratamientos incluidos y si admite

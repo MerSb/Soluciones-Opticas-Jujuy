@@ -46,7 +46,7 @@ export function AdminLensTypeDetailPage() {
 
   return (
     <div className="max-w-4xl">
-      <SeoHead title={`${lensType.name} — Administración`} />
+      <SeoHead noIndex title={`${lensType.name} — Administración`} />
       <Link to="/admin/lens-types" className="text-sm text-text-muted hover:text-primary">
         ← Volver a cristales
       </Link>

@@ -37,7 +37,7 @@ export function AdminLensTreatmentsPage() {
 
   return (
     <div>
-      <SeoHead title="Tratamientos — Administración" />
+      <SeoHead noIndex title="Tratamientos — Administración" />
       <h2 className="font-display text-lg font-semibold text-text">Nuevo tratamiento</h2>
       <p className="mt-1 text-sm text-text-muted">
         Se muestran como "Incluye" en cada cristal. No tienen precio propio.

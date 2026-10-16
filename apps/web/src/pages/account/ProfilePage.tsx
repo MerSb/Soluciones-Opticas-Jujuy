@@ -40,7 +40,7 @@ export function ProfilePage() {
 
   return (
     <div className="max-w-md">
-      <SeoHead title="Mi perfil" />
+      <SeoHead noIndex title="Mi perfil" />
 
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid grid-cols-2 gap-4">

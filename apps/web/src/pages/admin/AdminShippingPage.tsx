@@ -95,7 +95,7 @@ function MeasuresFields({
 export function AdminShippingPage() {
   return (
     <div>
-      <SeoHead title="Envíos — Administración" />
+      <SeoHead noIndex title="Envíos — Administración" />
       <p className="max-w-3xl text-sm text-text-muted">
         Política vigente: <strong className="text-text">envío gratis a todo el país</strong>{" "}
         (FREE_NATIONAL_V1). Que el envío sea gratis para el cliente no significa que el transporte

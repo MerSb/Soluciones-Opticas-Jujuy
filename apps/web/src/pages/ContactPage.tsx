@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { SectionHeading } from "../components/marketing/SectionHeading";
 import { ContactMethodCard } from "../components/ui/ContactMethodCard";
@@ -13,11 +13,7 @@ const PENDING = <span className="text-text-muted">A confirmar</span>;
 export function ContactPage() {
   return (
     <>
-      <SeoHead
-        title="Contacto"
-        description="Contactanos por WhatsApp, teléfono o email."
-        canonicalPath="/contact"
-      />
+      <StaticRouteSeo route="contact" />
       <Container className="py-16">
         <SectionHeading eyebrow="Contacto" title="Hablemos" />
 

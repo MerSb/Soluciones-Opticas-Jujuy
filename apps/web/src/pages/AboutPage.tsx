@@ -1,4 +1,4 @@
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { SectionHeading } from "../components/marketing/SectionHeading";
 import { siteContent } from "../content/site-content";
@@ -12,11 +12,7 @@ export function AboutPage() {
 
   return (
     <>
-      <SeoHead
-        title="Nosotros"
-        description="Conocé la historia, la misión y los valores de Soluciones Ópticas."
-        canonicalPath="/about"
-      />
+      <StaticRouteSeo route="about" />
       <Container className="py-16">
         <SectionHeading eyebrow="Nosotros" title="Quiénes somos" />
 

@@ -114,7 +114,7 @@ export function RegisterPage() {
 
   return (
     <Container className="flex justify-center py-16">
-      <SeoHead title="Crear cuenta" />
+      <SeoHead noIndex title="Crear cuenta" />
       <div className="w-full max-w-sm">
         <h1 className="font-display text-2xl font-semibold text-text">Creá tu cuenta</h1>
         <p className="mt-1 text-sm text-text-muted">

@@ -1,4 +1,4 @@
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { SectionHeading } from "../components/marketing/SectionHeading";
 import { StatusMessage } from "../components/ui/StatusMessage";
@@ -10,11 +10,7 @@ export function BranchesPage() {
 
   return (
     <>
-      <SeoHead
-        title="Sucursales"
-        description="Encontrá tu sucursal más cercana, horarios y formas de contacto."
-        canonicalPath="/branches"
-      />
+      <StaticRouteSeo route="branches" />
       <Container className="py-16">
         <SectionHeading eyebrow="Sucursales" title="Encontrá tu sucursal" />
         <div className="mt-10">

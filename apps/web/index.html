@@ -24,12 +24,46 @@
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Placeholder favicon reusing the site's existing glasses-icon
-         visual language (ProductImagePlaceholder/HeroFrameIllustration)
-         — not a real logo, none exists yet (see
-         CLIENT_CONTENT_CHECKLIST.md). Replace once one does. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Soluciones Ópticas</title>
+    <!-- Icons generated from the official logo (apps/api/assets/soluciones-opticas-logo.jpg). -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0e7490" />
+    <!-- seo:start — replaced per static route at build time (scripts/prerender-heads.ts);
+         the app keeps these tags current while navigating (SeoHead). -->
+    <title>Óptica en San Salvador de Jujuy · Soluciones Ópticas</title>
+    <meta name="description" content="Óptica en Jujuy — anteojos recetados, de sol y deportivos. Asesoramiento profesional y atención personalizada." />
+    <link rel="canonical" href="https://www.solucionesopticas.com.ar/" />
+    <meta property="og:title" content="Óptica en San Salvador de Jujuy · Soluciones Ópticas" />
+    <meta property="og:description" content="Óptica en Jujuy — anteojos recetados, de sol y deportivos. Asesoramiento profesional y atención personalizada." />
+    <meta property="og:url" content="https://www.solucionesopticas.com.ar/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Soluciones Ópticas" />
+    <meta property="og:locale" content="es_AR" />
+    <meta property="og:image" content="https://www.solucionesopticas.com.ar/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <!-- seo:end -->
+    <!-- The store, on every page: confirmed facts only (no hours, no ratings). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Optician",
+        "@id": "https://www.solucionesopticas.com.ar/#organization",
+        "name": "Soluciones Ópticas",
+        "url": "https://www.solucionesopticas.com.ar",
+        "logo": "https://www.solucionesopticas.com.ar/icon-512.png",
+        "image": "https://www.solucionesopticas.com.ar/icon-512.png",
+        "telephone": "0388 484-4442",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Alvear 732",
+          "addressLocality": "San Salvador de Jujuy",
+          "addressRegion": "Jujuy",
+          "addressCountry": "AR"
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

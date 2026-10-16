@@ -1,4 +1,4 @@
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { SectionHeading } from "../components/marketing/SectionHeading";
 import { StatusMessage } from "../components/ui/StatusMessage";
@@ -10,11 +10,7 @@ export function BrandsPage() {
 
   return (
     <>
-      <SeoHead
-        title="Marcas"
-        description="Las marcas que trabajamos en Soluciones Ópticas."
-        canonicalPath="/brands"
-      />
+      <StaticRouteSeo route="brands" />
       <Container className="py-16">
         <SectionHeading eyebrow="Marcas" title="Marcas que trabajamos" />
         <div className="mt-10">

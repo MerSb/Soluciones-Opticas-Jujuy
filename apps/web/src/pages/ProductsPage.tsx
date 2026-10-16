@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
 import { Container } from "../components/ui/Container";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { SearchInput } from "../components/catalog/SearchInput";
@@ -67,11 +67,7 @@ export function ProductsPage() {
 
   return (
     <>
-      <SeoHead
-        title="Anteojos"
-        description="Explorá el catálogo de anteojos recetados, de sol y deportivos de Soluciones Ópticas."
-        canonicalPath="/products"
-      />
+      <StaticRouteSeo route="products" />
       <Container className="py-12">
         <h1 ref={headingRef} className="font-display text-3xl text-text">
           Anteojos

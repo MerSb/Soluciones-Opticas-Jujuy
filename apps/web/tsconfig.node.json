@@ -9,5 +9,10 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "scripts/**/*.ts",
+    "src/lib/seo-routes.ts",
+    "src/lib/seo-head-html.ts"
+  ]
 }

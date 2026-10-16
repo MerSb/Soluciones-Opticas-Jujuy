@@ -130,7 +130,7 @@ export function OpticalProfilePage() {
 
   return (
     <div className="max-w-2xl">
-      <SeoHead title="Mis medidas y preferencias" />
+      <SeoHead noIndex title="Mis medidas y preferencias" />
 
       <p className="text-sm text-text-muted">
         Guardá tus medidas y tus preferencias de estilo. Nos van a ayudar, en el futuro, a comparar

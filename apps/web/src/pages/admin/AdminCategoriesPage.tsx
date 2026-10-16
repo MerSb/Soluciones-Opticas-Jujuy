@@ -25,7 +25,7 @@ export function AdminCategoriesPage() {
 
   return (
     <div>
-      <SeoHead title="Categorías — Administración" />
+      <SeoHead noIndex title="Categorías — Administración" />
       <h2 className="font-display text-lg font-semibold text-text">Nueva categoría</h2>
       <form onSubmit={handleCreate} className="mt-3 flex flex-wrap items-end gap-3" noValidate>
         <FormField

@@ -46,6 +46,8 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
+  // The public storefront domain — the base of every URL in /sitemap.xml.
+  PUBLIC_SITE_URL: z.string().url().default("https://www.solucionesopticas.com.ar"),
 });
 
 export const env = envSchema

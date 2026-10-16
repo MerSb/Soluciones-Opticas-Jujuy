@@ -18,7 +18,7 @@ export function RecommendationsPage() {
 
   return (
     <div>
-      <SeoHead title="Recomendados para vos" />
+      <SeoHead noIndex title="Recomendados para vos" />
 
       <p className="text-sm text-text-muted">
         Basado en las medidas y preferencias que completaste. No es una garantía de que un modelo te

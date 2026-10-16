@@ -1,4 +1,5 @@
-import { SeoHead } from "../components/ui/SeoHead";
+import { StaticRouteSeo } from "../components/ui/StaticRouteSeo";
+import { websiteJsonLd } from "../lib/seo";
 import { Hero } from "../components/marketing/Hero";
 import { CTASection } from "../components/marketing/CTASection";
 import { BrandRail } from "./home/BrandRail";
@@ -21,11 +22,7 @@ import { useHealthQuery } from "../services/queries/health";
 export function HomePage() {
   return (
     <>
-      <SeoHead
-        title="Inicio"
-        description="Óptica en Jujuy — anteojos recetados, de sol y deportivos. Asesoramiento profesional y atención personalizada."
-        canonicalPath="/"
-      />
+      <StaticRouteSeo route="home" jsonLd={websiteJsonLd()} />
       <Hero />
       {/* Real confirmed brand NAMES (BrandRail, institutional content),
           not the database-backed brand preview this replaced — see

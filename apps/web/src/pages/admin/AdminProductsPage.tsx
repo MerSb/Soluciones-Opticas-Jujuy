@@ -24,7 +24,7 @@ export function AdminProductsPage() {
 
   return (
     <div>
-      <SeoHead title="Productos — Administración" />
+      <SeoHead noIndex title="Productos — Administración" />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <input

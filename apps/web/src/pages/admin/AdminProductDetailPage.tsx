@@ -169,7 +169,7 @@ export function AdminProductDetailPage() {
 
   return (
     <div className="max-w-3xl">
-      <SeoHead title={`${product.name} — Administración`} />
+      <SeoHead noIndex title={`${product.name} — Administración`} />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>

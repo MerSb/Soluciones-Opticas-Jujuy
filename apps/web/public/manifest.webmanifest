@@ -1,0 +1,14 @@
+{
+  "name": "Soluciones Ópticas",
+  "short_name": "Soluciones Ópticas",
+  "description": "Óptica en San Salvador de Jujuy — anteojos y accesorios.",
+  "lang": "es-AR",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#f7f8fa",
+  "theme_color": "#0e7490",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

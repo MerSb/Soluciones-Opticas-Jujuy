@@ -253,7 +253,7 @@ export function LoginPage() {
 
   return (
     <Container className="flex justify-center py-16">
-      <SeoHead title="Ingresar" />
+      <SeoHead noIndex title="Ingresar" />
       <div className="grid w-full max-w-[960px] grid-cols-1 overflow-hidden rounded-lg border border-border bg-surface-muted shadow-elevated md:grid-cols-2">
         <PasswordAwareIllustration isTypingPassword={isTypingPassword} />
 

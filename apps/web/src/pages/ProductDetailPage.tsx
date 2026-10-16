@@ -6,6 +6,7 @@ import { SeoHead } from "../components/ui/SeoHead";
 import { Container } from "../components/ui/Container";
 import { StatusMessage } from "../components/ui/StatusMessage";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { breadcrumbJsonLd, productJsonLd } from "../lib/seo";
 import { WhatsAppButton } from "../components/ui/WhatsAppButton";
 import { ProductGallery } from "../components/products/ProductGallery";
 import { FavoriteButton } from "../components/products/FavoriteButton";
@@ -61,7 +62,7 @@ export function ProductDetailPage() {
     if (isNotFoundError(error)) {
       return (
         <Container className="py-16">
-          <SeoHead title="Producto no encontrado" />
+          <SeoHead noIndex title="Producto no encontrado" />
           <StatusMessage
             variant="not-found"
             heading="Producto no encontrado"
@@ -141,6 +142,31 @@ export function ProductDetailPage() {
     includedAccessories: isAccessory ? null : accessorySummary,
   });
 
+  const productPagePath = isAccessory ? `/accesorios/${product.slug}` : `/products/${product.slug}`;
+  const breadcrumbItems: { label: string; to?: string }[] = isAccessory
+    ? [
+        { label: "Inicio", to: "/" },
+        { label: "Accesorios", to: "/accesorios" },
+        { label: product.name },
+      ]
+    : [
+        { label: "Inicio", to: "/" },
+        { label: "Anteojos", to: "/products" },
+        {
+          label: product.category.name,
+          to: `/products?category=${product.category.slug}`,
+        },
+        { label: product.name },
+      ];
+  // Structured data: the product's real photos (primary first), price and
+  // availability — never ratings or invented facts (lib/seo.ts).
+  const productImageUrls = product.variants
+    .flatMap((variant) =>
+      [...variant.images].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)),
+    )
+    .map((image) => buildCloudinaryUrl(image.publicId, { width: 1200 }))
+    .filter((url): url is string => Boolean(url));
+
   return (
     <>
       <SeoHead
@@ -150,29 +176,21 @@ export function ProductDetailPage() {
             ? `${product.name} — ${formatPrice(product.price)}. Accesorio disponible en Soluciones Ópticas.`
             : `${product.name} de ${product.brand.name} — ${formatPrice(product.price)}. Disponible en Soluciones Ópticas.`
         }
-        canonicalPath={isAccessory ? `/accesorios/${product.slug}` : `/products/${product.slug}`}
+        canonicalPath={productPagePath}
         ogImage={ogImage}
+        ogType="product"
+        jsonLd={[
+          productJsonLd(product, productPagePath, productImageUrls),
+          breadcrumbJsonLd(
+            breadcrumbItems
+              .filter((item) => item.to)
+              .map((item) => ({ name: item.label, path: item.to! }))
+              .concat([{ name: product.name, path: productPagePath }]),
+          ),
+        ]}
       />
       <Container className="py-12">
-        <Breadcrumbs
-          items={
-            isAccessory
-              ? [
-                  { label: "Inicio", to: "/" },
-                  { label: "Accesorios", to: "/accesorios" },
-                  { label: product.name },
-                ]
-              : [
-                  { label: "Inicio", to: "/" },
-                  { label: "Anteojos", to: "/products" },
-                  {
-                    label: product.category.name,
-                    to: `/products?category=${product.category.slug}`,
-                  },
-                  { label: product.name },
-                ]
-          }
-        />
+        <Breadcrumbs items={breadcrumbItems} />
 
         <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-2">
           <ProductGallery images={selectedVariant.images} fit={isAccessory ? "contain" : "cover"} />

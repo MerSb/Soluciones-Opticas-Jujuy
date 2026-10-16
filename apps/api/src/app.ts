@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import { env } from "./lib/env.js";
 import { ApiError } from "./lib/api-error.js";
 import { apiRouter } from "./routes/index.js";
+import { sitemapRouter } from "./routes/sitemap.routes.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { requireJsonContentType } from "./middleware/require-json.js";
 import { notFoundHandler } from "./middleware/not-found.js";
@@ -46,6 +47,7 @@ export function createApp(): Express {
   app.use(requireJsonContentType);
 
   app.use("/api", apiRouter);
+  app.use(sitemapRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

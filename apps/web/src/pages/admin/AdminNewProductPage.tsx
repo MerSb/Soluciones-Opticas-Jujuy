@@ -77,7 +77,7 @@ export function AdminNewProductPage() {
 
   return (
     <div className="max-w-xl">
-      <SeoHead title="Nuevo producto — Administración" />
+      <SeoHead noIndex title="Nuevo producto — Administración" />
       <h2 className="font-display text-lg font-semibold text-text">
         {isAccessory ? "Nuevo accesorio" : "Nuevo producto"}
       </h2>

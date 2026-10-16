@@ -1,2 +1,7 @@
+# Soluciones Ópticas — https://www.solucionesopticas.com.ar
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /account
+
+Sitemap: https://www.solucionesopticas.com.ar/sitemap.xml

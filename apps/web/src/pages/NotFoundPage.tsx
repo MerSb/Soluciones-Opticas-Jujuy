@@ -6,7 +6,7 @@ import { StatusMessage } from "../components/ui/StatusMessage";
 export function NotFoundPage() {
   return (
     <>
-      <SeoHead title="Página no encontrada" />
+      <SeoHead noIndex title="Página no encontrada" />
       <Container className="py-16">
         <StatusMessage
           variant="not-found"

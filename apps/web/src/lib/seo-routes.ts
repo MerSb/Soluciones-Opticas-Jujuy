@@ -21,7 +21,7 @@ export interface RouteSeo {
  * reads the right title, description and canonical. The pages read the
  * same entries, so both stay in sync.
  */
-export const STATIC_ROUTE_SEO: Record<string, RouteSeo> = {
+export const STATIC_ROUTE_SEO = {
   home: {
     path: "/",
     title: "Óptica en San Salvador de Jujuy",
@@ -90,4 +90,4 @@ export const STATIC_ROUTE_SEO: Record<string, RouteSeo> = {
     noIndex: true,
     inSitemap: false,
   },
-};
+} satisfies Record<string, RouteSeo>;
