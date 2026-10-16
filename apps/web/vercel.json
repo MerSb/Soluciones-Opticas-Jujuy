@@ -7,22 +7,55 @@
       "source": "/sitemap.xml",
       "destination": "https://soluciones-opticas-api-production.up.railway.app/sitemap.xml"
     },
-    { "source": "/products/:slug", "destination": "/index.html" },
-    { "source": "/accesorios/:slug", "destination": "/index.html" },
-    { "source": "/login", "destination": "/index.html" },
-    { "source": "/register", "destination": "/index.html" },
-    { "source": "/account", "destination": "/index.html" },
-    { "source": "/account/:path*", "destination": "/index.html" },
-    { "source": "/admin", "destination": "/index.html" },
-    { "source": "/admin/:path*", "destination": "/index.html" }
+    {
+      "source": "/products/:slug",
+      "destination": "/spa.html"
+    },
+    {
+      "source": "/accesorios/:slug",
+      "destination": "/spa.html"
+    },
+    {
+      "source": "/login",
+      "destination": "/spa-private.html"
+    },
+    {
+      "source": "/register",
+      "destination": "/spa-private.html"
+    },
+    {
+      "source": "/account",
+      "destination": "/spa-private.html"
+    },
+    {
+      "source": "/account/:path*",
+      "destination": "/spa-private.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/spa-private.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/spa-private.html"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
         {
           "key": "Permissions-Policy",
           "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
@@ -31,12 +64,81 @@
     },
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/login",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/register",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/account",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/account/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/admin",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/admin/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "soluciones-opticas-jujuy-web.vercel.app" }],
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+      "has": [
+        {
+          "type": "host",
+          "value": "soluciones-opticas-jujuy-web.vercel.app"
+        }
+      ],
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
     }
   ]
 }

@@ -5,7 +5,7 @@ import { render, waitFor } from "@testing-library/react";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StaticRouteSeo } from "../src/components/ui/StaticRouteSeo";
-import { STATIC_ROUTE_SEO } from "../src/lib/seo-routes";
+import { STATIC_ROUTE_SEO, type RouteSeo } from "../src/lib/seo-routes";
 import { breadcrumbJsonLd, productJsonLd, websiteJsonLd } from "../src/lib/seo";
 import { fileForPath, headFor } from "../src/lib/seo-head-html";
 import { ProductDetailPage } from "../src/pages/ProductDetailPage";
@@ -297,18 +297,52 @@ describe("Vercel routing (real 404s instead of a catch-all)", () => {
     expect(vercel.cleanUrls).toBe(true);
   });
 
+  const PRIVATE = /^\/(login|register|account|admin)(\/|$)/;
+  const toPattern = (source: string) =>
+    new RegExp("^" + source.replace(/:\w+\*/g, ".*").replace(/:\w+/g, "[^/]+") + "$");
+  const rewriteFor = (path: string) =>
+    vercel.rewrites.find((r) => toPattern(r.source).test(path.replace(/:\w+/g, "x")));
+
   it("every route the app renders is served (pre-rendered file or rewrite)", () => {
-    const staticPaths = new Set(Object.values(STATIC_ROUTE_SEO).map((r) => r.path));
-    const covered = (path: string) =>
-      staticPaths.has(path) ||
-      vercel.rewrites.some((r) => {
-        const pattern = new RegExp(
-          "^" + r.source.replace(/:\w+\*/g, ".*").replace(/:\w+/g, "[^/]+") + "$",
-        );
-        return r.destination === "/index.html" && pattern.test(path.replace(/:\w+/g, "x"));
-      });
-    const missing = appPaths().filter((path) => !covered(path));
+    const staticPaths = new Set(
+      Object.values(STATIC_ROUTE_SEO as Record<string, RouteSeo>)
+        .filter((r) => r.published !== false)
+        .map((r) => r.path),
+    );
+    const missing = appPaths().filter((path) => !staticPaths.has(path) && !rewriteFor(path));
     expect(missing).toEqual([]);
+  });
+
+  it("dynamic public pages get the neutral shell; private ones the noindex shell", () => {
+    for (const path of appPaths()) {
+      const rewrite = rewriteFor(path);
+      if (!rewrite) continue;
+      expect(rewrite.destination, path).toBe(
+        PRIVATE.test(path) ? "/spa-private.html" : "/spa.html",
+      );
+    }
+    // index.html carries the home page's canonical: never serve it for another URL.
+    expect(vercel.rewrites.some((r) => r.destination === "/index.html")).toBe(false);
+  });
+
+  it("private routes also send X-Robots-Tag: noindex", () => {
+    for (const path of appPaths().filter((p) => PRIVATE.test(p))) {
+      const header = vercel.headers.find(
+        (h) =>
+          !h.has && h.source !== "/(.*)" && toPattern(h.source).test(path.replace(/:\w+/g, "x")),
+      );
+      expect(header?.headers, path).toEqual([{ key: "X-Robots-Tag", value: "noindex" }]);
+    }
+  });
+
+  it("the neutral shells have no canonical or og:url (the app sets the real ones)", () => {
+    const head = headFor({ path: null, title: "t", description: "d" });
+    expect(head).not.toContain("canonical");
+    expect(head).not.toContain("og:url");
+    expect(head).not.toContain("noindex");
+    expect(headFor({ path: null, title: "t", description: "d", noIndex: true })).toContain(
+      '<meta name="robots" content="noindex, nofollow" />',
+    );
   });
 
   it("sends security headers everywhere and keeps the vercel.app alias out of search results", () => {
