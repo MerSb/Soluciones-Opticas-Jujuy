@@ -196,8 +196,9 @@ export function ProductDetailPage() {
           <ProductGallery images={selectedVariant.images} fit={isAccessory ? "contain" : "cover"} />
 
           <div>
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            {/* Wraps on very narrow screens so "Agregar a favoritos" never overflows. */}
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
                 <p className="text-sm uppercase tracking-wide text-text-muted">
                   {product.brand.name}
                 </p>

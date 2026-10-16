@@ -138,7 +138,7 @@ function CategoryRow({ category }: { category: AdminCategoryDto }) {
             Eliminada
           </span>
         ) : (
-          <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
+          <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success-strong">
             Activa
           </span>
         )}

@@ -134,7 +134,7 @@ export function AdminProductsPage() {
                         Solo incluido
                       </span>
                     ) : product.isComplete ? (
-                      <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
+                      <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success-strong">
                         Activo
                       </span>
                     ) : (
@@ -144,7 +144,7 @@ export function AdminProductsPage() {
                       // this state is now called out explicitly instead of
                       // being indistinguishable from a finished product.
                       <span
-                        className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
+                        className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary-dark"
                         title="Todavía no tiene variante y/o imagen — no es visible en el catálogo público."
                       >
                         Incompleto

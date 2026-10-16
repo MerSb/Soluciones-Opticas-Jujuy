@@ -58,6 +58,8 @@
      rounding-sensitive), so it moved a full step darker too rather than
      leave a razor-thin margin. */
   --color-success: #047857;
+  /* Small text on a success tint (badges): #065f46 keeps ≥ 4.5:1 there. */
+  --color-success-strong: #065f46;
   --color-danger: #b91c1c;
 
   --font-display:
@@ -106,6 +108,7 @@
       --color-text-muted: #9ca3af;
       --color-border: rgb(255 255 255 / 12%);
       --color-success: #34d399;
+      --color-success-strong: #34d399;
       --color-danger: #f87171;
 
       /* Drop shadows read as invisible on near-black — elevation comes
@@ -128,6 +131,7 @@
     --color-text-muted: #9ca3af;
     --color-border: rgb(255 255 255 / 12%);
     --color-success: #34d399;
+    --color-success-strong: #34d399;
     --color-danger: #f87171;
 
     --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);

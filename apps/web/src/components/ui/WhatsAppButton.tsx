@@ -5,6 +5,8 @@ import { buildWhatsAppUrl } from "../../lib/whatsapp";
 interface WhatsAppButtonProps {
   message?: string;
   children: ReactNode;
+  /** Icon-only (round, 44px) — the label stays as the accessible name. */
+  compact?: boolean;
 }
 
 const ICON = (
@@ -21,10 +23,12 @@ const ICON = (
 // for use on a solid-cyan background) lost its only consumer when
 // CTASection moved off a full-bleed primary background (ADR-0016). Add
 // it back if a real second context needs it, not speculatively.
-export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
+export function WhatsAppButton({ message, children, compact = false }: WhatsAppButtonProps) {
   const { whatsappNumber } = siteContent;
-  const baseClassName =
-    "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-[transform,box-shadow,background-color] duration-200";
+  const baseClassName = `inline-flex items-center gap-2 text-sm font-semibold transition-[transform,box-shadow,background-color] duration-200 ${
+    compact ? "h-11 w-11 justify-center rounded-full" : "rounded-md px-4 py-2"
+  }`;
+  const label = compact ? <span className="sr-only">{children}</span> : children;
 
   if (!whatsappNumber) {
     return (
@@ -34,7 +38,7 @@ export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
         className={`${baseClassName} cursor-not-allowed bg-surface-muted text-text-muted`}
       >
         {ICON}
-        {children}
+        {label}
       </span>
     );
   }
@@ -47,7 +51,7 @@ export function WhatsAppButton({ message, children }: WhatsAppButtonProps) {
       className={`group relative overflow-hidden ${baseClassName} bg-primary text-surface hover:-translate-y-px hover:bg-primary-dark hover:shadow-elevated focus-visible:shadow-elevated`}
     >
       {ICON}
-      {children}
+      {label}
       {/*
        * The CTA shine (§12): a narrow highlight crossing the button
        * once per hover, not a continuous loop. Resting position is

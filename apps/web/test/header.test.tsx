@@ -65,8 +65,16 @@ describe("Header", () => {
   it("renders a real, working WhatsApp CTA using the confirmed number", () => {
     renderHeaderAt("/");
 
-    const cta = screen.getByRole("link", { name: /escribinos/i });
-    expect(cta).toHaveAttribute("href", expect.stringContaining("https://wa.me/5493884844442"));
+    // Labelled on wide screens, a 44px icon below xl (one or the other is
+    // shown by CSS): both reach the confirmed number.
+    const ctas = screen.getAllByRole("link", { name: /escribinos/i });
+    expect(ctas.map((cta) => cta.textContent?.trim())).toEqual([
+      "Escribinos",
+      "Escribinos por WhatsApp",
+    ]);
+    for (const cta of ctas) {
+      expect(cta).toHaveAttribute("href", expect.stringContaining("https://wa.me/5493884844442"));
+    }
   });
 
   // §16/§20: Promociones resolves through the existing catalog's own

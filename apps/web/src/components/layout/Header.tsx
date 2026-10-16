@@ -144,6 +144,13 @@ export function Header() {
           <div className="hidden xl:block">
             <WhatsAppButton message="Hola, quisiera hacer una consulta.">Escribinos</WhatsAppButton>
           </div>
+          {/* Below xl the labelled button doesn't fit: the same action as
+              a 44px icon, always visible (audit point 18). */}
+          <div className="xl:hidden">
+            <WhatsAppButton compact message="Hola, quisiera hacer una consulta.">
+              Escribinos por WhatsApp
+            </WhatsAppButton>
+          </div>
 
           <button
             type="button"

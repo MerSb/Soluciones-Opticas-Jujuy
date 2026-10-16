@@ -46,6 +46,7 @@ export function AccessoriesPage() {
               : ""}
         </p>
         <div className="mt-8" aria-busy={isLoading}>
+          <h2 className="sr-only">Listado de accesorios</h2>
           {/* The count line is always there (empty while loading) so the
               grid doesn't jump down when the list arrives (CLS). */}
           {!isError && (

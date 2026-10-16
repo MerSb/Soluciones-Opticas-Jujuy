@@ -129,6 +129,7 @@ export function ProductsPage() {
             <div
               className={`mt-6 ${isFetching && !isLoading ? "opacity-60 transition-opacity" : ""}`}
             >
+              <h2 className="sr-only">Resultados</h2>
               {isLoading && (
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
                   {SKELETON_KEYS.map((key) => (

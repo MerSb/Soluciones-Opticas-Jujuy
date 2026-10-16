@@ -8,7 +8,7 @@ import { toTelHref } from "../../lib/format-phone";
 // confirmed address — no invented map pin, hours or social profiles.
 
 const LINK =
-  "text-text-muted underline-offset-4 transition-colors hover:text-primary hover:underline";
+  "inline-flex min-h-6 items-center text-text-muted underline decoration-text-muted/50 underline-offset-4 transition-colors hover:text-primary hover:decoration-primary";
 
 export function Footer() {
   const { businessName, address, phone, whatsappNumber } = siteContent;

@@ -42,14 +42,14 @@ export function FormField({
           aria-describedby={describedBy || undefined}
           className={`w-full rounded-md border bg-surface-muted px-4 py-2.5 text-text placeholder:text-text-muted focus-visible:border-primary ${
             error ? "border-danger" : "border-border"
-          } ${toggleVisibility ? "pr-16" : ""}`}
+          } ${toggleVisibility ? "pr-20" : ""}`}
           {...inputProps}
         />
         {toggleVisibility && (
           <button
             type="button"
             onClick={() => setVisible((prev) => !prev)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-text-muted hover:text-primary"
+            className="absolute right-1 top-1/2 inline-flex min-h-9 -translate-y-1/2 items-center rounded px-2 text-sm font-medium text-text-muted hover:text-primary"
           >
             {visible ? "Ocultar" : "Mostrar"}
           </button>
