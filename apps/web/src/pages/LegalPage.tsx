@@ -1,12 +1,13 @@
 import { Fragment } from "react";
 import { SeoHead } from "../components/ui/SeoHead";
 import { Container } from "../components/ui/Container";
-import type { LegalDocument } from "../content/legal-content";
+import type { LegalDocument } from "../content/legal/types";
 import { AnalyticsPreference } from "../components/layout/AnalyticsConsent";
 
-// Aviso legal / privacidad / cookies. Drafts pending legal review: the
-// banner says so, every missing fact shows as a visible "Pendiente"
-// marker, and the pages ask not to be indexed until approved.
+// Aviso legal / privacidad / cookies. While a document isn't approved
+// (content/legal/status.ts) it is only reachable in `npm run dev`; there
+// the banner says it is a draft, every missing fact shows as a visible
+// "Pendiente" marker and the page asks not to be indexed.
 
 const PENDING = /\[\[PENDIENTE: ([^\]]+)\]\]/g;
 
@@ -40,7 +41,7 @@ export function LegalPage({ document }: { document: LegalDocument }) {
         title={document.title}
         description={document.description}
         canonicalPath={`/${document.slug}`}
-        noIndex
+        noIndex={!document.approved}
       />
       <Container className="py-12 sm:py-16">
         <div className="mx-auto max-w-3xl">
@@ -48,15 +49,18 @@ export function LegalPage({ document }: { document: LegalDocument }) {
             {document.title}
           </h1>
           <p className="mt-2 text-sm text-text-muted">
-            Última edición del borrador: {document.updated}
+            {document.approved ? "Última actualización" : "Última edición del borrador"}:{" "}
+            {document.updated}
           </p>
-          <p
-            role="note"
-            className="mt-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-100"
-          >
-            Borrador pendiente de revisión legal. Describe el funcionamiento actual del sitio; los
-            datos marcados como «Pendiente» todavía no fueron provistos.
-          </p>
+          {!document.approved && (
+            <p
+              role="note"
+              className="mt-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-100"
+            >
+              Borrador pendiente de revisión legal. Describe el funcionamiento actual del sitio; los
+              datos marcados como «Pendiente» todavía no fueron provistos.
+            </p>
+          )}
 
           <nav aria-label="Contenido" className="mt-8 rounded-md border border-border p-4">
             <p className="text-sm font-semibold text-text">Contenido</p>

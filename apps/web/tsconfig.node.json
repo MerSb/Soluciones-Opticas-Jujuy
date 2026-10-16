@@ -13,6 +13,7 @@
     "vite.config.ts",
     "scripts/**/*.ts",
     "src/lib/seo-routes.ts",
-    "src/lib/seo-head-html.ts"
+    "src/lib/seo-head-html.ts",
+    "src/content/legal/status.ts"
   ]
 }

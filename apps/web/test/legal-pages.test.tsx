@@ -3,21 +3,28 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { LegalPage } from "../src/pages/LegalPage";
 import { Footer } from "../src/components/layout/Footer";
-import { COOKIE_POLICY, LEGAL_NOTICE, PRIVACY_POLICY } from "../src/content/legal-content";
+import { LEGAL_NOTICE } from "../src/content/legal/legal-notice";
+import { PRIVACY_POLICY } from "../src/content/legal/privacy-policy";
+import { COOKIE_POLICY } from "../src/content/legal/cookie-policy";
+import { LEGAL_PAGES } from "../src/content/legal/status";
+import { STATIC_ROUTE_SEO } from "../src/lib/seo-routes";
 
 // Audit points 1–3: legal drafts that describe what the site really does,
-// with every missing fact marked as pending — never invented.
+// with every missing fact marked as pending — never invented — and that
+// stay out of the published site until approved.
+
+const DOCUMENTS = [LEGAL_NOTICE, PRIVACY_POLICY, COOKIE_POLICY];
 
 const renderPage = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 describe("legal pages", () => {
   it.each([
-    [LEGAL_NOTICE, "Aviso legal"],
-    [PRIVACY_POLICY, "Política de privacidad"],
-    [COOKIE_POLICY, "Política de cookies"],
-  ])(
-    "%s: draft notice, table of contents, not indexed, canonical on the public domain",
-    async (doc, title) => {
+    ["aviso-legal", LEGAL_NOTICE, "Aviso legal"],
+    ["privacidad", PRIVACY_POLICY, "Política de privacidad"],
+    ["cookies", COOKIE_POLICY, "Política de cookies"],
+  ] as const)(
+    "%s (local review): draft notice, table of contents, not indexed, canonical on the public domain",
+    async (_slug, doc, title) => {
       renderPage(<LegalPage document={doc} />);
       expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
       expect(screen.getByRole("note")).toHaveTextContent("Borrador pendiente de revisión legal");
@@ -82,22 +89,41 @@ describe("legal pages", () => {
   });
 });
 
+describe("publication gate (drafts stay out of the published site)", () => {
+  it("a document can only be approved once no [[PENDIENTE]] marker is left", () => {
+    for (const doc of DOCUMENTS) {
+      if (doc.approved) expect(JSON.stringify(doc)).not.toContain("[[PENDIENTE");
+    }
+  });
+
+  it("each document, its page entry and its SEO entry agree on the approval", () => {
+    const seo = {
+      "aviso-legal": STATIC_ROUTE_SEO.legalNotice,
+      privacidad: STATIC_ROUTE_SEO.privacy,
+      cookies: STATIC_ROUTE_SEO.cookies,
+    };
+    for (const doc of DOCUMENTS) {
+      const page = LEGAL_PAGES.find((p) => p.slug === doc.slug)!;
+      expect(page.approved).toBe(doc.approved);
+      expect(seo[doc.slug as keyof typeof seo].published).toBe(doc.approved);
+      expect(seo[doc.slug as keyof typeof seo].noIndex).toBe(!doc.approved);
+    }
+  });
+
+  it("today all three await approval; notice and privacy still lack business data", () => {
+    for (const doc of DOCUMENTS) expect(doc.approved).toBe(false);
+    expect(JSON.stringify(LEGAL_NOTICE)).toContain("[[PENDIENTE");
+    expect(JSON.stringify(PRIVACY_POLICY)).toContain("[[PENDIENTE");
+  });
+});
+
 describe("footer", () => {
-  it("links the legal pages, WhatsApp, phone and a map search for the confirmed address", () => {
+  it("doesn't link draft legal pages; links WhatsApp, phone and a map search for the address", () => {
     renderPage(<Footer />);
-    const legal = screen.getByRole("navigation", { name: "Información legal" });
-    expect(within(legal).getByRole("link", { name: "Aviso legal" })).toHaveAttribute(
-      "href",
-      "/aviso-legal",
-    );
-    expect(within(legal).getByRole("link", { name: "Política de privacidad" })).toHaveAttribute(
-      "href",
-      "/privacidad",
-    );
-    expect(within(legal).getByRole("link", { name: "Política de cookies" })).toHaveAttribute(
-      "href",
-      "/cookies",
-    );
+    expect(screen.queryByRole("navigation", { name: "Información legal" })).toBeNull();
+    for (const name of ["Aviso legal", "Política de privacidad", "Política de cookies"]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
     expect(
       screen.getByRole("link", { name: /WhatsApp 0388 484-4442/ }).getAttribute("href"),
     ).toMatch(/^https:\/\/wa\.me\/5493884844442\?text=/);

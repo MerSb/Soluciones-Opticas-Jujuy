@@ -2,6 +2,12 @@
 // scripts/prerender-heads.ts). Plain data, no browser or env access, so
 // Node can import it at build time.
 
+import {
+  COOKIE_POLICY_APPROVED,
+  LEGAL_NOTICE_APPROVED,
+  PRIVACY_POLICY_APPROVED,
+} from "../content/legal/status";
+
 export const SITE_NAME = "Soluciones Ópticas";
 export const SITE_URL = "https://www.solucionesopticas.com.ar";
 
@@ -13,6 +19,11 @@ export interface RouteSeo {
   noIndex?: boolean;
   /** Listed in the sitemap. */
   inSitemap: boolean;
+  /**
+   * false = not part of the published site yet (an unapproved legal
+   * page): no pre-built HTML, so its URL is a real 404. Absent = published.
+   */
+  published?: boolean;
 }
 
 /**
@@ -72,22 +83,25 @@ export const STATIC_ROUTE_SEO = {
     path: "/aviso-legal",
     title: "Aviso legal",
     description: "Quién es responsable de este sitio, para qué existe y las condiciones de uso.",
-    noIndex: true,
+    noIndex: !LEGAL_NOTICE_APPROVED,
     inSitemap: false,
+    published: LEGAL_NOTICE_APPROVED,
   },
   privacy: {
     path: "/privacidad",
     title: "Política de privacidad",
     description:
       "Qué datos personales trata Soluciones Ópticas en este sitio, para qué y cómo ejercer tus derechos.",
-    noIndex: true,
+    noIndex: !PRIVACY_POLICY_APPROVED,
     inSitemap: false,
+    published: PRIVACY_POLICY_APPROVED,
   },
   cookies: {
     path: "/cookies",
     title: "Política de cookies",
     description: "Qué cookies y almacenamiento usa el sitio de Soluciones Ópticas y para qué.",
-    noIndex: true,
+    noIndex: !COOKIE_POLICY_APPROVED,
     inSitemap: false,
+    published: COOKIE_POLICY_APPROVED,
   },
 } satisfies Record<string, RouteSeo>;

@@ -1,11 +1,15 @@
 // Audit point 19 — analytics, prepared and OFF by default.
 //
-// Nothing is loaded or sent unless BOTH:
+// Nothing is loaded or sent unless ALL of:
 //  1. VITE_GA4_MEASUREMENT_ID is set at build time (no ID is invented;
-//     unset = no banner, no script, track() does nothing), and
-//  2. the visitor accepted analytics in the consent banner.
+//     unset = no banner, no script, track() does nothing),
+//  2. the cookie policy is approved and published (content/legal/status.ts)
+//     — the banner links to it and the visitor changes their choice there,
+//  3. the visitor accepted analytics in the consent banner.
 // Google's script is injected only after that consent, never before.
 // Events carry no personal data: product slugs, kinds, colors and paths.
+
+import { COOKIE_POLICY_APPROVED } from "../content/legal/status";
 
 export type AnalyticsEvent =
   | { name: "view_item"; params: { item_id: string; item_category: "FRAME" | "ACCESSORY" } }
@@ -22,6 +26,7 @@ type GtagWindow = Window & { dataLayer?: unknown[]; gtag?: (...args: unknown[]) 
 
 /** The configured GA4 ID, or null when analytics is not set up. */
 export function analyticsId(): string | null {
+  if (!COOKIE_POLICY_APPROVED) return null;
   const id = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined;
   return id && /^G-[A-Z0-9]+$/.test(id) ? id : null;
 }

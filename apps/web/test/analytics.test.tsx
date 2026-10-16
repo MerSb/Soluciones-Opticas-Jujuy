@@ -11,8 +11,18 @@ import {
 } from "../src/lib/analytics";
 import { AnalyticsConsent, AnalyticsPreference } from "../src/components/layout/AnalyticsConsent";
 
-// Audit points 3 and 19 — analytics stays off unless an ID is configured
-// AND the visitor accepts; nothing is loaded before consent.
+// Audit points 3 and 19 — analytics stays off unless an ID is configured,
+// the cookie policy is approved AND the visitor accepts; nothing is loaded
+// before consent.
+
+// The cookie policy's approval flag, switchable per test (today: false).
+const legal = vi.hoisted(() => ({ cookiePolicyApproved: false }));
+vi.mock("../src/content/legal/status", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/content/legal/status")>()),
+  get COOKIE_POLICY_APPROVED() {
+    return legal.cookiePolicyApproved;
+  },
+}));
 
 const scripts = () => document.querySelectorAll('script[data-analytics="ga4"]');
 type W = Window & { dataLayer?: IArguments[] };
@@ -20,11 +30,30 @@ type W = Window & { dataLayer?: IArguments[] };
 beforeEach(() => {
   localStorage.clear();
   resetAnalyticsForTests();
+  legal.cookiePolicyApproved = true;
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   resetAnalyticsForTests();
   localStorage.clear();
+});
+
+describe("with an ID but the cookie policy not approved yet (today)", () => {
+  it("is off: the banner would link to a page that isn't published", () => {
+    legal.cookiePolicyApproved = false;
+    vi.stubEnv("VITE_GA4_MEASUREMENT_ID", "G-TEST123");
+    expect(analyticsId()).toBeNull();
+    render(
+      <MemoryRouter>
+        <AnalyticsConsent />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("region", { name: "Preferencias de analítica" })).toBeNull();
+    localStorage.setItem("sopt-analytics-consent", "granted");
+    track({ name: "catalog_click", params: { source: "test" } });
+    expect(loadAnalytics()).toBe(false);
+    expect(scripts()).toHaveLength(0);
+  });
 });
 
 describe("without a measurement ID (today's configuration)", () => {

@@ -101,3 +101,15 @@ describe("routing", () => {
     expect(screen.getByRole("link", { name: /volver al inicio/i })).toHaveAttribute("href", "/");
   });
 });
+
+describe("legal drafts (audit points 1–3)", () => {
+  it.each(["/aviso-legal", "/privacidad", "/cookies"])(
+    "%s is not a page of the published site while unapproved: the 404 page",
+    async (path) => {
+      renderAt(path);
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Página no encontrada" }),
+      ).toBeInTheDocument();
+    },
+  );
+});

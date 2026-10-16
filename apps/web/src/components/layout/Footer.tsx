@@ -2,10 +2,16 @@ import { Link } from "react-router-dom";
 import { siteContent } from "../../content/site-content";
 import { buildWhatsAppUrl } from "../../lib/whatsapp";
 import { toTelHref } from "../../lib/format-phone";
+import { LEGAL_PAGES } from "../../content/legal/status";
+import { SHOW_LEGAL_DRAFTS } from "../../content/legal/visibility";
 
 // Contact, location and legal links on every page. Only confirmed data
 // (site-content.ts); "Cómo llegar" is a Google Maps search for the
 // confirmed address — no invented map pin, hours or social profiles.
+// Legal pages are linked only once approved (content/legal/status.ts);
+// drafts only in `npm run dev`.
+
+const LEGAL_LINKS = LEGAL_PAGES.filter((page) => SHOW_LEGAL_DRAFTS || page.approved);
 
 const LINK =
   "inline-flex min-h-6 items-center text-text-muted underline decoration-text-muted/50 underline-offset-4 transition-colors hover:text-primary hover:decoration-primary";
@@ -64,26 +70,20 @@ export function Footer() {
           </ul>
         </div>
 
-        <nav aria-label="Información legal">
-          <p className="font-semibold text-text">Información</p>
-          <ul className="mt-2 space-y-1.5">
-            <li>
-              <Link to="/aviso-legal" className={LINK}>
-                Aviso legal
-              </Link>
-            </li>
-            <li>
-              <Link to="/privacidad" className={LINK}>
-                Política de privacidad
-              </Link>
-            </li>
-            <li>
-              <Link to="/cookies" className={LINK}>
-                Política de cookies
-              </Link>
-            </li>
-          </ul>
-        </nav>
+        {LEGAL_LINKS.length > 0 && (
+          <nav aria-label="Información legal">
+            <p className="font-semibold text-text">Información</p>
+            <ul className="mt-2 space-y-1.5">
+              {LEGAL_LINKS.map((page) => (
+                <li key={page.slug}>
+                  <Link to={`/${page.slug}`} className={LINK}>
+                    {page.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
       </div>
       <div className="border-t border-border">
         <p className="mx-auto max-w-7xl px-4 py-4 text-xs text-text-muted sm:px-6 lg:px-8">
