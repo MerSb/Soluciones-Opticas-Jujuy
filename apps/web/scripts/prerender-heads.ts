@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Plugin } from "vite";
 import { STATIC_ROUTE_SEO } from "../src/lib/seo-routes";
 import { fileForPath, headFor } from "../src/lib/seo-head-html";
@@ -21,7 +21,7 @@ export function prerenderHeads(): Plugin {
     name: "prerender-heads",
     apply: "build",
     configResolved(config) {
-      outDir = join(config.root, config.build.outDir);
+      outDir = resolve(config.root, config.build.outDir);
     },
     closeBundle() {
       const shell = readFileSync(join(outDir, "index.html"), "utf8");
