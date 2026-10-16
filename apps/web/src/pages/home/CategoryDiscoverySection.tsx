@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Container } from "../../components/ui/Container";
 import { SectionHeading } from "../../components/marketing/SectionHeading";
 import { useCategoriesQuery } from "../../services/queries/categories";
+import { track } from "../../lib/analytics";
 
 // A "nice to have" preview, not the page's main job — fails quietly
 // (returns null on loading/error) rather than showing an error banner
@@ -41,6 +42,7 @@ export function CategoryDiscoverySection() {
         <div className="mt-8 text-center">
           <Link
             to="/products"
+            onClick={() => track({ name: "catalog_click", params: { source: "home_categories" } })}
             className="group inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
           >
             Ver catálogo completo

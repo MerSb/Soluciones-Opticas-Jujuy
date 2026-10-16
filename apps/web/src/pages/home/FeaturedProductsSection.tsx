@@ -3,6 +3,7 @@ import { Container } from "../../components/ui/Container";
 import { SectionHeading } from "../../components/marketing/SectionHeading";
 import { ProductCard } from "../../components/products/ProductCard";
 import { useProductsQuery } from "../../services/queries/products";
+import { track } from "../../lib/analytics";
 
 // §7: "Products are second [loudest, after Hero]" — a real catalog
 // preview on Home, not just a link to /products. Named "Descubrí
@@ -30,6 +31,7 @@ export function FeaturedProductsSection() {
         <div className="mt-8 text-center">
           <Link
             to="/products"
+            onClick={() => track({ name: "catalog_click", params: { source: "home_featured" } })}
             className="group inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
           >
             Ver catálogo completo

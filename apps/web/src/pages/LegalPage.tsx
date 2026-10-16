@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { SeoHead } from "../components/ui/SeoHead";
 import { Container } from "../components/ui/Container";
 import type { LegalDocument } from "../content/legal-content";
+import { AnalyticsPreference } from "../components/layout/AnalyticsConsent";
 
 // Aviso legal / privacidad / cookies. Drafts pending legal review: the
 // banner says so, every missing fact shows as a visible "Pendiente"
@@ -90,6 +91,7 @@ export function LegalPage({ document }: { document: LegalDocument }) {
               )}
             </section>
           ))}
+          {document.slug === "cookies" && <AnalyticsPreference />}
         </div>
       </Container>
     </>

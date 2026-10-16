@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { siteContent } from "../../content/site-content";
 import { buildWhatsAppUrl } from "../../lib/whatsapp";
+import { track } from "../../lib/analytics";
 
 interface WhatsAppButtonProps {
   message?: string;
@@ -46,6 +47,9 @@ export function WhatsAppButton({ message, children, compact = false }: WhatsAppB
   return (
     <a
       href={buildWhatsAppUrl(whatsappNumber, message)}
+      onClick={() =>
+        track({ name: "whatsapp_click", params: { page_path: window.location.pathname } })
+      }
       target="_blank"
       rel="noopener noreferrer"
       className={`group relative overflow-hidden ${baseClassName} bg-primary text-surface hover:-translate-y-px hover:bg-primary-dark hover:shadow-elevated focus-visible:shadow-elevated`}

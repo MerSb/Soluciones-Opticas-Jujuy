@@ -3,6 +3,7 @@ import { WhatsAppButton } from "../../ui/WhatsAppButton";
 import { siteContent } from "../../../content/site-content";
 import { toTelHref } from "../../../lib/format-phone";
 import { buildMapsUrl } from "../../../lib/maps";
+import { track } from "../../../lib/analytics";
 
 const PIN_ICON = (
   <svg
@@ -79,6 +80,7 @@ export function HeroContent() {
         </WhatsAppButton>
         <Link
           to="/products"
+          onClick={() => track({ name: "catalog_click", params: { source: "home_hero" } })}
           className="group inline-flex items-center gap-2 rounded-md border border-border bg-transparent px-5 py-3 text-sm font-semibold text-text transition-colors duration-200 hover:border-primary hover:bg-primary/5 hover:text-primary"
         >
           Ver anteojos

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ProductVariantDto } from "@soluciones-opticas/shared";
@@ -10,7 +10,7 @@ import { breadcrumbJsonLd, productJsonLd } from "../lib/seo";
 import { WhatsAppButton } from "../components/ui/WhatsAppButton";
 import { ProductGallery } from "../components/products/ProductGallery";
 import { FavoriteButton } from "../components/products/FavoriteButton";
-import { VariantSelector } from "../components/products/VariantSelector";
+import { VariantSelector, variantDisplayName } from "../components/products/VariantSelector";
 import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
@@ -30,6 +30,7 @@ import {
 } from "../lib/lens-configuration";
 import { buildCloudinaryUrl } from "../lib/cloudinary";
 import { STYLE_PREFERENCE_OPTIONS } from "../lib/optical-profile-taxonomy";
+import { track } from "../lib/analytics";
 
 // `product.shape`/`variant.material` are free text (never a forced
 // enum — see ADR-0019/ADR-0020's normalization reasoning, which is a
@@ -45,6 +46,16 @@ export function ProductDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const { data: product, isLoading, isError, error } = useProductQuery(slug);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const viewedSlug = product?.slug;
+  const viewedKind = product?.kind;
+  useEffect(() => {
+    if (viewedSlug) {
+      track({
+        name: "view_item",
+        params: { item_id: viewedSlug, item_category: viewedKind ?? "FRAME" },
+      });
+    }
+  }, [viewedSlug, viewedKind]);
   const [lensSelection, setLensSelection] = useState<LensSelection>(FRAME_ONLY_SELECTION);
   // ADR-0028 Phase 2 — included case/cord choice and its quoted summary.
   const [accessoryChoice, setAccessoryChoice] = useState<AccessoryChoice>(EMPTY_ACCESSORY_CHOICE);
@@ -270,7 +281,13 @@ export function ProductDetailPage() {
                 <VariantSelector
                   variants={product.variants}
                   selected={selectedVariant}
-                  onSelect={(variant) => setSelectedVariantId(variant.id)}
+                  onSelect={(variant) => {
+                    setSelectedVariantId(variant.id);
+                    track({
+                      name: "select_variant",
+                      params: { item_id: product.slug, variant: variantDisplayName(variant) },
+                    });
+                  }}
                 />
               </div>
             )}
