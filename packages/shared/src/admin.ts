@@ -108,6 +108,19 @@ export interface CreateVariantRequest {
   priceOverride?: number | null;
 }
 
+/** POST /api/admin/products/:id/variants/batch — accessories only: several
+ * colors at once, each with its own stock (no default: the admin types it).
+ * All or nothing. */
+export interface CreateVariantsBatchRequest {
+  variants: {
+    color: string;
+    stock: number;
+    sku: string;
+    label?: string | null;
+    priceOverride?: number | null;
+  }[];
+}
+
 export interface UpdateVariantRequest {
   color?: string | null;
   material?: string | null;

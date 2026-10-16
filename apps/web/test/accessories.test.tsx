@@ -195,7 +195,8 @@ describe("accessory product page", () => {
     expect(screen.getByRole("group", { name: "Elegir presentación" })).toBeInTheDocument();
     expect(screen.getByText("Presentación:").nextSibling).toHaveTextContent("Presentación A");
 
-    await userEvent.click(screen.getByRole("button", { name: "Presentación B" }));
+    // A sold-out presentation says so on its own button.
+    await userEvent.click(screen.getByRole("button", { name: "Presentación B (sin stock)" }));
     expect(screen.getByText("$ 6.000")).toBeInTheDocument();
     expect(screen.getByText("Sin stock")).toBeInTheDocument();
 
@@ -394,7 +395,7 @@ describe("admin — accessory variants", () => {
     await userEvent.type(screen.getByLabelText("Presentación (opcional)"), "Presentación C");
     await userEvent.type(screen.getByLabelText("Precio propio (opcional)"), "10000");
     await userEvent.type(screen.getByLabelText("SKU"), "QA-C");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar color o presentación" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agregar presentación" }));
     await waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith({
         color: null,
@@ -502,9 +503,9 @@ describe("predeploy fixes (web)", () => {
     const createStock = screen.getAllByLabelText("Stock").at(-1)!;
     await userEvent.type(screen.getByLabelText("SKU"), "QA-NEW");
     await userEvent.clear(createStock);
-    expect(screen.getByRole("button", { name: "Agregar color o presentación" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Agregar presentación" })).toBeDisabled();
     await userEvent.type(createStock, "0");
-    expect(screen.getByRole("button", { name: "Agregar color o presentación" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Agregar presentación" })).toBeEnabled();
   });
 });
 

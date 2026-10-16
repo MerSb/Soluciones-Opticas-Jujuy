@@ -5,6 +5,8 @@ interface VariantSelectorProps {
   variants: ProductVariantDto[];
   selected: ProductVariantDto;
   onSelect: (variant: ProductVariantDto) => void;
+  /** Accessories: name the chosen color and mark sold-out ones. */
+  showAvailability?: boolean;
 }
 
 // ADR-0028: accessory variants may be told apart by a presentation label
@@ -17,14 +19,24 @@ export function variantDisplayName(variant: ProductVariantDto): string {
 
 // Selecting a variant updates image/price/availability — all driven by
 // data the API already returns per-variant, nothing invented (§23).
-export function VariantSelector({ variants, selected, onSelect }: VariantSelectorProps) {
+export function VariantSelector({
+  variants,
+  selected,
+  onSelect,
+  showAvailability = false,
+}: VariantSelectorProps) {
   if (variants.length <= 1) return null;
   const byPresentation = variants.some((variant) => variant.label);
   const heading = byPresentation ? "Presentación" : "Color";
 
   return (
     <div>
-      <span className="text-sm font-medium text-text">{heading}</span>
+      <span className="text-sm font-medium text-text">
+        {heading}
+        {showAvailability && (
+          <span className="font-normal text-text-muted">: {variantDisplayName(selected)}</span>
+        )}
+      </span>
       <div
         className="mt-2 flex flex-wrap gap-2"
         role="group"
@@ -53,6 +65,9 @@ export function VariantSelector({ variants, selected, onSelect }: VariantSelecto
                 />
               )}
               {variantDisplayName(variant)}
+              {showAvailability && !variant.inStock && (
+                <span className="text-xs text-text-muted">(sin stock)</span>
+              )}
             </button>
           );
         })}
