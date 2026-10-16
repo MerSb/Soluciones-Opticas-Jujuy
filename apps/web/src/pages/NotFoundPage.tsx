@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 import { SeoHead } from "../components/ui/SeoHead";
 import { Container } from "../components/ui/Container";
-import { WhatsAppButton } from "../components/ui/WhatsAppButton";
+import { siteContent } from "../content/site-content";
+import { buildWhatsAppUrl } from "../lib/whatsapp";
+import { track } from "../lib/analytics";
 
 // Audit point 15. Unknown paths outside the app's routes also get a real
 // HTTP 404 from Vercel (404.html, see vercel.json); inside the app this
@@ -39,11 +41,28 @@ export function NotFoundPage() {
               Ver accesorios
             </Link>
           </div>
-          <div className="mt-6">
-            <WhatsAppButton message="Hola, no encontré lo que buscaba en la web.">
-              ¿Necesitás ayuda? Escribinos
-            </WhatsAppButton>
-          </div>
+          {/* Audit point 20: "Volver al inicio" is the page's one primary
+              action, so help is a plain link here, not a second filled button
+              (the header keeps its WhatsApp button on every page). */}
+          {siteContent.whatsappNumber && (
+            <p className="mt-6 text-sm text-text-muted">
+              ¿Necesitás ayuda?{" "}
+              <a
+                href={buildWhatsAppUrl(
+                  siteContent.whatsappNumber,
+                  "Hola, no encontré lo que buscaba en la web.",
+                )}
+                onClick={() =>
+                  track({ name: "whatsapp_click", params: { page_path: window.location.pathname } })
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-primary underline underline-offset-4"
+              >
+                Escribinos por WhatsApp
+              </a>
+            </p>
+          )}
         </div>
       </Container>
     </>
