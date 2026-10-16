@@ -7,7 +7,14 @@ import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 // over real Cloudinary-delivered images — each thumbnail is its own
 // `ProductImage`, so a demo/broken publicId on one thumbnail falls back
 // to the placeholder independently, never breaking the whole gallery.
-export function ProductGallery({ images }: { images: ProductImageDto[] }) {
+export function ProductGallery({
+  images,
+  fit = "cover",
+}: {
+  images: ProductImageDto[];
+  /** "contain" for accessories: the whole product, never cropped. */
+  fit?: "cover" | "contain";
+}) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -25,6 +32,7 @@ export function ProductGallery({ images }: { images: ProductImageDto[] }) {
         sizes="(min-width: 1024px) 50vw, 100vw"
         aspectRatio="1 / 1"
         className="w-full rounded-lg"
+        fit={fit}
         eager
       />
 
@@ -47,6 +55,7 @@ export function ProductGallery({ images }: { images: ProductImageDto[] }) {
                 widths={CLOUDINARY_WIDTHS.detailThumbnail}
                 aspectRatio="1 / 1"
                 className="h-full w-full"
+                fit={fit}
               />
               <span className="sr-only">{image.alt}</span>
             </button>

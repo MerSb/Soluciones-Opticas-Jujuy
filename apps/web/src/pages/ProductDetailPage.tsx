@@ -175,7 +175,7 @@ export function ProductDetailPage() {
         />
 
         <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-2">
-          <ProductGallery images={selectedVariant.images} />
+          <ProductGallery images={selectedVariant.images} fit={isAccessory ? "contain" : "cover"} />
 
           <div>
             <div className="flex items-start justify-between gap-4">

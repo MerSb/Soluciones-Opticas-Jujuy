@@ -13,6 +13,15 @@ interface ProductImageProps {
   className?: string;
   /** Above-the-fold usage (e.g. the product-detail main image) — skips lazy-loading. */
   eager?: boolean;
+  /**
+   * "cover" (default) fills the frame and may crop — right for frames,
+   * photographed landscape. "contain" shows the whole product, centered
+   * on white with a little breathing room — for accessories such as
+   * upright bottles, which "cover" would cut top and bottom. The padding
+   * is small on purpose: the cleaner photos already carry wide white side
+   * margins and only ~2.5% above the cap.
+   */
+  fit?: "cover" | "contain";
 }
 
 // The real product-image renderer — was `ResponsiveImage` (a plain-src
@@ -33,6 +42,7 @@ export function ProductImage({
   aspectRatio = "4 / 3",
   className,
   eager = false,
+  fit = "cover",
 }: ProductImageProps) {
   const [failed, setFailed] = useState(false);
 
@@ -49,8 +59,13 @@ export function ProductImage({
     );
   }
 
+  const frame =
+    fit === "contain"
+      ? "flex items-center justify-center overflow-hidden bg-white p-[4%]"
+      : "overflow-hidden bg-surface-muted";
+
   return (
-    <div style={{ aspectRatio }} className={`overflow-hidden bg-surface-muted ${className ?? ""}`}>
+    <div style={{ aspectRatio }} className={`${frame} ${className ?? ""}`}>
       <img
         src={src}
         srcSet={srcSet ?? undefined}
@@ -59,7 +74,7 @@ export function ProductImage({
         loading={eager ? "eager" : "lazy"}
         decoding="async"
         onError={() => setFailed(true)}
-        className="h-full w-full object-cover"
+        className={`h-full w-full ${fit === "contain" ? "object-contain object-center" : "object-cover"}`}
       />
     </div>
   );

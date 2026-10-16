@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ProductListItem } from "@soluciones-opticas/shared";
 import { ProductImage } from "../src/components/products/ProductImage";
+import { ProductCard } from "../src/components/products/ProductCard";
+import { renderWithProviders } from "./test-utils";
 
-vi.mock("../src/lib/cloudinary", () => ({
+vi.mock("../src/lib/cloudinary", async (importOriginal) => ({
+  CLOUDINARY_WIDTHS: (await importOriginal<typeof import("../src/lib/cloudinary")>())
+    .CLOUDINARY_WIDTHS,
   buildCloudinaryUrl: vi.fn((publicId: string, { width }: { width: number }) =>
     publicId
       ? `https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,w_${width}/${publicId}`
@@ -55,5 +60,78 @@ describe("ProductImage", () => {
       screen.getByRole("img", { name: /imagen del producto no disponible/i }),
     ).toBeInTheDocument();
     expect(screen.queryByAltText("Andina Aviador")).not.toBeInTheDocument();
+  });
+});
+
+// Accessory framing: upright products (e.g. cleaner bottles) are shown
+// whole on white; frames keep the full-bleed "cover" photo.
+describe("ProductImage fit", () => {
+  it("defaults to cover (frames): fills the frame, unchanged", () => {
+    render(<ProductImage publicId="some/id" alt="Anteojo" widths={[320]} />);
+    const img = screen.getByRole("img", { name: "Anteojo" });
+    expect(img).toHaveClass("object-cover");
+    expect(img).not.toHaveClass("object-contain");
+    expect(img.parentElement).not.toHaveClass("bg-white");
+  });
+
+  it("contain: the whole product, centered on white with breathing room, same delivery URL", () => {
+    render(<ProductImage publicId="some/id" alt="Limpiador" widths={[320]} fit="contain" />);
+    const img = screen.getByRole("img", { name: "Limpiador" });
+    expect(img).toHaveClass("h-full", "w-full", "object-contain", "object-center");
+    expect(img).not.toHaveClass("object-cover");
+    expect(img.parentElement).toHaveClass("bg-white", "flex", "items-center", "justify-center");
+    expect(img).toHaveAttribute(
+      "src",
+      "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,w_320/some/id",
+    );
+  });
+});
+
+describe("ProductCard image framing", () => {
+  const base: ProductListItem = {
+    name: "Limpiador 40ml",
+    slug: "limpiador-40ml",
+    kind: "ACCESSORY",
+    priceFrom: false,
+    brand: { name: "Soluciones Opticas", slug: "soluciones-opticas" },
+    category: { name: "Accesorios", slug: "accesorios" },
+    shape: null,
+    styles: [],
+    inStock: true,
+    price: 4000,
+    frameMeasurements: {
+      lensWidth: null,
+      bridgeWidth: null,
+      templeLength: null,
+      lensHeight: null,
+      frameWidth: null,
+    },
+    colors: [],
+    image: { publicId: "acc/id", alt: "Limpiador 40ml", isPrimary: true },
+  };
+
+  it("accessory cards show the whole product and never zoom it", () => {
+    renderWithProviders(<ProductCard product={base} />);
+    const img = screen.getByRole("img", { name: "Limpiador 40ml" });
+    expect(img).toHaveClass("object-contain");
+    expect(img.parentElement!.className).not.toContain("scale");
+    expect(screen.getByText("$ 4.000")).toBeInTheDocument();
+  });
+
+  it("frame cards keep cover and the hover zoom", () => {
+    renderWithProviders(
+      <ProductCard
+        product={{
+          ...base,
+          kind: "FRAME",
+          name: "Andina Aviador",
+          slug: "andina-aviador",
+          image: { publicId: "frame/id", alt: "Andina Aviador", isPrimary: true },
+        }}
+      />,
+    );
+    const img = screen.getByRole("img", { name: "Andina Aviador" });
+    expect(img).toHaveClass("object-cover");
+    expect(img.parentElement).toHaveClass("group-hover:scale-[1.02]");
   });
 });

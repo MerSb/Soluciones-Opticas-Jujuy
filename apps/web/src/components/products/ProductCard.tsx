@@ -12,6 +12,9 @@ import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 // ProductCard rather than as a per-context wrapper concern.
 export function ProductCard({ product }: { product: ProductListItem }) {
   const sizeSummary = buildSizeSummary(product.frameMeasurements);
+  // Accessories (e.g. upright cleaner bottles) are shown whole, never
+  // cropped and never zoomed; frames keep the full-bleed photo.
+  const isAccessory = product.kind === "ACCESSORY";
 
   return (
     // The favorite button lives as a sibling of the <Link>, not nested
@@ -36,7 +39,12 @@ export function ProductCard({ product }: { product: ProductListItem }) {
           widths={CLOUDINARY_WIDTHS.card}
           sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
           aspectRatio="4 / 3"
-          className="w-full transition-transform duration-300 group-hover:scale-[1.02]"
+          fit={isAccessory ? "contain" : "cover"}
+          className={
+            isAccessory
+              ? "w-full"
+              : "w-full transition-transform duration-300 group-hover:scale-[1.02]"
+          }
         />
         <div className="p-4">
           <p className="text-xs uppercase tracking-wide text-text-muted">{product.brand.name}</p>
