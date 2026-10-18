@@ -50,3 +50,16 @@ export const CLOUDINARY_WIDTHS = {
   detailThumbnail: [64, 128] as const,
   adminThumbnail: [96, 160] as const,
 };
+
+// Zoom (product detail lens and enlarged view): the largest image the
+// asset really has, up to ZOOM_MAX_WIDTH. `c_limit` scales down but never
+// up, so a 1500 px original comes back at 1500 px — real detail, never an
+// upscaled blur — while f_auto/q_auto stay on as everywhere else. Only
+// requested when a visitor actually zooms (hover or opening the view),
+// never for catalog cards.
+export const CLOUDINARY_ZOOM_MAX_WIDTH = 2000;
+
+export function buildCloudinaryZoomUrl(publicId: string): string | null {
+  if (!env.cloudinaryCloudName) return null;
+  return `https://res.cloudinary.com/${env.cloudinaryCloudName}/image/upload/f_auto,q_auto,c_limit,w_${CLOUDINARY_ZOOM_MAX_WIDTH}/${publicId}`;
+}
