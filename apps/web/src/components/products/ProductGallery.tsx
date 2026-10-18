@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProductImageDto } from "@soluciones-opticas/shared";
 import { ProductImage } from "./ProductImage";
+import { ProductImageZoom } from "./ProductImageZoom";
 import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
 
 // Real thumbnail switching (keyboard-accessible, aria-selected tabs)
@@ -25,16 +26,29 @@ export function ProductGallery({
 
   return (
     <div>
-      <ProductImage
-        publicId={selected?.publicId ?? null}
-        alt={selected?.alt ?? ""}
-        widths={CLOUDINARY_WIDTHS.detailMain}
-        sizes="(min-width: 1024px) 50vw, 100vw"
-        aspectRatio="1 / 1"
-        className="w-full rounded-lg"
-        fit={fit}
-        eager
-      />
+      {/* The selected photo, zoomable (hover lens + enlarged view).
+          Keyed by photo so switching thumbnails or colors starts the
+          zoom fresh on the new image. No photo: the plain placeholder. */}
+      {selected ? (
+        <ProductImageZoom
+          key={selected.publicId}
+          publicId={selected.publicId}
+          alt={selected.alt}
+          widths={CLOUDINARY_WIDTHS.detailMain}
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          fit={fit}
+        />
+      ) : (
+        <ProductImage
+          publicId={null}
+          alt=""
+          widths={CLOUDINARY_WIDTHS.detailMain}
+          aspectRatio="1 / 1"
+          className="w-full rounded-lg"
+          fit={fit}
+          eager
+        />
+      )}
 
       {images.length > 1 && (
         <div role="tablist" aria-label="Imágenes del producto" className="mt-3 flex gap-2">

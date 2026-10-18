@@ -16,6 +16,9 @@ vi.mock("../src/lib/cloudinary", async (importOriginal) => ({
   buildCloudinarySrcSet: vi.fn((publicId: string) =>
     publicId ? `https://res.cloudinary.com/demo/image/upload/w_320/${publicId} 320w` : null,
   ),
+  buildCloudinaryZoomUrl: vi.fn((publicId: string) =>
+    publicId ? `https://res.cloudinary.com/demo/image/upload/c_limit,w_2000/${publicId}` : null,
+  ),
 }));
 
 afterEach(() => {
@@ -110,15 +113,18 @@ describe("ProductCard image framing", () => {
     image: { publicId: "acc/id", alt: "Limpiador 40ml", isPrimary: true },
   };
 
-  it("accessory cards show the whole product and never zoom it", () => {
+  // Roberto (2026-10-18): accessories get the hover zoom too, but at rest
+  // the bottle or case is still shown whole (contain, white frame).
+  it("accessory cards show the whole product at rest and zoom it inside its frame", () => {
     renderWithProviders(<ProductCard product={base} />);
     const img = screen.getByRole("img", { name: "Limpiador 40ml" });
-    expect(img).toHaveClass("object-contain");
-    expect(img.parentElement!.className).not.toContain("scale");
+    expect(img).toHaveClass("object-contain", "motion-safe:group-hover:scale-[1.08]");
+    expect(img.parentElement).toHaveClass("overflow-hidden", "bg-white", "p-[4%]");
+    expect(img.className).not.toMatch(/(^|\s)scale-/); // never scaled at rest
     expect(screen.getByText("$ 4.000")).toBeInTheDocument();
   });
 
-  it("frame cards keep cover and the hover zoom", () => {
+  it("frame cards keep cover and get the same hover zoom, clipped by the frame", () => {
     renderWithProviders(
       <ProductCard
         product={{
@@ -131,7 +137,9 @@ describe("ProductCard image framing", () => {
       />,
     );
     const img = screen.getByRole("img", { name: "Andina Aviador" });
-    expect(img).toHaveClass("object-cover");
-    expect(img.parentElement).toHaveClass("group-hover:scale-[1.02]");
+    expect(img).toHaveClass("object-cover", "motion-safe:group-hover:scale-[1.08]");
+    expect(img.parentElement).toHaveClass("overflow-hidden");
+    // Text, price and favorite sit outside the zoomed image.
+    expect(img.closest(".p-4")).toBeNull();
   });
 });

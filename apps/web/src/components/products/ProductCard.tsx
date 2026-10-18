@@ -19,8 +19,9 @@ export function ProductCard({
   priority?: boolean;
 }) {
   const sizeSummary = buildSizeSummary(product.frameMeasurements);
-  // Accessories (e.g. upright cleaner bottles) are shown whole, never
-  // cropped and never zoomed; frames keep the full-bleed photo.
+  // Accessories (e.g. upright cleaner bottles) are shown whole — contain,
+  // on white — and frames keep the full-bleed photo; both get the same
+  // hover zoom, which only ever enlarges the photo inside its own frame.
   const isAccessory = product.kind === "ACCESSORY";
 
   return (
@@ -28,7 +29,7 @@ export function ProductCard({
     // inside it — a <button> inside an <a> is invalid HTML (nested
     // interactive content) and breaks keyboard/AT navigation, so this
     // wraps both in a plain positioned <div> instead.
-    <div className="group relative overflow-hidden rounded-lg border border-border bg-surface-muted shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-primary hover:shadow-elevated focus-within:border-primary">
+    <div className="group relative overflow-hidden rounded-lg border border-border bg-surface-muted shadow-soft transition-[transform,box-shadow,border-color] duration-200 hover:border-primary hover:shadow-elevated focus-within:border-primary motion-safe:hover:-translate-y-1">
       <FavoriteButton slug={product.slug} className="absolute right-3 top-3 z-10" />
       {!product.inStock && (
         <span className="absolute left-3 top-3 z-10 rounded-full bg-surface/90 px-2.5 py-1 text-xs font-medium text-text-muted shadow-soft">
@@ -36,10 +37,13 @@ export function ProductCard({
         </span>
       )}
       <Link to={productPath(product)} className="block">
-        {/* Card-level microinteraction (§15): a subtle 1.02 scale on
-            hover, matching every other product/brand image treatment
-            sitewide. Falls back to the branded placeholder when there's
-            no image, no Cloudinary config, or the asset fails to load. */}
+        {/* Hover zoom: the photo grows 8% inside its frame (the frame
+            clips it, so text, price, favorite and the card's size never
+            move). At 8% a "contain" accessory only grows into its 4%
+            white padding — the bottle or case stays whole. Same image
+            and srcset as before (no extra download); off with
+            prefers-reduced-motion. Falls back to the branded placeholder
+            when there's no image, no Cloudinary config, or a load error. */}
         <ProductImage
           publicId={product.image?.publicId ?? null}
           alt={product.image?.alt ?? product.name}
@@ -48,11 +52,8 @@ export function ProductCard({
           aspectRatio="4 / 3"
           fit={isAccessory ? "contain" : "cover"}
           priority={priority}
-          className={
-            isAccessory
-              ? "w-full"
-              : "w-full transition-transform duration-300 group-hover:scale-[1.02]"
-          }
+          className="w-full"
+          imgClassName={CARD_ZOOM}
         />
         <div className="p-4">
           <p className="text-xs uppercase tracking-wide text-text-muted">{product.brand.name}</p>
@@ -68,6 +69,9 @@ export function ProductCard({
     </div>
   );
 }
+
+const CARD_ZOOM =
+  "motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out motion-safe:group-hover:scale-[1.08]";
 
 // ADR-0028: accessories live under /accesorios (same product page).
 export function productPath(product: Pick<ProductListItem, "slug" | "kind">): string {

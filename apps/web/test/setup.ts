@@ -47,3 +47,20 @@ if (typeof window.HTMLDialogElement !== "undefined") {
     this.dispatchEvent(new Event("close"));
   };
 }
+
+// jsdom has no PointerEvent: fireEvent.pointer* would create a plain Event
+// without `pointerType`, so mouse-vs-touch logic (the product zoom lens)
+// couldn't be tested. Minimal stand-in carrying the fields the app reads.
+const pointerWindow = window as unknown as { PointerEvent?: typeof PointerEvent };
+if (!pointerWindow.PointerEvent) {
+  class PointerEventPolyfill extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 1;
+      this.pointerType = init.pointerType ?? "mouse";
+    }
+  }
+  pointerWindow.PointerEvent = PointerEventPolyfill as unknown as typeof PointerEvent;
+}

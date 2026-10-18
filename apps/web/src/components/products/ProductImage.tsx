@@ -10,7 +10,10 @@ interface ProductImageProps {
   widths: readonly number[];
   sizes?: string;
   aspectRatio?: string;
+  /** Classes for the frame (the box that clips the photo). */
   className?: string;
+  /** Classes for the <img> itself — e.g. a hover zoom that stays clipped by the frame. */
+  imgClassName?: string;
   /** Above-the-fold usage (e.g. the product-detail main image) — skips lazy-loading. */
   eager?: boolean;
   /** The page's likely LCP image: fetched first (implies eager). */
@@ -43,6 +46,7 @@ export function ProductImage({
   sizes,
   aspectRatio = "4 / 3",
   className,
+  imgClassName,
   eager = false,
   priority = false,
   fit = "cover",
@@ -78,7 +82,7 @@ export function ProductImage({
         fetchPriority={priority ? "high" : undefined}
         decoding="async"
         onError={() => setFailed(true)}
-        className={`h-full w-full ${fit === "contain" ? "object-contain object-center" : "object-cover"}`}
+        className={`h-full w-full ${fit === "contain" ? "object-contain object-center" : "object-cover"} ${imgClassName ?? ""}`}
       />
     </div>
   );

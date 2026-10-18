@@ -15,6 +15,8 @@ vi.mock("../src/lib/cloudinary", async (importOriginal) => ({
     `https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,w_${width}/${publicId}`,
   buildCloudinarySrcSet: (publicId: string) =>
     `https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,w_320/${publicId} 320w`,
+  buildCloudinaryZoomUrl: (publicId: string) =>
+    `https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_limit,w_2000/${publicId}`,
 }));
 
 afterEach(() => vi.clearAllMocks());
