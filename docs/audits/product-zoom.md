@@ -85,6 +85,15 @@
 - En Chrome, Tab podía salir del modal hacia la barra del navegador. Ahora el foco da la vuelta dentro de la vista.
 - **Al levantar los dos dedos después de un pellizco, se leía como "doble toque" y el zoom volvía a 100 %.** Ahora solo cuenta como toque uno con un solo dedo, corto y sin movimiento.
 - En celular, la vista ampliada quedaba negra hasta que llegaba la versión grande. Ahora muestra la foto que ya estaba cargada.
+- **(2026-10-19, prueba manual con "Cuadrado Patilla Gruesa")**
+  - **Problema:** tocar "Cerrar" menos de 200 ms después de arrastrar la foto ampliada no hacía nada. Chrome no genera el `click` de un toque que sigue a un arrastre sobre un área con `touch-action: none`; la captura de puntero no era la causa.
+  - **Corrección:** "Cerrar" ahora cierra en `touchend` cuando el toque empieza y termina sobre él, con `preventDefault()` para que el `click` tardío no caiga en el header de abajo. Mouse, Enter y Space siguen con el `click`.
+  - **Verificado:**
+    - 10 de 10 cierres inmediatos con las dos fotos;
+    - 0 clicks fantasma;
+    - deslizar el dedo fuera de "Cerrar" no cierra;
+    - Escape, Enter y la restauración del foco intactos;
+    - pellizco, arrastre y desplazamiento sin cambios.
 
 **Tests actualizados por cambio de especificación** (las versiones originales se conservan como `*.orig.py` en el scratchpad):
 
