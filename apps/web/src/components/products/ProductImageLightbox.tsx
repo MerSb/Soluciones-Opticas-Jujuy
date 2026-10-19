@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  type TouchEvent,
 } from "react";
 
 // The enlarged view of a product photo. A native modal <dialog>: the
@@ -62,6 +63,30 @@ export function ProductImageLightbox({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const closed = useRef(false);
+  // Touch on Cerrar: Chrome drops the synthetic click of a tap that comes
+  // right after a drag on the photo (touch-action: none), so a quick
+  // "drag, then Cerrar" did nothing. Cerrar closes on touchend instead,
+  // when the touch started and ended on it; preventDefault() keeps the
+  // late click from landing on the page element underneath once the view
+  // is gone (the header menu button sits right there). Mouse, Enter and
+  // Space still use the normal click.
+  const closeTouchId = useRef<number | null>(null);
+  const onCloseTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
+    const touch = Array.from(event.changedTouches).find(
+      (t) => t.identifier === closeTouchId.current,
+    );
+    closeTouchId.current = null;
+    if (!touch) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const inside =
+      touch.clientX >= box.left &&
+      touch.clientX <= box.right &&
+      touch.clientY >= box.top &&
+      touch.clientY <= box.bottom;
+    if (!inside) return;
+    event.preventDefault();
+    close();
+  };
 
   const close = useCallback(() => {
     if (closed.current) return;
@@ -254,6 +279,14 @@ export function ProductImageLightbox({
               ref={closeRef}
               type="button"
               onClick={close}
+              onTouchStart={(event) => {
+                closeTouchId.current =
+                  event.touches.length === 1 ? event.changedTouches[0]!.identifier : null;
+              }}
+              onTouchEnd={onCloseTouchEnd}
+              onTouchCancel={() => {
+                closeTouchId.current = null;
+              }}
               className="inline-flex h-11 items-center gap-1.5 rounded-full bg-white px-4 text-sm font-semibold text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
               <span aria-hidden="true">✕</span> Cerrar

@@ -110,4 +110,38 @@ describe("enlarged view", () => {
     await user.click(screen.getByRole("button", { name: /Cerrar/ }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  // A tap right after dragging the photo gets no synthetic click in Chrome:
+  // Cerrar closes on touchend itself (and cancels the late click).
+  it("Cerrar closes on touch end, without waiting for a click, and returns focus", async () => {
+    const user = userEvent.setup();
+    render(<ProductGallery images={IMAGES} />);
+    const trigger = screen.getByRole("button", { name: "Ampliar foto: Cuadrado rojo de frente" });
+    await user.click(trigger);
+    const close = screen.getByRole("button", { name: /Cerrar/ });
+    // jsdom lays out nothing: the button's box is 0×0 at (0, 0).
+    fireEvent.touchStart(close, {
+      touches: [{ identifier: 7, clientX: 0, clientY: 0 }],
+      changedTouches: [{ identifier: 7, clientX: 0, clientY: 0 }],
+    });
+    const notCancelled = fireEvent.touchEnd(close, {
+      changedTouches: [{ identifier: 7, clientX: 0, clientY: 0 }],
+    });
+    expect(notCancelled).toBe(false); // preventDefault: no late click on the page
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("a touch that slides off Cerrar does not close the view", async () => {
+    const user = userEvent.setup();
+    render(<ProductGallery images={IMAGES} />);
+    await user.click(screen.getByRole("button", { name: "Ampliar foto: Cuadrado rojo de frente" }));
+    const close = screen.getByRole("button", { name: /Cerrar/ });
+    fireEvent.touchStart(close, {
+      touches: [{ identifier: 3, clientX: 0, clientY: 0 }],
+      changedTouches: [{ identifier: 3, clientX: 0, clientY: 0 }],
+    });
+    fireEvent.touchEnd(close, { changedTouches: [{ identifier: 3, clientX: 80, clientY: 120 }] });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
 });
