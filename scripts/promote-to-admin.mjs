@@ -7,8 +7,14 @@
 // default password anywhere in this repository — see
 // docs/adr/0021-admin-catalog-management.md "Admin bootstrap".
 //
-// Usage: node --env-file=.env scripts/promote-to-admin.mjs someone@example.com
-// (or: npm run admin:promote -- someone@example.com)
+// Usage: node --env-file=.env scripts/promote-to-admin.mjs someone@example.com [--dry-run]
+// (or: npm run admin:promote -- someone@example.com [--dry-run])
+//
+// --dry-run: shows the account it would change (id prefix, current role)
+// and writes nothing. The email is normalized the same way registration
+// stores it (trimmed, lowercase). Every real change prints one JSON
+// "role_change" line — keep it in the private access log, outside this
+// public repository (it names a real account); the app has no audit table.
 //
 // Safe to run against local, staging, or production — it only ever
 // updates one existing row's `role` column by email; it never creates,
@@ -17,10 +23,15 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const email = process.argv[2];
+const args = process.argv.slice(2);
+const dryRun = args.includes("--dry-run");
+const email = args
+  .find((arg) => !arg.startsWith("--"))
+  ?.trim()
+  .toLowerCase();
 
 if (!email) {
-  console.error("Usage: node scripts/promote-to-admin.mjs <email>");
+  console.error("Usage: node scripts/promote-to-admin.mjs <email> [--dry-run]");
   process.exit(1);
 }
 
@@ -49,8 +60,25 @@ try {
     process.exit(0);
   }
 
+  if (dryRun) {
+    console.log(
+      `[dry-run] would promote "${email}" (id ${user.id.slice(0, 8)}…) from ${user.role} to ADMIN. Nothing was written.`,
+    );
+    process.exit(0);
+  }
+
   await prisma.user.update({ where: { id: user.id }, data: { role: "ADMIN" } });
   console.log(`"${email}" promoted to ADMIN.`);
+  console.log(
+    JSON.stringify({
+      event: "role_change",
+      email,
+      userIdPrefix: user.id.slice(0, 8),
+      from: user.role,
+      to: "ADMIN",
+      at: new Date().toISOString(),
+    }),
+  );
 } finally {
   await prisma.$disconnect();
 }
