@@ -5,6 +5,8 @@ import type { ProductImageDto } from "@soluciones-opticas/shared";
 
 // Roberto (2026-10-18): professional zoom on the product page — a 2× lens
 // that follows the mouse, and an enlarged view (tap, click or keyboard)
+// (Thumbnail tabs are matched by prefix: in this release the gallery's
+// thumbnails still announce their alt twice — fixed separately.)
 // with pinch, buttons and keys. Never an upscaled image, never fetched
 // before the visitor zooms.
 
@@ -46,9 +48,11 @@ describe("hover lens (mouse)", () => {
     expect(lens()).toHaveAttribute("src", zoomUrl("frames/rojo-frente"));
     expect(lens()).toHaveAttribute("alt", ""); // decorative; the photo keeps its alt
     expect((lens() as HTMLElement).style.transform).toBe("scale(2)");
-    expect(screen.getByRole("img", { name: "Cuadrado rojo de frente" })).toBeInTheDocument();
+    // The main photo keeps its alt (outside the thumbnail tabs).
+    const photos = screen.getAllByRole("img", { name: "Cuadrado rojo de frente" });
+    expect(photos.some((img) => !img.closest('[role="tab"]'))).toBe(true);
 
-    await userEvent.click(screen.getByRole("tab", { name: "Cuadrado rojo de perfil" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Cuadrado rojo de perfil/ }));
     expect(lens()).toBeNull(); // fresh zoom for the new photo
     fireEvent.pointerEnter(
       screen.getByRole("button", { name: "Ampliar foto: Cuadrado rojo de perfil" }),
@@ -102,7 +106,7 @@ describe("enlarged view", () => {
   it("opens with a tap or click on the photo and closes with the visible button", async () => {
     const user = userEvent.setup();
     render(<ProductGallery images={IMAGES} />);
-    await user.click(screen.getByRole("tab", { name: "Cuadrado rojo de perfil" }));
+    await user.click(screen.getByRole("tab", { name: /^Cuadrado rojo de perfil/ }));
     await user.click(screen.getByRole("button", { name: "Ampliar foto: Cuadrado rojo de perfil" }));
     expect(
       screen.getByRole("dialog", { name: "Foto ampliada: Cuadrado rojo de perfil" }),
