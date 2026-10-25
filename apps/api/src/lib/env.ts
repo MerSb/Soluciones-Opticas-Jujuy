@@ -46,6 +46,14 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
+  // Electronic invoicing (ADR-0036). "off" by default; "mock" simulates
+  // ARCA; "homologacion" talks to ARCA's test services. Production is not
+  // an accepted value on purpose. The certificate and key are files outside
+  // the repository — never their contents in an env var or the database.
+  ARCA_MODE: z.enum(["off", "mock", "homologacion"]).default("off"),
+  ARCA_CERT_PATH: z.string().min(1).optional(),
+  ARCA_KEY_PATH: z.string().min(1).optional(),
+  ARCA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });
 
 export const env = envSchema
