@@ -10,6 +10,7 @@ import type {
 import { AdminInvoicingPage } from "../src/pages/admin/AdminInvoicingPage";
 import { AdminInvoiceDetailPage } from "../src/pages/admin/AdminInvoiceDetailPage";
 import { InvoiceDownloadPage } from "../src/pages/InvoiceDownloadPage";
+import { AdminOnlineOrdersPage } from "../src/pages/admin/AdminOnlineOrdersPage";
 import { renderWithProviders } from "./test-utils";
 
 // Online invoicing admin and the buyer's download (ADR-0036). All fiscal
@@ -342,5 +343,53 @@ describe("InvoiceDownloadPage (buyer)", () => {
     stubFetch({});
     renderBuyer("/factura/doc1");
     expect(await screen.findByRole("alert")).toHaveTextContent(/No pudimos encontrar esa factura/);
+  });
+});
+
+describe("AdminOnlineOrdersPage", () => {
+  it("shows payment, invoice and email states side by side, never merged", async () => {
+    stubFetch({
+      "GET /api/admin/orders": () => ({
+        data: [
+          {
+            orderNumber: "SOJ-000010",
+            createdAt: "2026-10-25T12:00:00.000Z",
+            buyerName: "Cliente Ficticio",
+            buyerEmail: "cliente@example.com",
+            grandTotal: 60500,
+            orderStatus: "PAID",
+            payment: { status: "APPROVED", failureCode: null, provider: "MERCADOPAGO" },
+            invoice: {
+              requestStatus: "INVOICED",
+              blockerReason: null,
+              documentId: "doc1",
+              documentStatus: "AUTHORIZED",
+            },
+            emailStatus: "FAILED",
+          },
+          {
+            orderNumber: "SOJ-000011",
+            createdAt: "2026-10-25T12:05:00.000Z",
+            buyerName: "Otro Cliente",
+            buyerEmail: "otro@example.com",
+            grandTotal: 1000,
+            orderStatus: "PENDING_PAYMENT",
+            payment: { status: "PENDING", failureCode: "AMOUNT_MISMATCH", provider: "MERCADOPAGO" },
+            invoice: null,
+            emailStatus: null,
+          },
+        ],
+        pagination: { page: 1, limit: 20, total: 2, totalPages: 1 },
+      }),
+    });
+    renderWithProviders(<AdminOnlineOrdersPage />);
+    const paid = (await screen.findByText("SOJ-000010")).closest("tr")!;
+    expect(paid).toHaveTextContent("Pagado");
+    expect(paid).toHaveTextContent("Aprobado");
+    expect(paid).toHaveTextContent("Autorizado");
+    expect(paid).toHaveTextContent("Falló");
+    const pending = screen.getByText("SOJ-000011").closest("tr")!;
+    expect(pending).toHaveTextContent("Pago pendiente");
+    expect(pending).toHaveTextContent("AMOUNT_MISMATCH");
   });
 });

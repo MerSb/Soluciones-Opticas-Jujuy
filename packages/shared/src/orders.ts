@@ -52,6 +52,10 @@ export type CheckoutBillingInput =
       billingName: string;
       billingTaxId: string;
       billingAddressLine?: string | null;
+      /** ARCA IVA condition code (5 CF, 1 RI, 6 Monotributo, 4 Exento). */
+      ivaConditionCode?: number;
+      /** For an 11-digit number: CUIT (80) or CUIL (86). */
+      billingDocType?: 80 | 86;
     };
 
 /** POST /api/checkout/orders */

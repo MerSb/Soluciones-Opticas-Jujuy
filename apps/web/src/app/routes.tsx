@@ -291,6 +291,14 @@ export const routes: RouteObject[] = [
                 },
               },
               {
+                path: "orders",
+                lazy: async () => {
+                  const { AdminOnlineOrdersPage } =
+                    await import("../pages/admin/AdminOnlineOrdersPage");
+                  return { Component: AdminOnlineOrdersPage };
+                },
+              },
+              {
                 path: "invoicing",
                 lazy: async () => {
                   const { AdminInvoicingPage } = await import("../pages/admin/AdminInvoicingPage");

@@ -1,4 +1,9 @@
-import { Prisma, type OrderStatus, type ShippingCostStatus } from "@prisma/client";
+import {
+  Prisma,
+  type OrderStatus,
+  type ProductKind,
+  type ShippingCostStatus,
+} from "@prisma/client";
 import type { ArgentineProvinceCode, GraduationMode } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
@@ -17,6 +22,9 @@ import {
   type ResolvedEyewearConfiguration,
 } from "./lens-configuration.service.js";
 import { quoteShipping } from "./shipping-quote.service.js";
+import { env } from "../lib/env.js";
+import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
+import { PUBLIC_ACCESSORY_WHERE } from "../lib/product-kind.js";
 
 // Payments V1 order domain (ADR-0025, docs/PAYMENTS.md). Phase A built
 // these primitives; Phase B exposes them through checkout.controller.ts
@@ -71,6 +79,9 @@ export interface CreateOrderInput {
     name?: string | null;
     taxId?: string | null;
     addressLine?: string | null;
+    /** ARCA IVA condition code and document type (96, 80, 86). */
+    ivaConditionCode?: number | null;
+    docType?: number | null;
   };
   items: OrderItemInput[];
 }
@@ -326,9 +337,14 @@ async function prepareDelivery(
 }
 
 /** Everything a line freezes, money still Decimal. */
-function snapshotLine(resolved: ResolvedEyewearConfiguration, quantity: number) {
+function snapshotLine(
+  resolved: ResolvedEyewearConfiguration,
+  quantity: number,
+  productKind: ProductKind,
+) {
   const unitPrice = resolved.total;
   return {
+    productKind,
     productId: resolved.product.id,
     variantId: resolved.variant.id,
     lensTypeId: resolved.lens?.lensTypeId ?? null,
@@ -352,15 +368,82 @@ function snapshotLine(resolved: ResolvedEyewearConfiguration, quantity: number) 
 }
 type OrderLine = ReturnType<typeof snapshotLine>;
 
+/** An accessory sold on its own (ADR-0028): public, `soldIndividually`,
+ * no lenses; price = the variant's own price, else the product's. Gifts
+ * (case/cord included with a frame) are never sold through here. */
+async function resolveAccessoryLine(
+  db: Db,
+  item: OrderItemInput,
+): Promise<ResolvedEyewearConfiguration> {
+  const product = await db.product.findFirst({
+    where: {
+      slug: item.productSlug,
+      deletedAt: null,
+      ...COMPLETE_PRODUCT_WHERE,
+      ...PUBLIC_ACCESSORY_WHERE,
+    },
+    select: { id: true, name: true, slug: true, basePrice: true },
+  });
+  if (!product) throw ApiError.notFound(`No product found with slug "${item.productSlug}".`);
+  if (item.lens || item.graduationMode !== "NONE") {
+    throw ApiError.validation("Un accesorio no lleva cristales.");
+  }
+  const variant = await db.productVariant.findFirst({
+    where: { id: item.variantId, productId: product.id },
+    select: { id: true, sku: true, color: true, material: true, stock: true, priceOverride: true },
+  });
+  if (!variant) throw ApiError.validation("Esa presentación no corresponde al accesorio.");
+  const price = variant.priceOverride ?? product.basePrice;
+  return {
+    product: { id: product.id, name: product.name, slug: product.slug },
+    variant: {
+      id: variant.id,
+      sku: variant.sku,
+      color: variant.color,
+      material: variant.material,
+      stock: variant.stock,
+    },
+    lens: null,
+    graduation: { mode: "NONE", requiresOpticalConsultation: false },
+    framePrice: price,
+    lensPrice: new Prisma.Decimal(0),
+    total: price,
+  };
+}
+
 async function resolveLines(db: Db, items: OrderItemInput[]): Promise<OrderLine[]> {
   const lines: OrderLine[] = [];
   for (const item of items) {
-    const resolved = await resolveEyewearConfigurationDetails(
-      item.productSlug,
-      { variantId: item.variantId, lens: item.lens, graduationMode: item.graduationMode },
-      db,
-    );
-    lines.push(snapshotLine(resolved, item.quantity));
+    // Lenses are not charged online until the shop decides so (ADR-0036).
+    if (item.lens && env.ONLINE_LENS_SALES !== "on") {
+      throw new ApiError(
+        422,
+        "LENSES_NOT_SOLD_ONLINE",
+        "Los cristales todavía no se venden online: consultanos por WhatsApp.",
+      );
+    }
+    const product = await db.product.findFirst({
+      where: { slug: item.productSlug, deletedAt: null },
+      select: { kind: true },
+    });
+    const kind: ProductKind = product?.kind ?? "FRAME";
+    const resolved =
+      kind === "ACCESSORY"
+        ? await resolveAccessoryLine(db, item)
+        : await resolveEyewearConfigurationDetails(
+            item.productSlug,
+            { variantId: item.variantId, lens: item.lens, graduationMode: item.graduationMode },
+            db,
+          );
+    // Nothing without a real price is charged online.
+    if (resolved.total.lte(0)) {
+      throw new ApiError(
+        422,
+        "PRICE_NOT_AVAILABLE",
+        `«${resolved.product.name}» no tiene precio para la compra online: consultanos por WhatsApp.`,
+      );
+    }
+    lines.push(snapshotLine(resolved, item.quantity, kind));
   }
   return lines;
 }
@@ -462,6 +545,10 @@ export async function createOrder(
         billingName: optionalText(input.billing?.name),
         billingTaxId: optionalText(input.billing?.taxId),
         billingAddressLine: optionalText(input.billing?.addressLine),
+        billingIvaConditionCode: input.billing?.invoiceRequested
+          ? (input.billing.ivaConditionCode ?? null)
+          : null,
+        billingDocType: input.billing?.invoiceRequested ? (input.billing.docType ?? null) : null,
         itemsSubtotal,
         customerShippingPrice: delivery.charges.customerShippingPrice,
         providerShippingCost: delivery.charges.providerShippingCost,

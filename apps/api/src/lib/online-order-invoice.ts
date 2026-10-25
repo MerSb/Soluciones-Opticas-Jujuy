@@ -9,9 +9,8 @@ import {
 // The contract between the online checkout and invoicing (ADR-0036).
 //
 // `PaidOnlineOrder` mirrors the Order / OrderItem / Payment models of the
-// checkout branch (feature/payments-v1, ADR-0025/0026/0027), which is not
-// integrated yet: the adapter that reads a real order and calls
-// receivePaidOrder() is written when both meet. Invoicing never trusts
+// checkout (ADR-0025/0026/0027); services/order-invoice.service.ts builds
+// it from a real order after the payment confirmation. Invoicing never trusts
 // the browser, a redirect or a webhook body: it only accepts an order the
 // checkout already reconciled with the payment provider (status PAID,
 // payment APPROVED for exactly the order total).
@@ -49,6 +48,9 @@ export interface PaidOnlineOrder {
   billingName: string | null;
   billingTaxId: string | null;
   billingAddressLine: string | null;
+  /** Chosen at checkout (ARCA codes); null on orders that did not ask. */
+  billingIvaConditionCode?: number | null;
+  billingDocType?: number | null;
   payment: {
     provider: string;
     status: string;
@@ -163,8 +165,9 @@ export function planVoucher(
       address: order.billingAddressLine,
     };
   } else if (taxId.length === 11) {
-    const condition = completed.receptorIvaConditionCode;
-    const docType = completed.receptorDocType;
+    // What the admin completed wins; otherwise what the buyer chose.
+    const condition = completed.receptorIvaConditionCode ?? order.billingIvaConditionCode ?? null;
+    const docType = completed.receptorDocType ?? order.billingDocType ?? null;
     if (condition === null || docType === null) {
       return {
         ok: false,

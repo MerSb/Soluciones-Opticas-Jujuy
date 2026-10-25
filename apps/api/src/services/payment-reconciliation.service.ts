@@ -12,6 +12,7 @@ import {
   type ProviderOrderSnapshot,
 } from "../lib/payment-provider.js";
 import { markOrderPaid } from "./order.service.js";
+import { invoicePaidOrder } from "./order-invoice.service.js";
 import { getPaymentProvider } from "./payment-provider.service.js";
 
 // Payment reconciliation — Payments V1 Phase D2 (ADR-0027). Given the id
@@ -176,6 +177,12 @@ async function approve(
     where: { orderId: order.id, status: "APPROVED", id: { not: payment.id } },
   });
   const orderStatus = await markOrderPaid(order.id, now);
+  // Online invoicing (ADR-0036) runs after the response: ARCA's latency
+  // never delays the webhook, and a failure there never fails the payment.
+  // A crash in between is caught by the invoicing sweep.
+  if (orderStatus === "PAID" && otherApproved === 0) {
+    setImmediate(() => void invoicePaidOrder(order.id));
+  }
   return {
     final: true,
     outcome: otherApproved > 0 ? "APPROVED_DUPLICATE_PAYMENT" : `APPROVED_${orderStatus}`,

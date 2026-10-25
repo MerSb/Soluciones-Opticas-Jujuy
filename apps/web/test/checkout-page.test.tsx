@@ -207,27 +207,55 @@ describe("CheckoutPage — guest", () => {
     });
   });
 
-  it("asks for billing data only when an invoice is requested", async () => {
+  it("a final consumer may skip billing data; an invoice with DNI asks for name and number", async () => {
     const user = userEvent.setup({ delay: null });
     const { fetchMock } = renderCheckout();
     await fillContact(user);
-    expect(screen.queryByLabelText("DNI / CUIT / CUIL")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("checkbox", { name: "Necesito datos para facturación" }));
+    expect(screen.getByLabelText("Condición frente al IVA")).toHaveValue("5");
+    expect(screen.queryByLabelText("DNI o CUIL")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("checkbox", { name: "Quiero la factura con mi nombre y DNI o CUIL" }),
+    );
     await user.click(screen.getByRole("button", { name: "Confirmar pedido" }));
-    expect(await screen.findByText("Ingresá el DNI, CUIT o CUIL.")).toBeInTheDocument();
+    expect(await screen.findByText("Ingresá tu DNI o CUIL.")).toBeInTheDocument();
     expect(requestsTo(fetchMock, "POST", "/api/checkout/orders")).toHaveLength(0);
 
-    await fill(user, screen.getByLabelText("Nombre o razón social"), "Test SA");
-    await fill(user, screen.getByLabelText("DNI / CUIT / CUIL"), "20-12345678-9");
+    await fill(user, screen.getByLabelText("Nombre completo"), "Persona Ficticia");
+    await fill(user, screen.getByLabelText("DNI o CUIL"), "11.111.111");
     await user.click(screen.getByRole("button", { name: "Confirmar pedido" }));
     await screen.findByRole("heading", { name: "Pedido creado" });
     expect(postedBody(fetchMock).billing).toEqual({
       invoiceRequested: true,
-      billingName: "Test SA",
-      billingTaxId: "20-12345678-9",
+      billingName: "Persona Ficticia",
+      billingTaxId: "11.111.111",
       billingAddressLine: null,
+      ivaConditionCode: 5,
     });
-    expect(screen.queryByText(/IVA|Factura A|Factura B/)).not.toBeInTheDocument();
+  });
+
+  it("a Responsable Inscripto must give a valid CUIT (check digit)", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { fetchMock } = renderCheckout();
+    await fillContact(user);
+    await user.selectOptions(screen.getByLabelText("Condición frente al IVA"), "1");
+    await fill(user, screen.getByLabelText("Razón social"), "Empresa Ficticia SA");
+    await fill(user, screen.getByLabelText("CUIT"), "20-11111111-3");
+    await user.click(screen.getByRole("button", { name: "Confirmar pedido" }));
+    expect(
+      await screen.findByText("El CUIT no es válido: revisá los 11 dígitos."),
+    ).toBeInTheDocument();
+    expect(requestsTo(fetchMock, "POST", "/api/checkout/orders")).toHaveLength(0);
+
+    await user.clear(screen.getByLabelText("CUIT"));
+    await fill(user, screen.getByLabelText("CUIT"), "20-11111111-2");
+    await user.click(screen.getByRole("button", { name: "Confirmar pedido" }));
+    await screen.findByRole("heading", { name: "Pedido creado" });
+    expect(postedBody(fetchMock).billing).toMatchObject({
+      invoiceRequested: true,
+      billingTaxId: "20-11111111-2",
+      ivaConditionCode: 1,
+      billingDocType: 80,
+    });
   });
 
   it("requires a phone, with the error tied to the field and focused", async () => {

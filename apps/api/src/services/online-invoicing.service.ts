@@ -27,6 +27,10 @@ export async function processPaidOrder(order: PaidOnlineOrder): Promise<OnlineIn
   return request;
 }
 
-export function runOnlineInvoicing(actor: { id: string } | null = null) {
+export async function runOnlineInvoicing(actor: { id: string } | null = null) {
+  // Paid orders that never reached invoicing come first (lazy import: the
+  // bridge imports this module).
+  const { sweepPaidOrdersWithoutInvoice } = await import("./order-invoice.service.js");
+  await sweepPaidOrdersWithoutInvoice();
   return invoicing.runOnlineInvoicing(deliverPendingEmails, actor);
 }

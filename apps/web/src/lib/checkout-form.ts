@@ -1,5 +1,6 @@
 import type { ArgentineProvinceCode, CheckoutOrderInput } from "@soluciones-opticas/shared";
 import type { CartLine } from "./cart/cart";
+import { CONSUMIDOR_FINAL, digitsOf, isDni, isValidCuit } from "./tax-id";
 
 // Checkout form rules (Payments V1 — Phase C). The same formats the API
 // validates (apps/api/src/schemas/checkout.schema.ts), checked here only
@@ -24,6 +25,9 @@ export interface CheckoutFormValues {
   provinceCode: ArgentineProvinceCode | "";
   postalCode: string;
   references: string;
+  /** ARCA IVA condition code; anything but final consumer needs a CUIT. */
+  ivaConditionCode: number;
+  /** Final consumer only: whether the invoice carries their DNI/CUIL. */
   invoiceRequested: boolean;
   billingName: string;
   billingTaxId: string;
@@ -48,6 +52,7 @@ export const EMPTY_CHECKOUT_FORM: CheckoutFormValues = {
   provinceCode: "",
   postalCode: "",
   references: "",
+  ivaConditionCode: CONSUMIDOR_FINAL,
   invoiceRequested: false,
   billingName: "",
   billingTaxId: "",
@@ -57,7 +62,6 @@ export const EMPTY_CHECKOUT_FORM: CheckoutFormValues = {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?(?:[\s().-]*\d){6,15}[\s().-]*$/;
 const POSTAL_CODE_PATTERN = /^(?:\d{4}|[A-HJ-NP-Z]\d{4}[A-Z]{3})$/;
-const TAX_ID_PATTERN = /^(?:[\s.-]*\d){7,11}[\s.-]*$/;
 
 /** Same order as the fields on screen — the first error gets focus. */
 export const CHECKOUT_FIELD_ORDER: (keyof CheckoutFormValues)[] = [
@@ -108,11 +112,18 @@ export function validateCheckoutForm(values: CheckoutFormValues): CheckoutFormEr
     }
   }
 
-  if (values.invoiceRequested) {
-    if (!required(values.billingName)) errors.billingName = "Ingresá el nombre o razón social.";
-    if (!required(values.billingTaxId)) errors.billingTaxId = "Ingresá el DNI, CUIT o CUIL.";
-    else if (!TAX_ID_PATTERN.test(values.billingTaxId.trim())) {
-      errors.billingTaxId = "Revisá el número: DNI de 7-8 dígitos o CUIT/CUIL de 11.";
+  const consumer = values.ivaConditionCode === CONSUMIDOR_FINAL;
+  if (!consumer || values.invoiceRequested) {
+    if (!required(values.billingName)) {
+      errors.billingName = consumer ? "Ingresá tu nombre completo." : "Ingresá la razón social.";
+    }
+    const id = values.billingTaxId.trim();
+    if (!required(id)) {
+      errors.billingTaxId = consumer ? "Ingresá tu DNI o CUIL." : "Ingresá el CUIT.";
+    } else if (consumer ? !(isDni(id) || isValidCuit(id)) : !isValidCuit(id)) {
+      errors.billingTaxId = consumer
+        ? "Revisá el número: DNI de 7-8 dígitos o CUIL de 11."
+        : "El CUIT no es válido: revisá los 11 dígitos.";
     }
   }
   return errors;
@@ -150,14 +161,21 @@ export function buildCheckoutInput(
               references: optional(values.references),
             },
           },
-    billing: values.invoiceRequested
-      ? {
-          invoiceRequested: true,
-          billingName: values.billingName.trim(),
-          billingTaxId: values.billingTaxId.trim(),
-          billingAddressLine: optional(values.billingAddressLine),
-        }
-      : { invoiceRequested: false },
+    billing:
+      values.ivaConditionCode !== CONSUMIDOR_FINAL || values.invoiceRequested
+        ? {
+            invoiceRequested: true,
+            billingName: values.billingName.trim(),
+            billingTaxId: values.billingTaxId.trim(),
+            billingAddressLine: optional(values.billingAddressLine),
+            ivaConditionCode: values.ivaConditionCode,
+            // An 11-digit number from a final consumer is a CUIL; anyone
+            // else invoices with their CUIT.
+            ...(digitsOf(values.billingTaxId).length === 11
+              ? { billingDocType: values.ivaConditionCode === CONSUMIDOR_FINAL ? 86 : 80 }
+              : {}),
+          }
+        : { invoiceRequested: false },
     items: lines.map((line) => ({
       productSlug: line.productSlug,
       variantId: line.variantId,

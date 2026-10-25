@@ -15,6 +15,17 @@ import {
 import { createOrder } from "../src/services/order.service.js";
 import { quoteShipping } from "../src/services/shipping-quote.service.js";
 
+// These tests cover the lens checkout machinery (ADR-0025), which stays
+// in place for when the shop decides to charge lenses online; the default
+// ("off") is tested in test/checkout-online-rules.test.ts.
+const lensSalesBefore = env.ONLINE_LENS_SALES;
+beforeAll(() => {
+  env.ONLINE_LENS_SALES = "on";
+});
+afterAll(() => {
+  env.ONLINE_LENS_SALES = lensSalesBefore;
+});
+
 // Payments V1 — Phase B (ADR-0025, docs/PAYMENTS.md): checkout over HTTP,
 // guest order access and account order history, against the real local
 // database. quoteShipping() keeps its real behavior (no carrier
@@ -662,7 +673,7 @@ describe("GET /api/orders/:orderNumber — guest access", () => {
     const product = await makeProduct(2, { lensTypeIds: [fx.hd] });
     const response = await checkout(
       checkoutBody([line(product, { lensTypeId: fx.hd, graduationMode: "CUSTOM" })], {
-        billing: { invoiceRequested: true, billingName: "Test SA", billingTaxId: "20-12345678-9" },
+        billing: { invoiceRequested: true, billingName: "Test SA", billingTaxId: "20-11111111-2" },
       }),
     );
     expect(response.status).toBe(201);
@@ -681,7 +692,7 @@ describe("GET /api/orders/:orderNumber — guest access", () => {
       paymentStatus: "NOT_STARTED",
       customer: { firstName: "Test", lastName: "Buyer", phone: "+5493884000000" },
       delivery: { method: "PICKUP", branchName: `${PREFIX} Branch`, address: "Test Address 1" },
-      billing: { invoiceRequested: true, billingName: "Test SA", billingTaxId: "20123456789" },
+      billing: { invoiceRequested: true, billingName: "Test SA", billingTaxId: "20111111112" },
       requiresOpticalConsultation: true,
       currency: "ARS",
       itemsSubtotal: 1200,

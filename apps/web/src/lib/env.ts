@@ -14,4 +14,8 @@ if (!apiBaseUrl) {
 // every Cloudinary delivery URL a browser already sees.
 const cloudinaryCloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || null;
 
-export const env = { apiBaseUrl, cloudinaryCloudName };
+// Lenses are not sold online until the shop decides so (ADR-0036); must
+// match the API's ONLINE_LENS_SALES. Off unless explicitly "on".
+const onlineLensSales = import.meta.env.VITE_ONLINE_LENS_SALES === "on";
+
+export const env = { apiBaseUrl, cloudinaryCloudName, onlineLensSales };

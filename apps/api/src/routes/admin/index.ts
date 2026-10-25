@@ -9,6 +9,7 @@ import { adminLensTypesRouter } from "./lens-types.routes.js";
 import { adminLensTreatmentsRouter } from "./lens-treatments.routes.js";
 import { adminShippingRouter } from "./shipping.routes.js";
 import { adminInvoicingRouter } from "./invoicing.routes.js";
+import { adminOrdersRouter } from "./orders.routes.js";
 
 export const adminRouter = Router();
 
@@ -28,3 +29,4 @@ adminRouter.use("/lens-types", adminLensTypesRouter);
 adminRouter.use("/lens-treatments", adminLensTreatmentsRouter);
 adminRouter.use("/shipping", adminShippingRouter);
 adminRouter.use("/invoicing", adminInvoicingRouter);
+adminRouter.use("/orders", adminOrdersRouter);

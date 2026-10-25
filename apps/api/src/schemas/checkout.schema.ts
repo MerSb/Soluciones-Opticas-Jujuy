@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { GraduationMode } from "@soluciones-opticas/shared";
 import { postalCodeSchema, provinceCodeSchema } from "./shipping.schema.js";
+import { CHECKOUT_IVA_CONDITIONS, CONSUMIDOR_FINAL, isDni, isValidCuit } from "../lib/tax-id.js";
 
 // POST /api/checkout/orders (ADR-0025). Ids, contact data and quantities
 // only: unknown keys (prices, totals, names, stock…) are stripped by Zod
@@ -34,9 +35,9 @@ export const phoneSchema = z
   .regex(PHONE_PATTERN)
   .transform((value) => (value.startsWith("+") ? "+" : "") + value.replace(/\D/g, ""));
 
-// DNI (7–8 digits) or CUIT/CUIL (11), separators allowed. Format only:
-// no fiscal-condition rules and no ARCA lookup until that milestone.
-const TAX_ID_PATTERN = /^(?:[\s.-]*\d){7,11}[\s.-]*$/;
+// DNI (7–8 digits) or CUIT/CUIL (11), separators allowed; the rules per
+// IVA condition are checked in billingSchema below.
+const TAX_ID_PATTERN = /^(?:[\s.-]*\d){7,8}[\s.-]*$|^(?:[\s.-]*\d){11}[\s.-]*$/;
 const taxIdSchema = z
   .string()
   .trim()
@@ -76,17 +77,63 @@ const deliverySchema = z.discriminatedUnion("method", [
   }),
 ]);
 
-// No invoice → no fiscal data is asked for (and any sent is dropped).
-// Invoice → name and tax id are the minimum anyone can invoice to.
-const billingSchema = z.discriminatedUnion("invoiceRequested", [
-  z.object({ invoiceRequested: z.literal(false) }),
-  z.object({
-    invoiceRequested: z.literal(true),
-    billingName: requiredText(200),
-    billingTaxId: taxIdSchema,
-    billingAddressLine: optionalText(300),
-  }),
-]);
+// Billing (ADR-0036). No invoice data → the buyer is a final consumer
+// without identification. With data: a DNI (7–8 digits) is only possible
+// for a final consumer; a CUIT/CUIL (11 digits) must pass ARCA's check
+// digit, and any condition other than final consumer needs a CUIT. The
+// IVA condition is optional for older clients (invoicing then waits for an
+// admin); the web checkout always sends it.
+const billingSchema = z
+  .discriminatedUnion("invoiceRequested", [
+    z.object({ invoiceRequested: z.literal(false) }),
+    z.object({
+      invoiceRequested: z.literal(true),
+      billingName: requiredText(200),
+      billingTaxId: taxIdSchema,
+      billingAddressLine: optionalText(300),
+      ivaConditionCode: z
+        .number()
+        .int()
+        .refine((code) => (CHECKOUT_IVA_CONDITIONS as readonly number[]).includes(code))
+        .optional(),
+      /** For an 11-digit number: CUIT (80) or CUIL (86). */
+      billingDocType: z.union([z.literal(80), z.literal(86)]).optional(),
+    }),
+  ])
+  .superRefine((billing, ctx) => {
+    if (!billing.invoiceRequested) return;
+    const id = billing.billingTaxId;
+    const condition = billing.ivaConditionCode;
+    if (isDni(id)) {
+      if (condition !== undefined && condition !== CONSUMIDOR_FINAL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["billingTaxId"],
+          message: "Para esa condición frente al IVA hace falta el CUIT.",
+        });
+      }
+      return;
+    }
+    if (!isValidCuit(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["billingTaxId"],
+        message: "El CUIT/CUIL no es válido: revisá los 11 dígitos.",
+      });
+      return;
+    }
+    if (
+      condition !== undefined &&
+      condition !== CONSUMIDOR_FINAL &&
+      billing.billingDocType === 86
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["billingDocType"],
+        message: "Para esa condición frente al IVA hace falta el CUIT, no el CUIL.",
+      });
+    }
+  });
 
 export const checkoutOrderBodySchema = z.object({
   customer: z.object({

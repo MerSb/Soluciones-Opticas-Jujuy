@@ -516,13 +516,17 @@ model Order {
   pickupBranchName String? @map("pickup_branch_name")
   pickupAddress    String? @map("pickup_address")
 
-  // Billing — deliberately minimal and optional: the client's fiscal
-  // rules are not defined yet and ARCA is out of Payments V1. No VAT
-  // condition, no invoice type, no CAE.
-  invoiceRequested   Boolean @default(false) @map("invoice_requested")
-  billingName        String? @map("billing_name")
-  billingTaxId       String? @map("billing_tax_id")
-  billingAddressLine String? @map("billing_address_line")
+  // Billing data the buyer gives at checkout. The voucher itself (type,
+  // CAE…) lives in the invoicing tables (ADR-0036), never here.
+  invoiceRequested        Boolean @default(false) @map("invoice_requested")
+  billingName             String? @map("billing_name")
+  billingTaxId            String? @map("billing_tax_id")
+  billingAddressLine      String? @map("billing_address_line")
+  /// The buyer's IVA condition (ARCA code, FEParamGetCondicionIvaReceptor)
+  /// and document type (96 DNI, 80 CUIT, 86 CUIL) as chosen at checkout —
+  /// what online invoicing needs (ADR-0036). null on orders without them.
+  billingIvaConditionCode Int?    @map("billing_iva_condition_code")
+  billingDocType          Int?    @map("billing_doc_type")
 
   // Money — Decimal only; CHECKs (>= 0) in the migration.
   itemsSubtotal         Decimal  @map("items_subtotal") @db.Decimal(12, 2)
@@ -605,11 +609,14 @@ model OrderItem {
   // Money frozen at purchase time; CHECKs (>= 0, quantity > 0) in the
   // migration. unitPrice = framePrice + lensPrice, lineTotal =
   // unitPrice * quantity — both computed as Decimal, server-side.
-  framePrice Decimal @map("frame_price") @db.Decimal(12, 2)
-  lensPrice  Decimal @map("lens_price") @db.Decimal(12, 2)
-  unitPrice  Decimal @map("unit_price") @db.Decimal(12, 2)
-  quantity   Int
-  lineTotal  Decimal @map("line_total") @db.Decimal(12, 2)
+  framePrice  Decimal     @map("frame_price") @db.Decimal(12, 2)
+  lensPrice   Decimal     @map("lens_price") @db.Decimal(12, 2)
+  unitPrice   Decimal     @map("unit_price") @db.Decimal(12, 2)
+  quantity    Int
+  lineTotal   Decimal     @map("line_total") @db.Decimal(12, 2)
+  /// Frozen at purchase (the product may be deleted later): frames and
+  /// accessories may carry different VAT rates on the invoice.
+  productKind ProductKind @default(FRAME) @map("product_kind")
 
   createdAt DateTime @default(now()) @map("created_at")
 

@@ -7,6 +7,7 @@ import { ProductDetailPage } from "../src/pages/ProductDetailPage";
 import { parseStoredCart } from "../src/lib/cart/cart";
 import { CART_STORAGE_KEY } from "../src/lib/cart/cart-store";
 import { resetBrowserState, stubApi } from "./order-fixtures";
+import { env } from "../src/lib/env";
 
 // Payments V1 — Phase C: "Agregar al carrito" on the product page reuses
 // the configurator's selection and backend quote. WhatsApp stays.
@@ -168,6 +169,27 @@ describe("ProductDetailPage — add to cart", () => {
         unitPrice: 1000,
       }),
     ]);
+  });
+
+  it("by default adds only the frame, even with a lens chosen, and says lenses go through WhatsApp", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const add = await screen.findByRole("button", { name: "Agregar al carrito" });
+    expect(screen.getByText(/La compra online es del armazón sin cristales/)).toBeInTheDocument();
+    await user.click(add);
+    expect(storedCart()).toEqual([
+      expect.objectContaining({ lensTypeId: null, graduationMode: "NONE", unitPrice: 1000 }),
+    ]);
+  });
+});
+
+// The lens cart flow stays for when the shop decides to sell lenses online.
+describe("ProductDetailPage — add to cart with lenses enabled (VITE_ONLINE_LENS_SALES=on)", () => {
+  beforeEach(() => {
+    env.onlineLensSales = true;
+  });
+  afterEach(() => {
+    env.onlineLensSales = false;
   });
 
   it("adds frame + lens with the quoted price and names", async () => {

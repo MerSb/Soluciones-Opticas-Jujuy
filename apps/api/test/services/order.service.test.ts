@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ApiError } from "../../src/lib/api-error.js";
+import { env } from "../../src/lib/env.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { PAYMENT_STOCK_RESERVATION_MINUTES } from "../../src/lib/order-policy.js";
 import {
@@ -12,6 +13,17 @@ import {
   type CreateOrderInput,
   type OrderItemInput,
 } from "../../src/services/order.service.js";
+
+// These tests cover the lens checkout machinery (ADR-0025), which stays
+// in place for when the shop decides to charge lenses online; the default
+// ("off") is tested in test/checkout-online-rules.test.ts.
+const lensSalesBefore = env.ONLINE_LENS_SALES;
+beforeAll(() => {
+  env.ONLINE_LENS_SALES = "on";
+});
+afterAll(() => {
+  env.ONLINE_LENS_SALES = lensSalesBefore;
+});
 
 // Payments V1 — Phase A (ADR-0025, docs/PAYMENTS.md): the order domain
 // at service level, against the real local database (no Prisma mocks),

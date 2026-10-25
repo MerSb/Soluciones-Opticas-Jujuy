@@ -9,6 +9,7 @@ import { CART_MAX_QUANTITY } from "../../lib/cart/cart";
 import { cartActions } from "../../lib/cart/cart-store";
 import { toConfigurationInput, type LensSelection } from "../../lib/lens-configuration";
 import { useEyewearQuoteQuery } from "../../services/queries/products";
+import { env } from "../../lib/env";
 
 // Payments V1 — Phase C. Adds the product exactly as configured on the
 // page to the frontend cart. It reuses the configurator's own state and
@@ -35,7 +36,10 @@ export function AddToCartSection({
   const [quantity, setQuantity] = useState(1);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const offersLenses = lensTypes.length > 0;
+  // Lenses are not charged online by default (ADR-0036): the frame is
+  // added on its own and lenses are arranged over WhatsApp.
+  const framesOnly = lensTypes.length > 0 && !env.onlineLensSales;
+  const offersLenses = lensTypes.length > 0 && !framesOnly;
   const input = offersLenses
     ? toConfigurationInput(variant.id, selection, lensTypes)
     : { variantId: variant.id, lens: null, graduationMode: "NONE" as const };
@@ -120,6 +124,11 @@ export function AddToCartSection({
           Agregar al carrito
         </button>
       </div>
+      {framesOnly && (
+        <p className="text-sm text-text-muted">
+          La compra online es del armazón sin cristales. Los cristales los coordinamos por WhatsApp.
+        </p>
+      )}
       {blocker && (
         <p id={`${quantityId}-blocker`} className="text-sm text-text-muted">
           {blocker}

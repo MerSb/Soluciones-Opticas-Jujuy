@@ -75,6 +75,10 @@ const envSchema = z.object({
   // Sending invoices to buyers: "off" (default) or "mock". No real email
   // provider is chosen yet — that adapter comes with its own variables.
   INVOICE_EMAIL_MODE: z.enum(["off", "mock"]).default("off"),
+  // Lenses are not charged online until the shop decides so (prices,
+  // prescriptions): "off" (default) refuses checkout lines with lenses —
+  // the product page offers WhatsApp for them instead.
+  ONLINE_LENS_SALES: z.enum(["off", "on"]).default("off"),
 });
 
 export const env = envSchema

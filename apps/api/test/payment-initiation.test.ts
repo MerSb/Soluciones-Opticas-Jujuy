@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
+import { env } from "../src/lib/env.js";
 import { prisma } from "../src/lib/prisma.js";
 import { PAYMENT_STOCK_RESERVATION_MINUTES } from "../src/lib/order-policy.js";
 import {
@@ -16,6 +17,17 @@ import {
   getPaymentProvider,
   getPaymentReturnBaseUrl,
 } from "../src/services/payment-provider.service.js";
+
+// These tests cover the lens checkout machinery (ADR-0025), which stays
+// in place for when the shop decides to charge lenses online; the default
+// ("off") is tested in test/checkout-online-rules.test.ts.
+const lensSalesBefore = env.ONLINE_LENS_SALES;
+beforeAll(() => {
+  env.ONLINE_LENS_SALES = "on";
+});
+afterAll(() => {
+  env.ONLINE_LENS_SALES = lensSalesBefore;
+});
 
 // Payments V1 — Phase D1 (ADR-0026): starting a payment. The provider is
 // a fake that behaves like Mercado Pago's Orders API where it matters —

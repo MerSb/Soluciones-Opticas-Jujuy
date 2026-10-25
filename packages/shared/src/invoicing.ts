@@ -147,3 +147,22 @@ export interface FiscalDocumentDetailDto extends FiscalDocumentSummaryDto {
   email: InvoiceEmailDto | null;
   events: FiscalAuditEventDto[];
 }
+
+/** One online order in the admin overview: payment, invoice and email
+ * states side by side, never merged. */
+export interface AdminOnlineOrderDto {
+  orderNumber: string;
+  createdAt: string;
+  buyerName: string;
+  buyerEmail: string;
+  grandTotal: number;
+  orderStatus: "PENDING_PAYMENT" | "PAID" | "PAID_NEEDS_REVIEW" | "CANCELLED" | "EXPIRED";
+  payment: { status: string; failureCode: string | null; provider: string } | null;
+  invoice: {
+    requestStatus: OnlineInvoiceRequestStatus;
+    blockerReason: string | null;
+    documentId: string | null;
+    documentStatus: FiscalDocumentStatus | null;
+  } | null;
+  emailStatus: InvoiceEmailStatus | null;
+}

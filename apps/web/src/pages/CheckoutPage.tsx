@@ -1,3 +1,4 @@
+import { CHECKOUT_IVA_CONDITIONS, CONSUMIDOR_FINAL } from "../lib/tax-id";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Container } from "../components/ui/Container";
@@ -346,19 +347,43 @@ export function CheckoutPage() {
           </Fieldset>
 
           <Fieldset legend="Facturación">
-            <label className="flex items-center gap-3 text-sm text-text">
-              <input
-                type="checkbox"
-                checked={values.invoiceRequested}
-                onChange={(e) => update("invoiceRequested", e.target.checked)}
-                className="h-4 w-4 accent-[var(--color-primary)]"
-              />
-              Necesito datos para facturación
+            <p className="text-sm text-text-muted">
+              Te enviamos la factura electrónica al email que ingresaste.
+            </p>
+            <label className="mt-4 flex max-w-sm flex-col gap-1.5 text-sm font-medium text-text">
+              Condición frente al IVA
+              <select
+                name="ivaConditionCode"
+                value={values.ivaConditionCode}
+                onChange={(e) => update("ivaConditionCode", Number(e.target.value))}
+                className="rounded-md border border-border bg-surface-muted px-3 py-2.5 font-normal text-text"
+              >
+                {CHECKOUT_IVA_CONDITIONS.map((condition) => (
+                  <option key={condition.code} value={condition.code}>
+                    {condition.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            {values.invoiceRequested && (
+            {values.ivaConditionCode === CONSUMIDOR_FINAL && (
+              <label className="mt-4 flex items-center gap-3 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={values.invoiceRequested}
+                  onChange={(e) => update("invoiceRequested", e.target.checked)}
+                  className="h-4 w-4 accent-[var(--color-primary)]"
+                />
+                Quiero la factura con mi nombre y DNI o CUIL
+              </label>
+            )}
+            {(values.ivaConditionCode !== CONSUMIDOR_FINAL || values.invoiceRequested) && (
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <FormField
-                  label="Nombre o razón social"
+                  label={
+                    values.ivaConditionCode === CONSUMIDOR_FINAL
+                      ? "Nombre completo"
+                      : "Razón social"
+                  }
                   name="billingName"
                   required
                   value={values.billingName}
@@ -366,7 +391,7 @@ export function CheckoutPage() {
                   onChange={(e) => update("billingName", e.target.value)}
                 />
                 <FormField
-                  label="DNI / CUIT / CUIL"
+                  label={values.ivaConditionCode === CONSUMIDOR_FINAL ? "DNI o CUIL" : "CUIT"}
                   name="billingTaxId"
                   inputMode="numeric"
                   required

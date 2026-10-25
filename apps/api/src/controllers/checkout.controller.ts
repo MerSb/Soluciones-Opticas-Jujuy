@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../lib/async-handler.js";
+import { CONSUMIDOR_FINAL, isDni } from "../lib/tax-id.js";
 import * as orderService from "../services/order.service.js";
 import { toCheckoutOrderResponse } from "../services/order-view.service.js";
 import type { CheckoutOrderBody } from "../schemas/checkout.schema.js";
@@ -26,6 +27,14 @@ export const createCheckoutOrder = asyncHandler(async (req: Request, res: Respon
           name: body.billing.billingName,
           taxId: body.billing.billingTaxId,
           addressLine: body.billing.billingAddressLine,
+          ivaConditionCode: body.billing.ivaConditionCode ?? null,
+          docType: isDni(body.billing.billingTaxId)
+            ? 96
+            : (body.billing.billingDocType ??
+              (body.billing.ivaConditionCode !== undefined &&
+              body.billing.ivaConditionCode !== CONSUMIDOR_FINAL
+                ? 80
+                : null)),
         }
       : { invoiceRequested: false },
     items: body.items.map((item) => ({

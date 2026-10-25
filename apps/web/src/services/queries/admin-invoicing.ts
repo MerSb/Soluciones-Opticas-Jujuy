@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  AdminOnlineOrderDto,
   FiscalDocumentDetailDto,
   FiscalDocumentStatus,
   FiscalDocumentSummaryDto,
@@ -147,4 +148,11 @@ export function saveBlob(blob: Blob, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export function useOnlineOrdersQuery(page: number) {
+  return useQuery({
+    queryKey: [...invoicingQueryKey, "orders", page],
+    queryFn: () => apiGet<Paginated<AdminOnlineOrderDto>>("/api/admin/orders", { page }),
+  });
 }
