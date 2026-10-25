@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
 import { Prisma, type FiscalDocumentStatus } from "@prisma/client";
 import type {
   FiscalDocumentDetailDto,
   FiscalDocumentSummaryDto,
   FiscalIssuerDto,
   InvoicingStatusDto,
+  OnlineInvoiceRequestDto,
+  OnlineInvoicingRunDto,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
@@ -16,9 +17,7 @@ import {
   DOCUMENT_TYPES,
   INVOICE_VOUCHER_TYPES,
   RECEPTOR_IVA_CONDITIONS,
-  UNIDENTIFIED_DOC_TYPE,
   VAT_RATES,
-  receptorCondition,
   voucherTypeInfo,
 } from "../lib/arca/codes.js";
 import {
@@ -27,30 +26,40 @@ import {
   type VoucherKey,
   type VoucherRequest,
 } from "../lib/invoicing-provider.js";
+import {
+  planVoucher,
+  refuseUnverifiedOrder,
+  type PaidOnlineOrder,
+} from "../lib/online-order-invoice.js";
 import { getInvoicingProvider, isInvoicingEnabled } from "./invoicing-provider.service.js";
 import type {
+  CompleteRequestBody,
   ConfirmTaxConditionBody,
-  CreateInvoiceBody,
   ListInvoicesQuery,
   UpsertIssuerBody,
   UpsertPointOfSaleBody,
 } from "../schemas/invoicing.schema.js";
 
-// Electronic invoicing (ADR-0036, docs/FACTURACION_ARCA.md). Emission
-// protocol, per (point of sale, voucher type):
-//   claim the sequence lock → SENDING → number = FECompUltimoAutorizado + 1
-//   (saved before sending) → FECAESolicitar →
-//   AUTHORIZED | REJECTED (lock released) | UNCERTAIN (lock kept until
-//   FECompConsultar settles it).
-// Never touches products, variants, stock or users.
+// Electronic invoicing of ONLINE purchases (ADR-0036, docs/FACTURACION_
+// ARCA.md). In-store sales are invoiced from ARCA's portal; nothing here
+// creates a voucher by hand.
+//
+//   paid order (verified by the checkout) → OnlineInvoiceRequest (one per
+//   order) → plan (receptor, type, VAT) or WAITING_DATA → Sale + voucher
+//   → emit → AUTHORIZED → email (its own state).
+//
+// Emission protocol, per (point of sale, voucher type): claim the sequence
+// lock → SENDING → number = FECompUltimoAutorizado + 1 (saved before
+// sending) → FECAESolicitar → AUTHORIZED | REJECTED (lock released) |
+// UNCERTAIN (lock kept until FECompConsultar settles it). Every step is
+// idempotent, so runOnlineInvoicing() can be repeated after any crash.
+// Never touches products, variants, stock, prices or users.
 
 /** A SENDING voucher older than this is treated as uncertain (the process
  * died between saving the number and settling the answer). */
 const STALE_SENDING_MS = 2 * 60_000;
-/** CbteFch window for concept 1 (manual v4.8): up to 5 days either side. */
-const ISSUE_DATE_WINDOW_DAYS = 5;
 
-type Actor = { id: string };
+type Actor = { id: string } | null;
 
 const toNumber = (value: Prisma.Decimal | null) => (value === null ? null : value.toNumber());
 const isoDate = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : null);
@@ -64,15 +73,16 @@ function asMessages(value: Prisma.JsonValue | null): ArcaMessage[] {
 
 async function audit(
   tx: Prisma.TransactionClient,
-  documentId: string | null,
+  refs: { documentId?: string | null; requestId?: string | null },
   action: string,
-  actor: Actor | null,
+  actor: Actor,
   change: { from?: FiscalDocumentStatus | null; to?: FiscalDocumentStatus | null } = {},
   details?: Record<string, unknown>,
 ) {
   await tx.fiscalAuditEvent.create({
     data: {
-      documentId,
+      documentId: refs.documentId ?? null,
+      requestId: refs.requestId ?? null,
       action,
       actorId: actor?.id ?? null,
       fromStatus: change.from ?? null,
@@ -85,10 +95,9 @@ async function audit(
 // ─── Configuration ──────────────────────────────────────────────────────
 
 const issuerInclude = { pointsOfSale: { orderBy: { number: "asc" } } } as const;
+type IssuerWithPos = Prisma.FiscalIssuerGetPayload<{ include: typeof issuerInclude }>;
 
-function toIssuerDto(
-  issuer: Prisma.FiscalIssuerGetPayload<{ include: typeof issuerInclude }>,
-): FiscalIssuerDto {
+function toIssuerDto(issuer: IssuerWithPos): FiscalIssuerDto {
   return {
     id: issuer.id,
     cuit: issuer.cuit,
@@ -99,11 +108,15 @@ function toIssuerDto(
     taxConditionCode: issuer.taxConditionCode,
     taxConditionConfirmedAt: issuer.taxConditionConfirmedAt?.toISOString() ?? null,
     finalConsumerIdThreshold: toNumber(issuer.finalConsumerIdThreshold),
+    frameVatRateCode: issuer.frameVatRateCode,
+    lensVatRateCode: issuer.lensVatRateCode,
+    accessoryVatRateCode: issuer.accessoryVatRateCode,
     pointsOfSale: issuer.pointsOfSale.map((pos) => ({
       id: pos.id,
       number: pos.number,
       enabledVoucherTypes: pos.enabledVoucherTypes,
       active: pos.active,
+      forOnlineSales: pos.forOnlineSales,
     })),
   };
 }
@@ -113,7 +126,10 @@ async function findIssuer() {
   return prisma.fiscalIssuer.findFirst({ orderBy: { createdAt: "asc" }, include: issuerInclude });
 }
 
-function blockersFor(issuer: Awaited<ReturnType<typeof findIssuer>>): string[] {
+const onlinePointOfSale = (issuer: IssuerWithPos | null) =>
+  issuer?.pointsOfSale.find((pos) => pos.forOnlineSales && pos.active) ?? null;
+
+function blockersFor(issuer: IssuerWithPos | null): string[] {
   const blockers: string[] = [];
   if (!isInvoicingEnabled()) blockers.push("La facturación electrónica está desactivada.");
   if (!issuer) {
@@ -123,9 +139,11 @@ function blockersFor(issuer: Awaited<ReturnType<typeof findIssuer>>): string[] {
   if (issuer.taxConditionCode === null) {
     blockers.push("La condición fiscal del emisor no está confirmada (la confirma el contador).");
   }
-  const usable = issuer.pointsOfSale.filter((pos) => pos.active && pos.enabledVoucherTypes.length);
-  if (usable.length === 0) {
-    blockers.push("No hay un punto de venta activo con tipos de comprobante habilitados.");
+  const pos = onlinePointOfSale(issuer);
+  if (!pos || pos.enabledVoucherTypes.length === 0) {
+    blockers.push(
+      "Falta el punto de venta para ventas online (habilitado en ARCA para Web Services) con sus tipos de comprobante.",
+    );
   }
   return blockers;
 }
@@ -135,6 +153,7 @@ export async function getStatus(): Promise<InvoicingStatusDto> {
   return {
     enabled: isInvoicingEnabled(),
     environment: env.ARCA_MODE === "off" ? null : env.ARCA_MODE,
+    emailEnabled: env.INVOICE_EMAIL_MODE !== "off",
     issuer: issuer ? toIssuerDto(issuer) : null,
     blockers: blockersFor(issuer),
     catalog: {
@@ -174,11 +193,14 @@ export async function upsertIssuer(body: UpsertIssuerBody, actor: Actor): Promis
       body.finalConsumerIdThreshold === undefined || body.finalConsumerIdThreshold === null
         ? null
         : new Prisma.Decimal(body.finalConsumerIdThreshold),
+    frameVatRateCode: body.frameVatRateCode ?? null,
+    lensVatRateCode: body.lensVatRateCode ?? null,
+    accessoryVatRateCode: body.accessoryVatRateCode ?? null,
   };
   const issuer = await prisma.$transaction(async (tx) => {
     if (!existing) {
       const created = await tx.fiscalIssuer.create({ data, include: issuerInclude });
-      await audit(tx, null, "ISSUER_CREATED", actor);
+      await audit(tx, {}, "ISSUER_CREATED", actor);
       return created;
     }
     const cuitChanged = existing.cuit !== body.cuit;
@@ -198,7 +220,7 @@ export async function upsertIssuer(body: UpsertIssuerBody, actor: Actor): Promis
         : data,
       include: issuerInclude,
     });
-    await audit(tx, null, "ISSUER_UPDATED", actor, {}, { cuitChanged });
+    await audit(tx, {}, "ISSUER_UPDATED", actor, {}, { cuitChanged });
     return updated;
   });
   return toIssuerDto(issuer);
@@ -216,13 +238,13 @@ export async function confirmTaxCondition(
       data: {
         taxConditionCode: body.taxConditionCode,
         taxConditionConfirmedAt: new Date(),
-        taxConditionConfirmedBy: actor.id,
+        taxConditionConfirmedBy: actor?.id ?? null,
       },
       include: issuerInclude,
     });
     await audit(
       tx,
-      null,
+      {},
       "TAX_CONDITION_CONFIRMED",
       actor,
       {},
@@ -240,6 +262,13 @@ export async function upsertPointOfSale(body: UpsertPointOfSaleBody, actor: Acto
   if (!issuer) throw ApiError.validation("Primero cargá los datos del emisor.");
   const enabledVoucherTypes = [...new Set(body.enabledVoucherTypes)].sort((a, b) => a - b);
   await prisma.$transaction(async (tx) => {
+    if (body.forOnlineSales) {
+      // Only one point of sale serves the online store.
+      await tx.fiscalPointOfSale.updateMany({
+        where: { issuerId: issuer.id, number: { not: body.number } },
+        data: { forOnlineSales: false },
+      });
+    }
     await tx.fiscalPointOfSale.upsert({
       where: { issuerId_number: { issuerId: issuer.id, number: body.number } },
       create: {
@@ -247,39 +276,238 @@ export async function upsertPointOfSale(body: UpsertPointOfSaleBody, actor: Acto
         number: body.number,
         enabledVoucherTypes,
         active: body.active,
+        forOnlineSales: body.forOnlineSales,
       },
-      update: { enabledVoucherTypes, active: body.active },
+      update: { enabledVoucherTypes, active: body.active, forOnlineSales: body.forOnlineSales },
     });
-    await audit(
-      tx,
-      null,
-      "POINT_OF_SALE_SAVED",
-      actor,
-      {},
-      {
-        number: body.number,
-        enabledVoucherTypes,
-        active: body.active,
-      },
-    );
+    await audit(tx, {}, "POINT_OF_SALE_SAVED", actor, {}, { ...body, enabledVoucherTypes });
   });
   return toIssuerDto((await findIssuer())!);
+}
+
+// ─── Paid orders → requests ─────────────────────────────────────────────
+
+const requestInclude = { sale: { include: { document: true } } } as const;
+type RequestWithSale = Prisma.OnlineInvoiceRequestGetPayload<{ include: typeof requestInclude }>;
+
+function toRequestDto(request: RequestWithSale): OnlineInvoiceRequestDto {
+  const snapshot = request.orderSnapshot as unknown as PaidOnlineOrder;
+  return {
+    id: request.id,
+    orderNumber: request.orderNumber,
+    status: request.status,
+    blockerReason: request.blockerReason,
+    buyerName: `${snapshot.customerFirstName} ${snapshot.customerLastName}`.trim(),
+    buyerEmail: request.buyerEmail,
+    billingTaxId: snapshot.invoiceRequested ? snapshot.billingTaxId : null,
+    total: Number(snapshot.grandTotal),
+    paymentProvider: request.paymentProvider,
+    paymentApprovedAt: request.paymentApprovedAt.toISOString(),
+    documentId: request.sale?.document?.id ?? null,
+    createdAt: request.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Entry point for the checkout: called once its payment confirmation has
+ * reconciled the order with the payment provider. Idempotent per order —
+ * calling it again (webhook redelivery, retry after a crash) never creates
+ * a second request or voucher.
+ */
+export async function receivePaidOrder(order: PaidOnlineOrder): Promise<OnlineInvoiceRequestDto> {
+  const refusal = refuseUnverifiedOrder(order);
+  if (refusal)
+    throw ApiError.validation(`No se factura el pedido ${order.orderNumber}: ${refusal}`);
+  let request = await prisma.onlineInvoiceRequest.findUnique({
+    where: { orderId: order.orderId },
+    include: requestInclude,
+  });
+  if (!request) {
+    try {
+      request = await prisma.$transaction(async (tx) => {
+        const created = await tx.onlineInvoiceRequest.create({
+          data: {
+            orderId: order.orderId,
+            orderNumber: order.orderNumber,
+            paymentProvider: order.payment.provider,
+            paymentReference: order.payment.providerPaymentId,
+            paymentApprovedAt: new Date(order.payment.approvedAt),
+            buyerEmail: order.customerEmail,
+            orderSnapshot: order as unknown as Prisma.InputJsonValue,
+          },
+          include: requestInclude,
+        });
+        await audit(
+          tx,
+          { requestId: created.id },
+          "PAID_ORDER_RECEIVED",
+          null,
+          {},
+          {
+            orderNumber: order.orderNumber,
+            paymentProvider: order.payment.provider,
+          },
+        );
+        return created;
+      });
+    } catch (error) {
+      // The same order delivered twice at once: the winner's request stands.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      request = await prisma.onlineInvoiceRequest.findUniqueOrThrow({
+        where: { orderId: order.orderId },
+        include: requestInclude,
+      });
+    }
+  }
+  if (request.status !== "INVOICED") await prepareVoucher(request.id);
+  return toRequestDto(
+    await prisma.onlineInvoiceRequest.findUniqueOrThrow({
+      where: { id: request.id },
+      include: requestInclude,
+    }),
+  );
+}
+
+/** Builds the sale and its DRAFT voucher, or records what is missing. */
+async function prepareVoucher(requestId: string, actor: Actor = null): Promise<void> {
+  const request = await prisma.onlineInvoiceRequest.findUniqueOrThrow({ where: { id: requestId } });
+  if (request.status === "INVOICED") return;
+  const issuer = await findIssuer();
+  const wait = async (reason: string) => {
+    if (request.status === "WAITING_DATA" && request.blockerReason === reason) return;
+    await prisma.$transaction(async (tx) => {
+      await tx.onlineInvoiceRequest.update({
+        where: { id: requestId },
+        data: { status: "WAITING_DATA", blockerReason: reason },
+      });
+      await audit(tx, { requestId }, "WAITING_DATA", actor, {}, { reason });
+    });
+  };
+  const blockers = blockersFor(issuer);
+  if (blockers.length > 0) return wait(blockers.join(" "));
+  const pointOfSale = onlinePointOfSale(issuer)!;
+  const order = request.orderSnapshot as unknown as PaidOnlineOrder;
+  const plan = planVoucher(order, issuer!, pointOfSale.enabledVoucherTypes, request);
+  if (!plan.ok) return wait(plan.reason);
+
+  const voucherClass = voucherTypeInfo(plan.voucherType)!.class;
+  let amounts;
+  try {
+    amounts = computeVoucherAmounts(voucherClass, plan.lines);
+  } catch (error) {
+    if (error instanceof AmountError) return wait(error.message);
+    throw error;
+  }
+  const environment = getInvoicingProvider().environment;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.create({
+        data: {
+          issuerId: issuer!.id,
+          requestId,
+          // Set again when sent: the voucher date is the day it is issued.
+          saleDate: new Date(`${todayInArgentina()}T00:00:00Z`),
+          receptorDocType: plan.receptor.docType,
+          receptorDocNumber: plan.receptor.docNumber,
+          receptorName: plan.receptor.name,
+          receptorIvaConditionCode: plan.receptor.ivaConditionCode,
+          receptorAddress: plan.receptor.address,
+          currency: CURRENCY_PESOS,
+          untaxedAmount: amounts.untaxedAmount,
+          exemptAmount: amounts.exemptAmount,
+          netAmount: amounts.netAmount,
+          vatAmount: amounts.vatAmount,
+          otherTaxAmount: amounts.otherTaxAmount,
+          totalAmount: amounts.totalAmount,
+          items: {
+            create: plan.lines.map((line, index) => ({
+              position: index + 1,
+              description: line.description,
+              quantity: new Prisma.Decimal(line.quantity),
+              unitPrice: line.unitPrice,
+              vatRateCode: line.vatRateCode,
+              grossAmount: amounts.lines[index]!.grossAmount,
+              netAmount: amounts.lines[index]!.netAmount,
+              vatAmount: amounts.lines[index]!.vatAmount,
+              variantSku: line.variantSku,
+            })),
+          },
+        },
+      });
+      const document = await tx.fiscalDocument.create({
+        data: {
+          saleId: sale.id,
+          pointOfSaleId: pointOfSale.id,
+          voucherType: plan.voucherType,
+          environment,
+          conceptCode: CONCEPT_PRODUCTS,
+          idempotencyKey: `order:${request.orderId}`,
+        },
+      });
+      await tx.onlineInvoiceRequest.update({
+        where: { id: requestId },
+        data: { status: "INVOICED", blockerReason: null },
+      });
+      await audit(tx, { requestId, documentId: document.id }, "CREATED", actor, { to: "DRAFT" });
+    });
+  } catch (error) {
+    // Prepared concurrently by another worker: theirs stands.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return;
+    throw error;
+  }
+}
+
+export async function listRequests(status?: "RECEIVED" | "WAITING_DATA" | "INVOICED") {
+  const requests = await prisma.onlineInvoiceRequest.findMany({
+    where: status ? { status } : {},
+    include: requestInclude,
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return requests.map(toRequestDto);
+}
+
+/** An admin completes what the order did not carry (e.g. the buyer's IVA
+ * condition); the request is then prepared and sent again. */
+export async function completeRequest(id: string, body: CompleteRequestBody, actor: Actor) {
+  const request = await prisma.onlineInvoiceRequest.findUnique({ where: { id } });
+  if (!request) throw ApiError.notFound("Pedido a facturar no encontrado.");
+  if (request.status === "INVOICED") throw ApiError.conflict("Ese pedido ya tiene comprobante.");
+  await prisma.$transaction(async (tx) => {
+    await tx.onlineInvoiceRequest.update({
+      where: { id },
+      data: {
+        receptorIvaConditionCode: body.receptorIvaConditionCode,
+        receptorDocType: body.receptorDocType,
+        status: "RECEIVED",
+      },
+    });
+    await audit(tx, { requestId: id }, "DATA_COMPLETED", actor, {}, { ...body });
+  });
+  await prepareVoucher(id, actor);
+  return toRequestDto(
+    await prisma.onlineInvoiceRequest.findUniqueOrThrow({ where: { id }, include: requestInclude }),
+  );
 }
 
 // ─── Vouchers ───────────────────────────────────────────────────────────
 
 const documentInclude = {
-  sale: { include: { items: { orderBy: { position: "asc" } }, issuer: true } },
+  sale: { include: { items: { orderBy: { position: "asc" } }, issuer: true, request: true } },
   pointOfSale: true,
   events: { orderBy: { createdAt: "asc" } },
+  email: true,
 } as const;
-type DocumentWithAll = Prisma.FiscalDocumentGetPayload<{ include: typeof documentInclude }>;
+export type DocumentWithAll = Prisma.FiscalDocumentGetPayload<{ include: typeof documentInclude }>;
 
 function toSummaryDto(document: DocumentWithAll): FiscalDocumentSummaryDto {
   return {
     id: document.id,
     status: document.status,
     environment: document.environment as FiscalDocumentSummaryDto["environment"],
+    orderNumber: document.sale.request.orderNumber,
     pointOfSale: document.pointOfSale.number,
     voucherType: document.voucherType,
     voucherName: voucherTypeInfo(document.voucherType)?.name ?? `Tipo ${document.voucherType}`,
@@ -290,6 +518,7 @@ function toSummaryDto(document: DocumentWithAll): FiscalDocumentSummaryDto {
     receptorDocNumber: document.sale.receptorDocNumber,
     totalAmount: document.sale.totalAmount.toNumber(),
     cae: document.cae,
+    emailStatus: document.email?.status ?? null,
     createdAt: document.createdAt.toISOString(),
   };
 }
@@ -314,12 +543,23 @@ function toDetailDto(document: DocumentWithAll): FiscalDocumentDetailDto {
       quantity: item.quantity.toNumber(),
       unitPrice: item.unitPrice.toNumber(),
       vatRateCode: item.vatRateCode,
+      grossAmount: item.grossAmount.toNumber(),
       netAmount: item.netAmount.toNumber(),
       vatAmount: item.vatAmount.toNumber(),
       variantSku: item.variantSku,
     })),
     arcaErrors: asMessages(document.arcaErrors),
     arcaObservations: asMessages(document.arcaObservations),
+    email: document.email
+      ? {
+          recipient: document.email.recipient,
+          status: document.email.status,
+          attempts: document.email.attempts,
+          lastError: document.email.lastError,
+          sentAt: document.email.sentAt?.toISOString() ?? null,
+          nextAttemptAt: document.email.nextAttemptAt?.toISOString() ?? null,
+        }
+      : null,
     events: document.events.map((event) => ({
       action: event.action,
       fromStatus: event.fromStatus,
@@ -330,7 +570,7 @@ function toDetailDto(document: DocumentWithAll): FiscalDocumentDetailDto {
   };
 }
 
-async function loadDocument(id: string): Promise<DocumentWithAll> {
+export async function loadDocument(id: string): Promise<DocumentWithAll> {
   const document = await prisma.fiscalDocument.findUnique({
     where: { id },
     include: documentInclude,
@@ -366,172 +606,9 @@ export async function getInvoice(id: string): Promise<FiscalDocumentDetailDto> {
   return toDetailDto(await loadDocument(id));
 }
 
-function payloadHash(body: CreateInvoiceBody): string {
-  return createHash("sha256").update(JSON.stringify(body)).digest("hex");
-}
-
 function todayInArgentina(): string {
   // ARCA dates are Argentine calendar days (UTC−3, no daylight saving).
   return new Date(Date.now() - 3 * 60 * 60_000).toISOString().slice(0, 10);
-}
-
-function daysBetween(a: string, b: string): number {
-  return Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
-}
-
-/** Checks that need the issuer and point of sale; shared by create and emit. */
-function assertCanIssue(
-  issuer: NonNullable<Awaited<ReturnType<typeof findIssuer>>> | null,
-  pointOfSaleId: string,
-  voucherType: number,
-) {
-  const blockers = blockersFor(issuer);
-  if (blockers.length > 0) throw new ApiError(409, "INVOICING_NOT_READY", blockers.join(" "));
-  const pointOfSale = issuer!.pointsOfSale.find((pos) => pos.id === pointOfSaleId);
-  if (!pointOfSale || !pointOfSale.active) {
-    throw ApiError.validation("El punto de venta no existe o no está activo.");
-  }
-  if (!pointOfSale.enabledVoucherTypes.includes(voucherType)) {
-    throw ApiError.validation(
-      "Ese tipo de comprobante no está habilitado para este punto de venta (lo confirma el contador).",
-    );
-  }
-  return pointOfSale;
-}
-
-export async function createInvoice(
-  body: CreateInvoiceBody,
-  idempotencyKey: string,
-  actor: Actor,
-): Promise<{ created: boolean; invoice: FiscalDocumentDetailDto }> {
-  const hash = payloadHash(body);
-  const previous = await prisma.fiscalDocument.findUnique({
-    where: { idempotencyKey },
-    include: documentInclude,
-  });
-  if (previous) {
-    const created = previous.events.find((event) => event.action === "CREATED");
-    if ((created?.details as { payloadHash?: string } | null)?.payloadHash !== hash) {
-      throw ApiError.conflict("Esa clave de idempotencia ya se usó con otros datos.");
-    }
-    return { created: false, invoice: toDetailDto(previous) };
-  }
-
-  const issuer = await findIssuer();
-  getInvoicingProvider(); // refuses when the module is off or unconfigured
-  assertCanIssue(issuer, body.pointOfSaleId, body.voucherType);
-  const voucher = voucherTypeInfo(body.voucherType)!;
-
-  const condition = receptorCondition(body.receptor.ivaConditionCode)!;
-  if (!(condition.classes as readonly string[]).includes(voucher.class)) {
-    throw ApiError.validation(
-      `Un receptor «${condition.name}» no puede recibir un comprobante clase ${voucher.class} (anexo de condición frente al IVA, manual WSFEv1 v4.8).`,
-    );
-  }
-  const { docType, docNumber } = body.receptor;
-  if (docType === UNIDENTIFIED_DOC_TYPE && docNumber !== "0") {
-    throw ApiError.validation("Un receptor sin identificar va con número de documento 0.");
-  }
-  if (docType !== UNIDENTIFIED_DOC_TYPE && /^0+$/.test(docNumber)) {
-    throw ApiError.validation("Falta el número de documento del receptor.");
-  }
-  if ((docType === 80 || docType === 86) && docNumber.length !== 11) {
-    throw ApiError.validation("El CUIT o CUIL tiene 11 dígitos.");
-  }
-  const offset = daysBetween(body.issueDate, todayInArgentina());
-  if (Math.abs(offset) > ISSUE_DATE_WINDOW_DAYS) {
-    throw ApiError.validation(
-      "La fecha del comprobante puede ser hasta 5 días antes o después de hoy.",
-    );
-  }
-
-  let amounts;
-  try {
-    amounts = computeVoucherAmounts(voucher.class, body.items);
-  } catch (error) {
-    if (error instanceof AmountError) throw ApiError.validation(error.message);
-    throw error;
-  }
-  if (docType === UNIDENTIFIED_DOC_TYPE) {
-    const threshold = issuer!.finalConsumerIdThreshold;
-    if (threshold === null) {
-      throw ApiError.validation(
-        "Falta configurar desde qué monto hay que identificar al consumidor final; mientras tanto, identificá al receptor.",
-      );
-    }
-    if (amounts.totalAmount.gte(threshold)) {
-      throw ApiError.validation("Por el monto, hay que identificar al receptor con su documento.");
-    }
-  }
-
-  // Variants are read only to copy their SKU; stock is never touched.
-  const variantIds = body.items.map((item) => item.variantId).filter((id): id is string => !!id);
-  const variants = variantIds.length
-    ? await prisma.productVariant.findMany({
-        where: { id: { in: variantIds } },
-        select: { id: true, sku: true },
-      })
-    : [];
-  const skuById = new Map(variants.map((variant) => [variant.id, variant.sku]));
-  if (skuById.size !== new Set(variantIds).size) {
-    throw ApiError.validation("Uno de los productos vinculados no existe.");
-  }
-
-  try {
-    const documentId = await prisma.$transaction(async (tx) => {
-      const sale = await tx.sale.create({
-        data: {
-          issuerId: issuer!.id,
-          saleDate: new Date(`${body.issueDate}T00:00:00Z`),
-          receptorDocType: docType,
-          receptorDocNumber: docNumber,
-          receptorName: body.receptor.name ?? null,
-          receptorIvaConditionCode: body.receptor.ivaConditionCode,
-          receptorAddress: body.receptor.address ?? null,
-          currency: CURRENCY_PESOS,
-          untaxedAmount: amounts.untaxedAmount,
-          exemptAmount: amounts.exemptAmount,
-          netAmount: amounts.netAmount,
-          vatAmount: amounts.vatAmount,
-          otherTaxAmount: amounts.otherTaxAmount,
-          totalAmount: amounts.totalAmount,
-          createdById: actor.id,
-          items: {
-            create: body.items.map((item, index) => ({
-              position: index + 1,
-              description: item.description,
-              quantity: new Prisma.Decimal(item.quantity),
-              unitPrice: new Prisma.Decimal(item.unitPrice),
-              vatRateCode: item.vatRateCode,
-              netAmount: amounts.items[index]!.netAmount,
-              vatAmount: amounts.items[index]!.vatAmount,
-              variantId: item.variantId ?? null,
-              variantSku: item.variantId ? (skuById.get(item.variantId) ?? null) : null,
-            })),
-          },
-        },
-      });
-      const document = await tx.fiscalDocument.create({
-        data: {
-          saleId: sale.id,
-          pointOfSaleId: body.pointOfSaleId,
-          voucherType: body.voucherType,
-          environment: getInvoicingProvider().environment,
-          conceptCode: CONCEPT_PRODUCTS,
-          idempotencyKey,
-        },
-      });
-      await audit(tx, document.id, "CREATED", actor, { to: "DRAFT" }, { payloadHash: hash });
-      return document.id;
-    });
-    return { created: true, invoice: await getInvoice(documentId) };
-  } catch (error) {
-    // Two identical requests at once: the loser returns the winner's voucher.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return createInvoice(body, idempotencyKey, actor);
-    }
-    throw error;
-  }
 }
 
 function voucherKey(document: DocumentWithAll): VoucherKey {
@@ -542,7 +619,11 @@ function voucherKey(document: DocumentWithAll): VoucherKey {
   };
 }
 
-function buildRequest(document: DocumentWithAll, number: number): VoucherRequest {
+function buildRequest(
+  document: DocumentWithAll,
+  number: number,
+  issueDate: string,
+): VoucherRequest {
   const { sale } = document;
   const voucher = voucherTypeInfo(document.voucherType)!;
   const amounts = computeVoucherAmounts(
@@ -560,7 +641,7 @@ function buildRequest(document: DocumentWithAll, number: number): VoucherRequest
     concept: document.conceptCode,
     docType: sale.receptorDocType,
     docNumber: sale.receptorDocNumber,
-    issueDate: arcaDate(isoDate(sale.saleDate)!),
+    issueDate: arcaDate(issueDate),
     total: fixed(sale.totalAmount),
     untaxed: fixed(sale.untaxedAmount),
     net: fixed(sale.netAmount),
@@ -598,10 +679,23 @@ async function releaseSequence(tx: Prisma.TransactionClient, documentId: string)
   });
 }
 
-/** Sends a DRAFT (or a REJECTED one, after fixing what ARCA objected to)
- * voucher to ARCA. Idempotent for an AUTHORIZED voucher. */
+/** Once authorized, the buyer's email is queued (its own state). */
+async function queueEmail(tx: Prisma.TransactionClient, document: DocumentWithAll) {
+  await tx.invoiceEmailDelivery.upsert({
+    where: { documentId: document.id },
+    create: {
+      documentId: document.id,
+      recipient: document.sale.request.buyerEmail,
+      nextAttemptAt: new Date(),
+    },
+    update: {},
+  });
+}
+
+/** Sends a DRAFT voucher (or a REJECTED one, after fixing what ARCA
+ * objected to) to ARCA. Idempotent for an AUTHORIZED voucher. */
 export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocumentDetailDto> {
-  let document = await loadDocument(id);
+  const document = await loadDocument(id);
   if (document.status === "AUTHORIZED") return toDetailDto(document);
   if (document.status === "UNCERTAIN" || document.status === "SENDING") {
     throw ApiError.conflict("La respuesta de ARCA quedó pendiente: usá «Verificar en ARCA».");
@@ -615,7 +709,8 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
   if (document.environment !== provider.environment) {
     throw ApiError.conflict("El comprobante se creó en otro ambiente de ARCA.");
   }
-  assertCanIssue(await findIssuer(), document.pointOfSaleId, document.voucherType);
+  const blockers = blockersFor(await findIssuer());
+  if (blockers.length > 0) throw new ApiError(409, "INVOICING_NOT_READY", blockers.join(" "));
 
   const fromStatus = document.status;
   const sequence = await sequenceFor(document);
@@ -633,7 +728,10 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
       await releaseSequence(tx, document.id);
       return false;
     }
-    await audit(tx, document.id, "SEND_STARTED", actor, { from: fromStatus, to: "SENDING" });
+    await audit(tx, { documentId: document.id }, "SEND_STARTED", actor, {
+      from: fromStatus,
+      to: "SENDING",
+    });
     return true;
   });
   if (!claimed) {
@@ -642,7 +740,7 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
     );
   }
 
-  const backOff = async (error: InvoicingProviderError) => {
+  const backOff = async (error: InvoicingProviderError): Promise<never> => {
     await prisma.$transaction(async (tx) => {
       await tx.fiscalDocument.update({
         where: { id: document.id },
@@ -651,14 +749,11 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
       await releaseSequence(tx, document.id);
       await audit(
         tx,
-        document.id,
+        { documentId: document.id },
         "SEND_NOT_STARTED",
         actor,
         { from: "SENDING", to: fromStatus },
-        {
-          reason: error.message,
-          errors: error.errors,
-        },
+        { reason: error.message, errors: error.errors },
       );
     });
     throw ApiError.badGateway(`${error.message} No se envió el comprobante.`);
@@ -672,13 +767,20 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
     if (error instanceof InvoicingProviderError) return backOff(error);
     throw error;
   }
-  const request = buildRequest(document, number);
+  const issueDate = todayInArgentina();
+  const request = buildRequest(document, number, issueDate);
   // Saved before sending: if the answer is lost, this is what we look up.
   try {
-    await prisma.fiscalDocument.update({
-      where: { id: document.id },
-      data: { number, requestSnapshot: request as unknown as Prisma.InputJsonValue },
-    });
+    await prisma.$transaction([
+      prisma.fiscalDocument.update({
+        where: { id: document.id },
+        data: { number, requestSnapshot: request as unknown as Prisma.InputJsonValue },
+      }),
+      prisma.sale.update({
+        where: { id: document.saleId },
+        data: { saleDate: new Date(`${issueDate}T00:00:00Z`) },
+      }),
+    ]);
   } catch (error) {
     // ARCA's next number is already held by a local voucher (e.g. one
     // under manual review): nothing was sent; stop before sending.
@@ -700,18 +802,18 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
     if (!(error instanceof InvoicingProviderError)) throw error;
     if (!error.uncertain) return backOff(error);
     await prisma.$transaction(async (tx) => {
-      await tx.fiscalDocument.update({ where: { id: document.id }, data: { status: "UNCERTAIN" } });
+      await tx.fiscalDocument.update({
+        where: { id: document.id },
+        data: { status: "UNCERTAIN" },
+      });
       // The sequence stays locked: the next number depends on this one.
       await audit(
         tx,
-        document.id,
+        { documentId: document.id },
         "SEND_UNCERTAIN",
         actor,
         { from: "SENDING", to: "UNCERTAIN" },
-        {
-          number,
-          reason: error.message,
-        },
+        { number, reason: error.message },
       );
     });
     throw new ApiError(
@@ -733,6 +835,7 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
           arcaObservations: result.observations as unknown as Prisma.InputJsonValue,
         },
       });
+      await queueEmail(tx, document);
     } else {
       await tx.fiscalDocument.update({
         where: { id: document.id },
@@ -747,13 +850,10 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
     await releaseSequence(tx, document.id);
     await audit(
       tx,
-      document.id,
-      result.outcome === "AUTHORIZED" ? "AUTHORIZED" : "REJECTED",
+      { documentId: document.id },
+      result.outcome,
       actor,
-      {
-        from: "SENDING",
-        to: result.outcome,
-      },
+      { from: "SENDING", to: result.outcome },
       {
         number,
         errors: result.outcome === "REJECTED" ? result.errors : [],
@@ -761,8 +861,7 @@ export async function emitInvoice(id: string, actor: Actor): Promise<FiscalDocum
       },
     );
   });
-  document = await loadDocument(id);
-  return toDetailDto(document);
+  return getInvoice(id);
 }
 
 const sameAmount = (a: string, b: string) => Number(a).toFixed(2) === Number(b).toFixed(2);
@@ -786,7 +885,15 @@ export async function verifyInvoice(id: string, actor: Actor): Promise<FiscalDoc
     await prisma.$transaction(async (tx) => {
       await tx.fiscalDocument.update({ where: { id }, data: { ...data, status: to } });
       if (release) await releaseSequence(tx, id);
-      await audit(tx, id, "VERIFIED", actor, { from: document.status, to }, details);
+      if (to === "AUTHORIZED") await queueEmail(tx, document);
+      await audit(
+        tx,
+        { documentId: id },
+        "VERIFIED",
+        actor,
+        { from: document.status, to },
+        details,
+      );
     });
     return getInvoice(id);
   };
@@ -850,4 +957,64 @@ export async function loadAuthorizedForPdf(id: string) {
     throw ApiError.conflict("El PDF solo existe para comprobantes autorizados por ARCA.");
   }
   return document;
+}
+
+// ─── Recovery ───────────────────────────────────────────────────────────
+
+/**
+ * Moves every online invoice forward one safe step: prepares received or
+ * waiting requests, verifies uncertain vouchers and stale sends, emits
+ * drafts, then delivers pending emails. Idempotent: safe to run from an
+ * admin button or a scheduler as often as needed. REJECTED vouchers are
+ * left to a person (ARCA objected to the data).
+ */
+export async function runOnlineInvoicing(
+  deliverEmails: () => Promise<{ sent: number; failed: number }>,
+  actor: Actor = null,
+): Promise<OnlineInvoicingRunDto> {
+  const summary: OnlineInvoicingRunDto = {
+    prepared: 0,
+    verified: 0,
+    emitted: 0,
+    failed: 0,
+    emailsSent: 0,
+    emailsFailed: 0,
+  };
+  if (!isInvoicingEnabled()) return summary;
+
+  for (const request of await prisma.onlineInvoiceRequest.findMany({
+    where: { status: { in: ["RECEIVED", "WAITING_DATA"] } },
+    select: { id: true },
+  })) {
+    await prepareVoucher(request.id, actor);
+    summary.prepared += 1;
+  }
+  const staleBefore = new Date(Date.now() - STALE_SENDING_MS);
+  for (const document of await prisma.fiscalDocument.findMany({
+    where: { OR: [{ status: "UNCERTAIN" }, { status: "SENDING", updatedAt: { lt: staleBefore } }] },
+    select: { id: true },
+  })) {
+    try {
+      await verifyInvoice(document.id, actor);
+      summary.verified += 1;
+    } catch {
+      summary.failed += 1;
+    }
+  }
+  for (const document of await prisma.fiscalDocument.findMany({
+    where: { status: "DRAFT" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  })) {
+    try {
+      await emitInvoice(document.id, actor);
+      summary.emitted += 1;
+    } catch {
+      summary.failed += 1;
+    }
+  }
+  const emails = await deliverEmails();
+  summary.emailsSent = emails.sent;
+  summary.emailsFailed = emails.failed;
+  return summary;
 }

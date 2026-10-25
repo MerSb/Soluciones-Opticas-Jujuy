@@ -1,8 +1,12 @@
-// Electronic invoicing contracts (ADR-0036). Types only (ADR-0015). Codes
-// are ARCA parameter codes; amounts are numbers serialized from Decimal.
+// Online invoicing contracts (ADR-0036). Types only (ADR-0015). Codes are
+// ARCA parameter codes; amounts are numbers serialized from Decimal.
 
 export type FiscalDocumentStatus =
   "DRAFT" | "SENDING" | "AUTHORIZED" | "REJECTED" | "UNCERTAIN" | "NEEDS_REVIEW";
+
+export type OnlineInvoiceRequestStatus = "RECEIVED" | "WAITING_DATA" | "INVOICED";
+
+export type InvoiceEmailStatus = "PENDING" | "SENDING" | "SENT" | "FAILED";
 
 export type InvoicingEnvironment = "mock" | "homologacion";
 
@@ -16,6 +20,7 @@ export interface FiscalPointOfSaleDto {
   number: number;
   enabledVoucherTypes: number[];
   active: boolean;
+  forOnlineSales: boolean;
 }
 
 export interface FiscalIssuerDto {
@@ -29,6 +34,9 @@ export interface FiscalIssuerDto {
   taxConditionCode: number | null;
   taxConditionConfirmedAt: string | null;
   finalConsumerIdThreshold: number | null;
+  frameVatRateCode: number | null;
+  lensVatRateCode: number | null;
+  accessoryVatRateCode: number | null;
   pointsOfSale: FiscalPointOfSaleDto[];
 }
 
@@ -42,10 +50,36 @@ export interface InvoicingCatalogDto {
 export interface InvoicingStatusDto {
   enabled: boolean;
   environment: InvoicingEnvironment | null;
+  emailEnabled: boolean;
   issuer: FiscalIssuerDto | null;
   /** What still blocks issuing, in plain words; empty when ready. */
   blockers: string[];
   catalog: InvoicingCatalogDto;
+}
+
+/** A paid online order handed to invoicing. */
+export interface OnlineInvoiceRequestDto {
+  id: string;
+  orderNumber: string;
+  status: OnlineInvoiceRequestStatus;
+  blockerReason: string | null;
+  buyerName: string;
+  buyerEmail: string;
+  billingTaxId: string | null;
+  total: number;
+  paymentProvider: string;
+  paymentApprovedAt: string;
+  documentId: string | null;
+  createdAt: string;
+}
+
+export interface OnlineInvoicingRunDto {
+  prepared: number;
+  verified: number;
+  emitted: number;
+  failed: number;
+  emailsSent: number;
+  emailsFailed: number;
 }
 
 export interface FiscalDocumentItemDto {
@@ -54,6 +88,7 @@ export interface FiscalDocumentItemDto {
   quantity: number;
   unitPrice: number;
   vatRateCode: number | null;
+  grossAmount: number;
   netAmount: number;
   vatAmount: number;
   variantSku: string | null;
@@ -63,6 +98,7 @@ export interface FiscalDocumentSummaryDto {
   id: string;
   status: FiscalDocumentStatus;
   environment: InvoicingEnvironment;
+  orderNumber: string;
   pointOfSale: number;
   voucherType: number;
   voucherName: string;
@@ -73,6 +109,7 @@ export interface FiscalDocumentSummaryDto {
   receptorDocNumber: string;
   totalAmount: number;
   cae: string | null;
+  emailStatus: InvoiceEmailStatus | null;
   createdAt: string;
 }
 
@@ -82,6 +119,15 @@ export interface FiscalAuditEventDto {
   toStatus: FiscalDocumentStatus | null;
   createdAt: string;
   details: unknown;
+}
+
+export interface InvoiceEmailDto {
+  recipient: string;
+  status: InvoiceEmailStatus;
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  nextAttemptAt: string | null;
 }
 
 export interface FiscalDocumentDetailDto extends FiscalDocumentSummaryDto {
@@ -98,5 +144,6 @@ export interface FiscalDocumentDetailDto extends FiscalDocumentSummaryDto {
   items: FiscalDocumentItemDto[];
   arcaErrors: ArcaMessageDto[];
   arcaObservations: ArcaMessageDto[];
+  email: InvoiceEmailDto | null;
   events: FiscalAuditEventDto[];
 }

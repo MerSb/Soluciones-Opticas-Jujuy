@@ -4,19 +4,27 @@ import { type VoucherClass, vatRate } from "./codes.js";
 // Amounts of a voucher, following the formulas of the WSFEv1 manual v4.8
 // (FECAEDetRequest): ImpTotal = ImpTotConc + ImpOpEx + ImpNeto + ImpIVA +
 // ImpTrib; for class C, ImpTotConc, ImpOpEx and ImpIVA are 0 and no Iva
-// array is sent (ImpNeto is the subtotal). Only taxed lines exist for now:
-// untaxed/exempt lines and other taxes (Tributos) wait for confirmation.
+// array is sent (ImpNeto is the subtotal); for A and B, ImpIVA is the sum
+// of the Iva array (one AlicIva per rate: base and amount).
+//
+// Online prices are what the buyer paid, VAT included. They are never
+// changed: the total of the voucher is exactly the sum paid, and for A/B
+// each rate's paid amount is split into base = paid / (1 + rate) and
+// VAT = paid − base. Untaxed/exempt lines and other taxes (Tributos) are
+// not used until the accountant says they apply.
 
 const ZERO = new Prisma.Decimal(0);
 const round2 = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-export interface AmountItemInput {
+export interface AmountLineInput {
   quantity: Prisma.Decimal.Value;
+  /** Price per unit as paid, VAT included. */
   unitPrice: Prisma.Decimal.Value;
   vatRateCode: number | null;
 }
 
-export interface ItemAmounts {
+export interface LineAmounts {
+  grossAmount: Prisma.Decimal;
   netAmount: Prisma.Decimal;
   vatAmount: Prisma.Decimal;
 }
@@ -28,7 +36,7 @@ export interface VatLine {
 }
 
 export interface VoucherAmounts {
-  items: ItemAmounts[];
+  lines: LineAmounts[];
   untaxedAmount: Prisma.Decimal;
   exemptAmount: Prisma.Decimal;
   netAmount: Prisma.Decimal;
@@ -40,58 +48,59 @@ export interface VoucherAmounts {
 
 export class AmountError extends Error {}
 
-/** Unit prices are net of VAT for A/B (VAT added on top) and final for C. */
+const splitGross = (gross: Prisma.Decimal, rate: string) => {
+  const base = round2(gross.div(new Prisma.Decimal(1).add(rate)));
+  return { base, vat: gross.sub(base) };
+};
+
 export function computeVoucherAmounts(
   voucherClass: VoucherClass,
-  items: AmountItemInput[],
+  lines: AmountLineInput[],
 ): VoucherAmounts {
-  if (items.length === 0) throw new AmountError("El comprobante necesita al menos un ítem.");
-  const vatByCode = new Map<number, VatLine>();
-  const computed = items.map((item, index) => {
-    const net = round2(new Prisma.Decimal(item.quantity).mul(item.unitPrice));
+  if (lines.length === 0) throw new AmountError("El comprobante necesita al menos un ítem.");
+  const grossByRate = new Map<number, Prisma.Decimal>();
+  const computed = lines.map((line, index) => {
+    const gross = round2(new Prisma.Decimal(line.quantity).mul(line.unitPrice));
     if (voucherClass === "C") {
-      if (item.vatRateCode !== null) {
+      if (line.vatRateCode !== null) {
         throw new AmountError(`Ítem ${index + 1}: un comprobante C no lleva IVA discriminado.`);
       }
-      return { netAmount: net, vatAmount: ZERO };
+      return { grossAmount: gross, netAmount: gross, vatAmount: ZERO };
     }
-    if (item.vatRateCode === null) {
-      throw new AmountError(
-        `Ítem ${index + 1}: falta el código de IVA (confirmarlo con el contador).`,
-      );
+    if (line.vatRateCode === null) {
+      throw new AmountError(`Ítem ${index + 1}: falta la alícuota de IVA (la define el contador).`);
     }
-    const rate = vatRate(item.vatRateCode);
+    const rate = vatRate(line.vatRateCode);
     if (!rate) throw new AmountError(`Ítem ${index + 1}: código de IVA desconocido.`);
-    const line = vatByCode.get(item.vatRateCode) ?? {
-      code: item.vatRateCode,
-      base: ZERO,
-      amount: ZERO,
-    };
-    vatByCode.set(item.vatRateCode, { ...line, base: line.base.add(net) });
-    // Per-line VAT is shown on the PDF; what ARCA checks is each AlicIva
-    // (base × rate), computed below from the summed base.
-    return { netAmount: net, vatAmount: round2(net.mul(rate.rate)) };
+    grossByRate.set(line.vatRateCode, (grossByRate.get(line.vatRateCode) ?? ZERO).add(gross));
+    // Per-line split, for the PDF; ARCA checks the per-rate split below.
+    const { base, vat } = splitGross(gross, rate.rate);
+    return { grossAmount: gross, netAmount: base, vatAmount: vat };
   });
-  for (const line of vatByCode.values()) {
-    line.amount = round2(line.base.mul(vatRate(line.code)!.rate));
-  }
 
-  const netAmount = computed.reduce((sum, item) => sum.add(item.netAmount), ZERO);
-  const vatAmount = [...vatByCode.values()].reduce((sum, line) => sum.add(line.amount), ZERO);
-  const totalAmount = ZERO.add(netAmount).add(vatAmount);
+  const vatLines = [...grossByRate.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([code, gross]) => {
+      const { base, vat } = splitGross(gross, vatRate(code)!.rate);
+      return { code, base, amount: vat };
+    });
+  const totalAmount = computed.reduce((sum, line) => sum.add(line.grossAmount), ZERO);
+  const netAmount =
+    voucherClass === "C" ? totalAmount : vatLines.reduce((sum, line) => sum.add(line.base), ZERO);
+  const vatAmount = vatLines.reduce((sum, line) => sum.add(line.amount), ZERO);
   if (totalAmount.lte(0)) throw new AmountError("El total del comprobante debe ser mayor a cero.");
   // ImpTotal is Double (13+2) in the manual.
   if (totalAmount.gte("10000000000000"))
     throw new AmountError("El total supera el máximo admitido.");
 
   return {
-    items: computed,
+    lines: computed,
     untaxedAmount: ZERO,
     exemptAmount: ZERO,
     netAmount,
     vatAmount,
     otherTaxAmount: ZERO,
     totalAmount,
-    vatLines: [...vatByCode.values()].sort((a, b) => a.code - b.code),
+    vatLines,
   };
 }

@@ -1,16 +1,19 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../lib/async-handler.js";
-import { ApiError } from "../lib/api-error.js";
 import * as invoicingService from "../services/invoicing.service.js";
+import { resendInvoiceEmail } from "../services/invoice-email.service.js";
+import { runOnlineInvoicing } from "../services/online-invoicing.service.js";
 import { renderInvoicePdf } from "../services/invoice-pdf.service.js";
-import {
-  idempotencyKeySchema,
-  type ConfirmTaxConditionBody,
-  type CreateInvoiceBody,
-  type ListInvoicesQuery,
-  type UpsertIssuerBody,
-  type UpsertPointOfSaleBody,
+import type {
+  CompleteRequestBody,
+  ConfirmTaxConditionBody,
+  ListInvoicesQuery,
+  UpsertIssuerBody,
+  UpsertPointOfSaleBody,
 } from "../schemas/invoicing.schema.js";
+
+// Online invoicing admin (ADR-0036). No endpoint creates a voucher by
+// hand: vouchers come only from paid online orders.
 
 // authenticate + authorize("ADMIN") ran in routes/admin/index.ts.
 const actorOf = (req: Request) => ({ id: req.auth!.userId });
@@ -33,6 +36,21 @@ export const upsertPointOfSale = asyncHandler(async (req: Request, res: Response
   res.json(await invoicingService.upsertPointOfSale(body, actorOf(req)));
 });
 
+export const listRequests = asyncHandler(async (_req: Request, res: Response) => {
+  const { status } = res.locals.query as { status?: "RECEIVED" | "WAITING_DATA" | "INVOICED" };
+  res.json(await invoicingService.listRequests(status));
+});
+
+export const completeRequest = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = res.locals.params as { id: string };
+  const body = res.locals.body as CompleteRequestBody;
+  res.json(await invoicingService.completeRequest(id, body, actorOf(req)));
+});
+
+export const runPending = asyncHandler(async (req: Request, res: Response) => {
+  res.json(await runOnlineInvoicing(actorOf(req)));
+});
+
 export const listInvoices = asyncHandler(async (_req: Request, res: Response) => {
   res.json(await invoicingService.listInvoices(res.locals.query as ListInvoicesQuery));
 });
@@ -40,19 +58,6 @@ export const listInvoices = asyncHandler(async (_req: Request, res: Response) =>
 export const getInvoice = asyncHandler(async (_req: Request, res: Response) => {
   const { id } = res.locals.params as { id: string };
   res.json(await invoicingService.getInvoice(id));
-});
-
-export const createInvoice = asyncHandler(async (req: Request, res: Response) => {
-  const key = idempotencyKeySchema.safeParse(req.get("Idempotency-Key") ?? "");
-  if (!key.success) {
-    throw ApiError.validation("Falta el encabezado Idempotency-Key (16 a 100 caracteres).");
-  }
-  const result = await invoicingService.createInvoice(
-    res.locals.body as CreateInvoiceBody,
-    key.data,
-    actorOf(req),
-  );
-  res.status(result.created ? 201 : 200).json(result.invoice);
 });
 
 export const emitInvoice = asyncHandler(async (req: Request, res: Response) => {
@@ -63,6 +68,13 @@ export const emitInvoice = asyncHandler(async (req: Request, res: Response) => {
 export const verifyInvoice = asyncHandler(async (req: Request, res: Response) => {
   const { id } = res.locals.params as { id: string };
   res.json(await invoicingService.verifyInvoice(id, actorOf(req)));
+});
+
+export const resendEmail = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = res.locals.params as { id: string };
+  const { recipient } = res.locals.body as { recipient?: string };
+  await resendInvoiceEmail(id, actorOf(req).id, recipient);
+  res.json(await invoicingService.getInvoice(id));
 });
 
 export const downloadInvoicePdf = asyncHandler(async (_req: Request, res: Response) => {

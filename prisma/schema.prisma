@@ -598,16 +598,17 @@ model CustomerOpticalProfile {
   @@map("customer_optical_profiles")
 }
 
-// Electronic invoicing (ARCA WSAA + WSFEv1, CAE). See
-// docs/adr/0036-arca-electronic-invoicing-boundary.md and
-// docs/FACTURACION_ARCA.md. Independent of the catalog: nothing here
-// reserves or deducts stock or changes a product. Codes (voucher types,
-// document types, IVA conditions, VAT rates) are ARCA's own parameter
-// codes, never local inventions.
+// Electronic invoicing of ONLINE purchases only (ARCA WSAA + WSFEv1, CAE).
+// See docs/adr/0036-arca-electronic-invoicing-boundary.md and
+// docs/FACTURACION_ARCA.md. In-store sales keep being invoiced from ARCA's
+// portal: there is no manual invoicing here. A voucher only exists for an
+// online order whose payment was verified with the payment provider.
+// Nothing here reserves or deducts stock or changes a product or price.
+// Codes are ARCA's own parameter codes, never local inventions.
 
-/// Fiscal identity that issues vouchers. `taxConditionCode` (ARCA's IVA
-/// condition code) stays null until an admin records the condition the
-/// accountant confirmed — issuing is refused meanwhile.
+/// Fiscal identity that issues the online vouchers. Every fiscal choice
+/// starts null and blocks issuing until an admin records what the
+/// accountant confirmed.
 model FiscalIssuer {
   id                String    @id @default(uuid()) @db.Uuid
   cuit              String
@@ -616,14 +617,20 @@ model FiscalIssuer {
   grossIncomeNumber String?   @map("gross_income_number")
   activityStartDate DateTime? @map("activity_start_date") @db.Date
 
+  /// ARCA IVA condition code of the issuer, as confirmed.
   taxConditionCode        Int?      @map("tax_condition_code")
   taxConditionConfirmedAt DateTime? @map("tax_condition_confirmed_at")
   taxConditionConfirmedBy String?   @map("tax_condition_confirmed_by") @db.Uuid
 
-  /// Total from which a final consumer must be identified. Set by the
-  /// admin from the current regulation; null = unknown, so a receptor
-  /// without a document is refused rather than guessed.
+  /// Total from which a final consumer must be identified (current
+  /// regulation). null = unknown: an unidentified buyer waits for data.
   finalConsumerIdThreshold Decimal? @map("final_consumer_id_threshold") @db.Decimal(13, 2)
+
+  /// VAT rate (FEParamGetTiposIva code) of each part of an online sale,
+  /// as the accountant defines it. null = not confirmed: issuing waits.
+  frameVatRateCode     Int? @map("frame_vat_rate_code")
+  lensVatRateCode      Int? @map("lens_vat_rate_code")
+  accessoryVatRateCode Int? @map("accessory_vat_rate_code")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -634,14 +641,16 @@ model FiscalIssuer {
   @@map("fiscal_issuers")
 }
 
-/// A point of sale enabled for web services. `enabledVoucherTypes` lists
-/// the ARCA voucher type codes the accountant confirmed for it.
+/// The point of sale enabled for web services (a separate one from the
+/// portal's). `enabledVoucherTypes`: ARCA voucher type codes confirmed for
+/// it. At most one is used for online sales (`forOnlineSales`).
 model FiscalPointOfSale {
   id                  String  @id @default(uuid()) @db.Uuid
   issuerId            String  @map("issuer_id") @db.Uuid
   number              Int
   enabledVoucherTypes Int[]   @map("enabled_voucher_types")
   active              Boolean @default(true)
+  forOnlineSales      Boolean @default(false) @map("for_online_sales")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -656,8 +665,7 @@ model FiscalPointOfSale {
 
 /// One per (point of sale, voucher type). `inFlightDocumentId` is the
 /// emission lock: claimed with a conditional UPDATE before talking to
-/// ARCA and released when the voucher is settled, so two emissions can
-/// never race for the same number (ADR-0036).
+/// ARCA and released when the voucher is settled (ADR-0036).
 model FiscalSequence {
   id                 String  @id @default(uuid()) @db.Uuid
   pointOfSaleId      String  @map("point_of_sale_id") @db.Uuid
@@ -672,12 +680,52 @@ model FiscalSequence {
   @@map("fiscal_sequences")
 }
 
-/// What was sold, as the receptor will see it. Not linked to Orders (they
-/// don't exist yet) nor to stock.
+enum OnlineInvoiceRequestStatus {
+  /// Received from the payment confirmation, not processed yet.
+  RECEIVED
+  /// Something needed for the voucher is missing (buyer's IVA condition,
+  /// document, VAT rates…): `blockerReason` says what.
+  WAITING_DATA
+  /// The sale and its voucher exist (the voucher has its own status).
+  INVOICED
+}
+
+/// A paid online order handed to invoicing — one per order, ever. Keeps
+/// the order exactly as it was paid (`orderSnapshot`), so the voucher can
+/// always be traced back to the original sale.
+model OnlineInvoiceRequest {
+  id                String                     @id @default(uuid()) @db.Uuid
+  /// The online order's id (no FK: orders live in the checkout module).
+  orderId           String                     @unique @map("order_id") @db.Uuid
+  orderNumber       String                     @map("order_number")
+  paymentProvider   String                     @map("payment_provider")
+  paymentReference  String                     @map("payment_reference")
+  paymentApprovedAt DateTime                   @map("payment_approved_at")
+  buyerEmail        String                     @map("buyer_email")
+  orderSnapshot     Json                       @map("order_snapshot")
+  status            OnlineInvoiceRequestStatus @default(RECEIVED)
+  blockerReason     String?                    @map("blocker_reason")
+
+  /// Completed by an admin when the order did not carry them (the
+  /// checkout does not ask for the buyer's IVA condition today).
+  receptorIvaConditionCode Int? @map("receptor_iva_condition_code")
+  receptorDocType          Int? @map("receptor_doc_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sale Sale?
+
+  @@index([status])
+  @@map("online_invoice_requests")
+}
+
+/// What was sold, as the voucher states it — derived from the request.
 model Sale {
-  id       String   @id @default(uuid()) @db.Uuid
-  issuerId String   @map("issuer_id") @db.Uuid
-  saleDate DateTime @map("sale_date") @db.Date
+  id        String   @id @default(uuid()) @db.Uuid
+  issuerId  String   @map("issuer_id") @db.Uuid
+  requestId String   @unique @map("request_id") @db.Uuid
+  saleDate  DateTime @map("sale_date") @db.Date
 
   receptorDocType          Int     @map("receptor_doc_type")
   receptorDocNumber        String  @map("receptor_doc_number")
@@ -693,18 +741,18 @@ model Sale {
   otherTaxAmount Decimal @map("other_tax_amount") @db.Decimal(13, 2)
   totalAmount    Decimal @map("total_amount") @db.Decimal(13, 2)
 
-  createdById String   @map("created_by_id") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  issuer   FiscalIssuer    @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  issuer   FiscalIssuer         @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  request  OnlineInvoiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
   items    SaleItem[]
   document FiscalDocument?
 
   @@map("sales")
 }
 
-/// A line of a sale. The variant is a copy (id + SKU) with no foreign
-/// key: variants are hard-deleted (ADR-0021) and an invoice never changes.
+/// A line of the voucher. `grossAmount` is what the buyer paid for it
+/// (VAT included); `netAmount`/`vatAmount` its breakdown.
 model SaleItem {
   id          String  @id @default(uuid()) @db.Uuid
   saleId      String  @map("sale_id") @db.Uuid
@@ -714,9 +762,9 @@ model SaleItem {
   unitPrice   Decimal @map("unit_price") @db.Decimal(13, 2)
   /// ARCA VAT rate code (FEParamGetTiposIva); null for class C.
   vatRateCode Int?    @map("vat_rate_code")
+  grossAmount Decimal @map("gross_amount") @db.Decimal(13, 2)
   netAmount   Decimal @map("net_amount") @db.Decimal(13, 2)
   vatAmount   Decimal @map("vat_amount") @db.Decimal(13, 2)
-  variantId   String? @map("variant_id") @db.Uuid
   variantSku  String? @map("variant_sku")
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Restrict)
@@ -753,6 +801,7 @@ model FiscalDocument {
   caeDueDate     DateTime? @map("cae_due_date") @db.Date
   authorizedAt   DateTime? @map("authorized_at")
   attempts       Int       @default(0)
+  /// "order:<orderId>": one voucher per paid order, ever.
   idempotencyKey String    @unique @map("idempotency_key")
 
   /// The FECAEDetRequest sent (no Auth), ARCA's observations and errors.
@@ -763,20 +812,51 @@ model FiscalDocument {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  sale        Sale               @relation(fields: [saleId], references: [id], onDelete: Restrict)
-  pointOfSale FiscalPointOfSale  @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  sale        Sale                  @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  pointOfSale FiscalPointOfSale     @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
   events      FiscalAuditEvent[]
+  email       InvoiceEmailDelivery?
 
   @@unique([pointOfSaleId, voucherType, number])
   @@index([status])
   @@map("fiscal_documents")
 }
 
-/// Every transition of a voucher. Never stores tokens, signatures,
-/// certificates or keys.
+/// Sending the PDF to the buyer — a state of its own, separate from the
+/// voucher: resending never issues another voucher.
+enum InvoiceEmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+model InvoiceEmailDelivery {
+  id                String             @id @default(uuid()) @db.Uuid
+  documentId        String             @unique @map("document_id") @db.Uuid
+  recipient         String
+  status            InvoiceEmailStatus @default(PENDING)
+  attempts          Int                @default(0)
+  nextAttemptAt     DateTime?          @map("next_attempt_at")
+  lastError         String?            @map("last_error")
+  providerMessageId String?            @map("provider_message_id")
+  sentAt            DateTime?          @map("sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  document FiscalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@map("invoice_email_deliveries")
+}
+
+/// Every transition of a request, voucher or email. Never stores tokens,
+/// signatures, certificates or keys.
 model FiscalAuditEvent {
   id         String                @id @default(uuid()) @db.Uuid
   documentId String?               @map("document_id") @db.Uuid
+  requestId  String?               @map("request_id") @db.Uuid
   action     String
   fromStatus FiscalDocumentStatus? @map("from_status")
   toStatus   FiscalDocumentStatus? @map("to_status")
@@ -787,5 +867,6 @@ model FiscalAuditEvent {
   document FiscalDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
 
   @@index([documentId, createdAt])
+  @@index([requestId, createdAt])
   @@map("fiscal_audit_events")
 }

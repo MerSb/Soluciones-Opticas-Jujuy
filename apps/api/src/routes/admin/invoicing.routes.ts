@@ -1,12 +1,15 @@
 import { Router } from "express";
 import {
+  completeRequest,
   confirmTaxCondition,
-  createInvoice,
   downloadInvoicePdf,
   emitInvoice,
   getInvoice,
   getStatus,
   listInvoices,
+  listRequests,
+  resendEmail,
+  runPending,
   upsertIssuer,
   upsertPointOfSale,
   verifyInvoice,
@@ -14,14 +17,16 @@ import {
 import { validateBody, validateParams, validateQuery } from "../../middleware/validate.js";
 import { idParamSchema } from "../../schemas/common.schema.js";
 import {
+  completeRequestBodySchema,
   confirmTaxConditionBodySchema,
-  createInvoiceBodySchema,
   listInvoicesQuerySchema,
+  listRequestsQuerySchema,
+  resendEmailBodySchema,
   upsertIssuerBodySchema,
   upsertPointOfSaleBodySchema,
 } from "../../schemas/invoicing.schema.js";
 
-// Electronic invoicing (ADR-0036). Admin only (routes/admin/index.ts).
+// Online invoicing (ADR-0036). Admin only (routes/admin/index.ts).
 export const adminInvoicingRouter = Router();
 
 adminInvoicingRouter.get("/status", getStatus);
@@ -37,9 +42,23 @@ adminInvoicingRouter.put(
   upsertPointOfSale,
 );
 
+adminInvoicingRouter.get("/requests", validateQuery(listRequestsQuerySchema), listRequests);
+adminInvoicingRouter.post(
+  "/requests/:id/complete",
+  validateParams(idParamSchema),
+  validateBody(completeRequestBodySchema),
+  completeRequest,
+);
+adminInvoicingRouter.post("/run", runPending);
+
 adminInvoicingRouter.get("/invoices", validateQuery(listInvoicesQuerySchema), listInvoices);
-adminInvoicingRouter.post("/invoices", validateBody(createInvoiceBodySchema), createInvoice);
 adminInvoicingRouter.get("/invoices/:id", validateParams(idParamSchema), getInvoice);
 adminInvoicingRouter.post("/invoices/:id/emit", validateParams(idParamSchema), emitInvoice);
 adminInvoicingRouter.post("/invoices/:id/verify", validateParams(idParamSchema), verifyInvoice);
+adminInvoicingRouter.post(
+  "/invoices/:id/resend-email",
+  validateParams(idParamSchema),
+  validateBody(resendEmailBodySchema),
+  resendEmail,
+);
 adminInvoicingRouter.get("/invoices/:id/pdf", validateParams(idParamSchema), downloadInvoicePdf);

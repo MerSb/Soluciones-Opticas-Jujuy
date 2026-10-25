@@ -1,95 +1,105 @@
-# ADR-0036: ARCA electronic invoicing boundary (WSAA + WSFEv1, CAE)
+# ADR-0036: ARCA electronic invoicing of online purchases (WSAA + WSFEv1, CAE)
 
-**Status:** Proposed — local implementation only. No real fiscal data, no homologation run yet.
+**Status:** Proposed — local implementation with simulated ARCA and email. No real fiscal data, no
+homologation run, not integrated with the checkout.
 
 ## Context
 
-Roberto wants to issue electronic invoices from the admin panel, get the CAE and download a PDF.
-The store has no orders, sales or invoicing module (Orders/Payments are not started), so nothing
-can be reused beyond the admin shell, auth and the provider-boundary pattern of ADR-0024.
+Roberto is Responsable Inscripto and invoices in-store sales from ARCA's portal; that procedure does
+not change. The module covers **only purchases made on the website**: when an online order's payment
+is confirmed, issue the electronic voucher and email the PDF to the buyer.
 
-The issuer's fiscal condition (Responsable Inscripto, Monotributo, Exento…) is **not confirmed**,
-so the voucher class (A, B, C) and the VAT treatment cannot be decided in code. No certificate,
-CUIT or point of sale has been provided, and none may be stored yet.
+Audit (2026-10-25):
 
-Official sources (downloaded 2026-10-25):
+- Production (`e051a7e`) has **no checkout**: no cart, orders, payments or emails. Purchases are
+  WhatsApp enquiries ("Consultar por WhatsApp").
+- An unpublished local branch, `feature/payments-v1` (ADR-0025/0026/0027), has a guest checkout,
+  `Order`/`OrderItem`/`Payment`/`PaymentEvent`, Mercado Pago Checkout Pro (Orders API) and a signed
+  webhook reconciled server-side (`getOrder`), ending in `markOrderPaid()` → `PAID` |
+  `PAID_NEEDS_REVIEW`. It collects the buyer's email and, optionally, a billing name and
+  DNI/CUIT/CUIL — but **not** the buyer's IVA condition. It was never run against Mercado Pago TEST,
+  sends no email, is 14 commits behind production and is not authorized for release.
 
-- WSFEv1 developer manual, RG 4291 – Proyecto FE v4.8 (revision dated 2026-12-01).
-- WSAA technical specification 1.2.2 and WSAA developer manual.
-- QR specification for electronic vouchers (RG 4892/2020), JSON version 1.
+Official sources (downloaded 2026-10-25): WSFEv1 manual RG 4291 – Proyecto FE v4.8 (revision dated
+2026-12-01), WSAA technical specification 1.2.2 and developer manual, QR specification (RG 4892/2020).
 
 ## Decisions
 
 ### Scope
 
-CAE modality only (`FECAESolicitar`, one voucher per request), concept 1 (Productos), currency
-`PES`. CAEA, credit/debit notes, foreign currency, services and Factura de Crédito MiPyME are out
-of scope until confirmed. Nothing here touches the catalog: no stock reservation or deduction, no
-change to products, prices or users. A sale item may reference a variant only as a snapshot.
+- A voucher exists only for an online order handed over by the checkout **after** its payment was
+  reconciled with the provider: order `PAID`, payment `APPROVED`, paid amount = order total, ARS.
+  `PAID_NEEDS_REVIEW`, pending or abandoned orders and WhatsApp enquiries are never invoiced. There is
+  no endpoint or screen that creates a voucher by hand.
+- CAE modality, concept 1 (products), `PES`, one voucher per request. Credit notes, CAEA, foreign
+  currency and shipping charges are out of scope until defined.
+- Nothing touches stock, prices, products or users. The paid order is stored as it was
+  (`orderSnapshot`) and the voucher total is exactly what was paid.
+
+### Components
+
+| Component                              | Where                                                       | Notes                                                             |
+| -------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| Online purchase + payment confirmation | `feature/payments-v1` (not here)                            | Calls `processPaidOrder()` after `markOrderPaid()` returns `PAID` |
+| Contract checkout → invoicing          | `lib/online-order-invoice.ts`                               | `PaidOnlineOrder`, `refuseUnverifiedOrder`, `planVoucher`         |
+| Invoicing service                      | `services/invoicing.service.ts`                             | Requests, vouchers, numbering, verification, recovery             |
+| ARCA integration                       | `lib/arca/*`, `services/invoicing-provider.service.ts`      | WSAA + WSFEv1 (homologation) or mock                              |
+| PDF + QR                               | `services/invoice-pdf.service.ts`, `lib/arca/qr.ts`         |                                                                   |
+| Email                                  | `lib/invoice-email.ts`, `services/invoice-email.service.ts` | Own state; mock only                                              |
+| Orchestration and recovery             | `services/online-invoicing.service.ts`                      | `processPaidOrder`, `runOnlineInvoicing`                          |
+| Buyer download                         | `routes/invoices.routes.ts`, web `/factura/:id`             | HMAC token in the URL fragment                                    |
 
 ### No fiscal rule is invented
 
-- The issuer has a `taxCondition` that starts as `UNCONFIRMED`. Issuing is refused until an admin
-  records the confirmed condition **and** the enabled voucher types (codes from
-  `FEParamGetTiposCbte`) for each point of sale, after the accountant confirms them.
-- Encoded only where the official manual states it:
-  - Receptor IVA condition × voucher class compatibility (manual v4.8, annex «Condición frente al
-    IVA del receptor»).
-  - Class C amounts: `ImpIVA = 0`, `ImpTotConc = 0`, `ImpOpEx = 0`, no `Iva` array; `ImpTotal =
-ImpTotConc + ImpOpEx + ImpNeto + ImpIVA + ImpTrib`.
-  - `MonCotiz = 1` for `PES`.
-- Each item carries an explicit VAT code (from `FEParamGetTiposIva`) for classes A/B; there is no
-  default rate. The minimum amount above which a final consumer must be identified is a
-  configured value with no default: until set, a receptor without a document is refused.
-- The PDF lists the data ARCA returns plus the issuer data entered by the admin; its legal layout
-  (RG 1415) is pending the accountant's review.
+Blocked (the order waits in `WAITING_DATA` with the reason) until an admin records what the
+accountant confirmed: the issuer's IVA condition, the online point of sale and its enabled voucher
+types, the VAT rate of frames, lenses and accessories, and the amount from which a final consumer
+must be identified. Encoded only where official:
 
-### Provider boundary
+- Receptor IVA condition × voucher class (annex of manual v4.8). The voucher type is the **only**
+  enabled type of the online point of sale allowed for that receptor; zero or two → waits.
+- A 7–8 digit document is a DNI (final consumer); an 11 digit CUIT/CUIL waits for the buyer's IVA
+  condition (the checkout does not ask it), completed by an admin.
+- Amounts: `ImpTotal = ImpTotConc + ImpOpEx + ImpNeto + ImpIVA + ImpTrib`; class C without VAT;
+  for A/B, prices as paid are split per rate into base = paid / (1 + rate) and VAT = paid − base.
+- `CondicionIVAReceptorId` always sent (mandatory from RG 5616 per v4.8). `MonCotiz = 1`.
 
-`InvoicingProvider` (like `ShippingProvider`): `lastAuthorized`, `authorize`, `consult`,
-`getParameters`. Implementations:
+### Numbering, concurrency, idempotency, uncertain answers
 
-- `mock` — deterministic, in memory, for tests and local use. Every PDF it produces is marked
-  «SIMULADO — SIN VALIDEZ FISCAL».
-- `homologacion` — WSAA (`wsaahomo.afip.gov.ar`) + WSFEv1 (`wswhomo.afip.gov.ar`) over SOAP,
-  CMS signed with the certificate. PDF marked «HOMOLOGACIÓN — SIN VALIDEZ FISCAL».
-- Production is **not wired**: `ARCA_MODE` accepts only `off | mock | homologacion`. Enabling
-  production is a separate, explicitly authorized change.
+- One request per order (`orderId` unique) and one voucher per request (`idempotencyKey =
+order:<orderId>`): redeliveries and concurrent confirmations never duplicate.
+- Number = `FECompUltimoAutorizado + 1`, saved before `FECAESolicitar`. One voucher in flight per
+  (point of sale, type) through `FiscalSequence.inFlightDocumentId` (conditional UPDATE).
+- `A` → `AUTHORIZED` (+ email queued). `R` → `REJECTED` (number released; left to a person). Timeout,
+  dropped connection, 5xx, internal ARCA error (500–502) or unreadable answer → `UNCERTAIN`, sequence
+  kept locked, settled only with `FECompConsultar`: found and equal → `AUTHORIZED`; 602 and last <
+  number → `DRAFT` and sent again; anything else → `NEEDS_REVIEW`.
+- `FECAESolicitar` is never retried blindly; reads and WSAA login are retried with backoff.
+- `runOnlineInvoicing()` moves everything one safe step (prepare, verify, emit, email) and can run
+  as often as needed (admin button now; a scheduler later).
 
-### Credentials
+### Email and buyer access
 
-Certificate and private key are read from file paths outside the repo (`ARCA_CERT_PATH`,
-`ARCA_KEY_PATH`), never from the database, never logged, never returned by the API. The access
-ticket (TA, 12 h) is cached in memory and reused while valid, as the WSAA manual requires
-(re-requesting returns `coe.alreadyAuthenticated`).
+- `InvoiceEmailDelivery` keeps the email state apart from the voucher: `PENDING → SENDING → SENT |
+FAILED`, backoff 5 min → 6 h, 8 attempts, then a person resends. Resending never touches ARCA.
+- No provider is chosen: only `mock` (`INVOICE_EMAIL_MODE=off|mock`).
+- The email carries the PDF and a link `PUBLIC_WEB_URL/factura/<id>#<token>`; token = HMAC-SHA256
+  of the voucher id with a key derived from `JWT_SECRET`. The fragment never reaches a server; the
+  page sends it in `X-Invoice-Access-Token`. Wrong token / not authorized → the same 404.
 
-### Numbering, concurrency and uncertain answers
+### Credentials and environments
 
-The number is never chosen locally: it is `FECompUltimoAutorizado + 1`, read right before sending.
-
-1. At most **one in-flight voucher per (issuer, point of sale, type)**, enforced by a partial
-   unique index over `status IN ('SENDING','UNCERTAIN')`. A second emission gets 409.
-2. The number is written to the row **before** calling `FECAESolicitar`, so a crash leaves enough
-   to look it up.
-3. Outcomes: `A` → `AUTHORIZED` (CAE, due date). `R` → `REJECTED` (errors/observations stored,
-   number released). Timeout, network error, 5xx or an unparseable answer → `UNCERTAIN`.
-4. An `UNCERTAIN` voucher is resolved only with `FECompConsultar` for that number:
-   - found, with the same document, date and total → `AUTHORIZED` with that CAE;
-   - error 602 (no data) and `FECompUltimoAutorizado` below the number → safe to send again;
-   - found with different data → `NEEDS_REVIEW` (manual).
-5. `authorize` is never retried blindly; only reads (`lastAuthorized`, `consult`, parameters,
-   WSAA login) are retried with backoff.
-6. Creating a voucher takes an `Idempotency-Key` (unique): repeating the request returns the same
-   voucher.
-
-### Audit
-
-`fiscal_audit_events` records every transition (who, when, from → to, ARCA codes/messages,
-attempt) without tokens, signatures or certificates. Vouchers are never deleted.
+`ARCA_MODE=off|mock|homologacion` (default `off`); production is not an accepted value and its URLs
+are not in the code. Certificate and key are files outside the repo (`ARCA_CERT_PATH`,
+`ARCA_KEY_PATH`), never in the DB, logs or responses; `*.key/*.pem/*.crt` are git-ignored. The TA
+(12 h) is cached in memory and reused (`coe.alreadyAuthenticated`). Mock and homologation PDFs say
+«SIN VALIDEZ FISCAL».
 
 ## Consequences
 
-- Invoicing can be built and tested end-to-end locally with the mock and fictitious data.
-- Going to homologation needs: CUIT, a WSASS test certificate associated with `wsfe`, and a
-  point of sale enabled for web services. Production needs a separate ADR update and authorization.
-- When Orders exist, an order can create a `Sale`; the invoicing module does not depend on Orders.
+- Integration needs the checkout branch merged and an adapter that reads `Order` + `OrderItem` +
+  `Payment` (+ `Product.kind`) and calls `processPaidOrder()`; the checkout should then ask the
+  buyer's IVA condition when they enter a CUIT.
+- Homologation needs a WSASS certificate associated with `wsfe` and a test point of sale; production
+  needs a separate ADR update, a production certificate and explicit authorization.
+- With more than one API instance, the in-memory TA must be shared.

@@ -74,6 +74,13 @@ export const routes: RouteObject[] = [
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },
       { path: "contact", element: <ContactPage /> },
+      {
+        path: "factura/:id",
+        lazy: async () => {
+          const { InvoiceDownloadPage } = await import("../pages/InvoiceDownloadPage");
+          return { Component: InvoiceDownloadPage };
+        },
+      },
       // login/register/account: lazy, same reasoning as products — only
       // a subset of visitors ever reach them, so the public catalog
       // majority shouldn't pay for this code in their initial bundle
@@ -230,6 +237,21 @@ export const routes: RouteObject[] = [
                 lazy: async () => {
                   const { AdminShippingPage } = await import("../pages/admin/AdminShippingPage");
                   return { Component: AdminShippingPage };
+                },
+              },
+              {
+                path: "invoicing",
+                lazy: async () => {
+                  const { AdminInvoicingPage } = await import("../pages/admin/AdminInvoicingPage");
+                  return { Component: AdminInvoicingPage };
+                },
+              },
+              {
+                path: "invoicing/:id",
+                lazy: async () => {
+                  const { AdminInvoiceDetailPage } =
+                    await import("../pages/admin/AdminInvoiceDetailPage");
+                  return { Component: AdminInvoiceDetailPage };
                 },
               },
             ],

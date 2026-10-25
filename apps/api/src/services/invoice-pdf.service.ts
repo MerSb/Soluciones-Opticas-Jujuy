@@ -94,6 +94,7 @@ export async function renderInvoicePdf(id: string): Promise<{ filename: string; 
     330,
   );
   pdf.text(`Fecha de emisión: ${day(sale.saleDate)}`, 330);
+  pdf.text(`Pedido online: ${sale.request.orderNumber}`, 330);
   pdf.text(`CUIT: ${issuer.cuit}`, 330);
   if (issuer.grossIncomeNumber) pdf.text(`Ingresos Brutos: ${issuer.grossIncomeNumber}`, 330);
   if (issuer.activityStartDate)
@@ -115,7 +116,10 @@ export async function renderInvoicePdf(id: string): Promise<{ filename: string; 
   pdf.text(`Condición frente al IVA: ${receptorCondition ?? "—"}`, 48);
   pdf.text(`Domicilio: ${sale.receptorAddress ?? "—"}`, 48);
 
-  const discriminateVat = voucher.class !== "C";
+  // Class A discriminates VAT (net prices, VAT per rate); B and C show the
+  // prices as paid. B to a final consumer also states the VAT contained
+  // (Ley 27.743) — the legal layout is pending the accountant's review.
+  const discriminateVat = voucher.class === "A";
   let y = 220;
   pdf.rect(40, y, width, 16).fillAndStroke("#eeeeee", "black");
   pdf.fillColor("black").fontSize(8);
@@ -130,12 +134,13 @@ export async function renderInvoicePdf(id: string): Promise<{ filename: string; 
       width: 220,
     });
     const rowEnd = pdf.y;
+    const lineAmount = discriminateVat ? item.netAmount : item.grossAmount;
     pdf.text(item.quantity.toString(), 270, y, { width: 40, align: "right" });
-    pdf.text(money(item.unitPrice), 315, y, { width: 70, align: "right" });
+    pdf.text(money(lineAmount.div(item.quantity)), 315, y, { width: 70, align: "right" });
     if (discriminateVat && item.vatRateCode !== null) {
       pdf.text(vatRate(item.vatRateCode)?.name ?? "", 390, y, { width: 50, align: "right" });
     }
-    pdf.text(money(item.netAmount), 445, y, { width: 104, align: "right" });
+    pdf.text(money(lineAmount), 445, y, { width: 104, align: "right" });
     y = Math.max(rowEnd, pdf.y) + 6;
   }
 
@@ -146,10 +151,12 @@ export async function renderInvoicePdf(id: string): Promise<{ filename: string; 
         ["IVA", money(sale.vatAmount)],
         ["Importe total", money(sale.totalAmount)],
       ]
-    : [
-        ["Subtotal", money(sale.netAmount)],
-        ["Importe total", money(sale.totalAmount)],
-      ];
+    : voucher.class === "B"
+      ? [
+          ["Importe total", money(sale.totalAmount)],
+          ["IVA contenido", money(sale.vatAmount)],
+        ]
+      : [["Importe total", money(sale.totalAmount)]];
   pdf.fontSize(10);
   for (const [label, value] of totals) {
     pdf.text(label, 330, y, { width: 120, align: "right" });

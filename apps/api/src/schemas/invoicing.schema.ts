@@ -1,14 +1,9 @@
 import { z } from "zod";
-import {
-  DOCUMENT_TYPES,
-  INVOICE_VOUCHER_TYPES,
-  RECEPTOR_IVA_CONDITIONS,
-  VAT_RATES,
-} from "../lib/arca/codes.js";
+import { INVOICE_VOUCHER_TYPES, RECEPTOR_IVA_CONDITIONS, VAT_RATES } from "../lib/arca/codes.js";
 
-// Electronic invoicing (ADR-0036). Only ARCA codes listed in lib/arca/
-// codes.ts are accepted; totals are never accepted from the client —
-// they are computed from the items on the server.
+// Electronic invoicing of online purchases (ADR-0036). Only ARCA codes
+// listed in lib/arca/codes.ts are accepted. There is no body that creates
+// a voucher: vouchers only come from paid online orders.
 
 const codeIn = (table: Record<number, unknown>) =>
   z.coerce
@@ -44,6 +39,9 @@ export const upsertIssuerBodySchema = z.object({
     .nullable()
     .optional(),
   finalConsumerIdThreshold: money.nullable().optional(),
+  frameVatRateCode: codeIn(VAT_RATES).nullable().optional(),
+  lensVatRateCode: codeIn(VAT_RATES).nullable().optional(),
+  accessoryVatRateCode: codeIn(VAT_RATES).nullable().optional(),
 });
 export type UpsertIssuerBody = z.infer<typeof upsertIssuerBodySchema>;
 
@@ -59,40 +57,24 @@ export const upsertPointOfSaleBodySchema = z.object({
   number: z.coerce.number().int().min(1).max(99999),
   enabledVoucherTypes: z.array(codeIn(INVOICE_VOUCHER_TYPES)).max(10),
   active: z.boolean().default(true),
+  forOnlineSales: z.boolean().default(false),
 });
 export type UpsertPointOfSaleBody = z.infer<typeof upsertPointOfSaleBodySchema>;
 
-export const createInvoiceBodySchema = z.object({
-  pointOfSaleId: z.string().uuid(),
-  voucherType: codeIn(INVOICE_VOUCHER_TYPES),
-  issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  receptor: z.object({
-    docType: codeIn(DOCUMENT_TYPES),
-    docNumber: z
-      .string()
-      .trim()
-      .regex(/^\d{1,20}$/, "Solo números, sin puntos ni guiones."),
-    name: optionalText(200),
-    ivaConditionCode: codeIn(RECEPTOR_IVA_CONDITIONS),
-    address: optionalText(300),
-  }),
-  items: z
-    .array(
-      z.object({
-        description: z.string().trim().min(1).max(200),
-        quantity: z
-          .string()
-          .trim()
-          .regex(/^\d{1,9}(\.\d{1,3})?$/, "Cantidad inválida."),
-        unitPrice: money,
-        vatRateCode: codeIn(VAT_RATES).nullable(),
-        variantId: z.string().uuid().nullable().optional(),
-      }),
-    )
-    .min(1)
-    .max(50),
+/** What a paid order did not carry: the buyer's IVA condition and
+ * whether their 11-digit number is a CUIT or a CUIL. */
+export const completeRequestBodySchema = z.object({
+  receptorIvaConditionCode: codeIn(RECEPTOR_IVA_CONDITIONS),
+  receptorDocType: z.coerce
+    .number()
+    .int()
+    .refine((code) => code === 80 || code === 86, { message: "CUIT (80) o CUIL (86)." }),
 });
-export type CreateInvoiceBody = z.infer<typeof createInvoiceBodySchema>;
+export type CompleteRequestBody = z.infer<typeof completeRequestBodySchema>;
+
+export const listRequestsQuerySchema = z.object({
+  status: z.enum(["RECEIVED", "WAITING_DATA", "INVOICED"]).optional(),
+});
 
 export const listInvoicesQuerySchema = z.object({
   status: z
@@ -103,10 +85,8 @@ export const listInvoicesQuerySchema = z.object({
 });
 export type ListInvoicesQuery = z.infer<typeof listInvoicesQuerySchema>;
 
-export const idempotencyKeySchema = z
-  .string()
-  .trim()
-  .regex(
-    /^[A-Za-z0-9_-]{16,100}$/,
-    "Idempotency-Key inválida (16 a 100 caracteres alfanuméricos).",
-  );
+export const resendEmailBodySchema = z.object({
+  recipient: z.string().trim().email().max(254).optional(),
+});
+
+export const invoiceAccessTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);

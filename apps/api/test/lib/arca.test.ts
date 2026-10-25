@@ -26,8 +26,8 @@ import { InvoicingProviderError, type VoucherRequest } from "../../src/lib/invoi
 // specification 1.2.2 and the WSFEv1 manual v4.8. Every CUIT, CAE and
 // person here is fictitious (the manuals' own sample values).
 
-describe("voucher amounts (WSFEv1 v4.8 formulas)", () => {
-  it("class C: no VAT, ImpNeto is the subtotal, ImpTotal = ImpNeto", () => {
+describe("voucher amounts from prices as paid (WSFEv1 v4.8 formulas)", () => {
+  it("class C: no VAT, ImpNeto = ImpTotal = what was paid", () => {
     const amounts = computeVoucherAmounts("C", [
       { quantity: "2", unitPrice: "1500.50", vatRateCode: null },
       { quantity: "1", unitPrice: "999.99", vatRateCode: null },
@@ -38,29 +38,39 @@ describe("voucher amounts (WSFEv1 v4.8 formulas)", () => {
     expect(amounts.vatLines).toEqual([]);
   });
 
-  it("class A/B: one AlicIva per rate, computed on the summed base (manual example 1)", () => {
-    // Example 1 of the manual: 100 at 21% and 50 at 10.5% → IVA 26.25.
-    const amounts = computeVoucherAmounts("A", [
-      { quantity: "1", unitPrice: "100", vatRateCode: 5 },
-      { quantity: "1", unitPrice: "50", vatRateCode: 4 },
+  it("class A/B: the total stays exactly what was paid; one AlicIva per rate", () => {
+    // 121 paid at 21% → 100 + 21; 110.50 paid at 10.5% → 100 + 10.50.
+    const amounts = computeVoucherAmounts("B", [
+      { quantity: "1", unitPrice: "121.00", vatRateCode: 5 },
+      { quantity: "1", unitPrice: "110.50", vatRateCode: 4 },
     ]);
-    expect(amounts.netAmount.toFixed(2)).toBe("150.00");
-    expect(amounts.vatAmount.toFixed(2)).toBe("26.25");
-    expect(amounts.totalAmount.toFixed(2)).toBe("176.25");
+    expect(amounts.totalAmount.toFixed(2)).toBe("231.50");
+    expect(amounts.netAmount.toFixed(2)).toBe("200.00");
+    expect(amounts.vatAmount.toFixed(2)).toBe("31.50");
     expect(
       amounts.vatLines.map((line) => [line.code, line.base.toFixed(2), line.amount.toFixed(2)]),
-    ).toEqual(
-      [
-        ["4", "50.00", "5.25"],
-        ["5", "100.00", "21.00"],
-      ].map(([code, base, amount]) => [Number(code), base, amount]),
-    );
+    ).toEqual([
+      [4, "100.00", "10.50"],
+      [5, "100.00", "21.00"],
+    ]);
+  });
+
+  it("rounds the base and keeps base + VAT = paid (ImpTotal formula)", () => {
+    const amounts = computeVoucherAmounts("B", [
+      { quantity: "3", unitPrice: "33333.33", vatRateCode: 5 },
+    ]);
+    const [line] = amounts.vatLines;
+    expect(amounts.totalAmount.toFixed(2)).toBe("99999.99");
+    expect(line!.base.add(line!.amount).toFixed(2)).toBe("99999.99");
+    expect(line!.base.toFixed(2)).toBe("82644.62");
+    // ARCA checks AlicIva ≈ base × rate (absolute/relative error margin).
+    expect(line!.amount.sub(line!.base.mul("0.21")).abs().lte("0.01")).toBe(true);
   });
 
   it("never assumes a VAT rate, and refuses VAT on a class C voucher", () => {
     expect(() =>
       computeVoucherAmounts("B", [{ quantity: "1", unitPrice: "10", vatRateCode: null }]),
-    ).toThrow(/código de IVA/);
+    ).toThrow(/alícuota de IVA/);
     expect(() =>
       computeVoucherAmounts("C", [{ quantity: "1", unitPrice: "10", vatRateCode: 5 }]),
     ).toThrow(/no lleva IVA/);

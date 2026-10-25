@@ -3,49 +3,60 @@ import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/lib/env.js";
 import { prisma } from "../../src/lib/prisma.js";
+import { invoiceAccessToken } from "../../src/lib/invoice-access-token.js";
 import { mockProvider } from "../../src/services/invoicing-provider.service.js";
+import { mockEmailProvider } from "../../src/services/invoice-email.service.js";
+import {
+  processPaidOrder,
+  runOnlineInvoicing,
+} from "../../src/services/online-invoicing.service.js";
+import { receivePaidOrder } from "../../src/services/invoicing.service.js";
+import type { PaidOnlineOrder } from "../../src/lib/online-order-invoice.js";
 import { createAdminAgent } from "./helpers.js";
+import { paidOrder } from "../fixtures/paid-order.js";
 
-// Electronic invoicing end to end with the simulated ARCA (ADR-0036).
-// Every CUIT, name and amount is fictitious (the WSFEv1 manual's sample
-// CUIT 20111111112). The fiscal tables only ever hold test data locally,
-// so they are emptied before and after this file (the issuer is a
-// singleton). Nothing here touches stock.
+// Online invoicing end to end with the simulated ARCA and email
+// (ADR-0036): paid order → voucher → CAE → PDF by email → buyer download.
+// Every CUIT, buyer, order and amount is fictitious (the WSFEv1 manual's
+// sample CUIT 20111111112). Orders are given as the checkout will hand
+// them over (that module is not integrated in this branch). The fiscal
+// tables only ever hold test data locally, so they are emptied before and
+// after this file. Nothing here touches stock.
 
 const app = createApp();
 const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const adminEmail = `admin-invoicing-${RUN_ID}@example.com`;
+const ISSUER_CUIT = "20111111112";
 let admin: ReturnType<typeof request.agent>;
-let posId: string;
-let keyCounter = 0;
-
-const key = () => `test-${RUN_ID}-${(keyCounter += 1)}`.padEnd(16, "x");
-const today = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+let orderCounter = 0;
 
 async function emptyFiscalTables() {
+  await prisma.invoiceEmailDelivery.deleteMany();
   await prisma.fiscalAuditEvent.deleteMany();
   await prisma.fiscalDocument.deleteMany();
   await prisma.saleItem.deleteMany();
   await prisma.sale.deleteMany();
+  await prisma.onlineInvoiceRequest.deleteMany();
   await prisma.fiscalSequence.deleteMany();
   await prisma.fiscalPointOfSale.deleteMany();
   await prisma.fiscalIssuer.deleteMany();
 }
 
-const invoiceC = (overrides: Record<string, unknown> = {}) => ({
-  pointOfSaleId: posId,
-  voucherType: 11,
-  issueDate: today(),
-  receptor: { docType: 96, docNumber: "11111111", name: "Cliente Ficticio", ivaConditionCode: 5 },
-  items: [
-    { description: "Armazón de prueba", quantity: "1", unitPrice: "45000.00", vatRateCode: null },
-  ],
-  ...overrides,
-});
+/** A new fictitious paid order each time. */
+function newOrder(overrides: Partial<PaidOnlineOrder> = {}): PaidOnlineOrder {
+  orderCounter += 1;
+  const base = paidOrder();
+  return {
+    ...base,
+    orderId: crypto.randomUUID(),
+    orderNumber: `SOJ-T${RUN_ID.slice(-6)}-${orderCounter}`,
+    payment: { ...base.payment, providerPaymentId: `PAY-${RUN_ID}-${orderCounter}` },
+    ...overrides,
+  };
+}
 
+/** The simulated ARCA forgets everything on reset: replay what it has. */
 async function replayIssuedVouchers(below?: number) {
-  // The mock forgets everything on reset: replay what ARCA already has
-  // (authorized vouchers, and the numbers held by ones under review).
   for (const document of await prisma.fiscalDocument.findMany({
     where: {
       status: { in: ["AUTHORIZED", "NEEDS_REVIEW"] },
@@ -55,7 +66,7 @@ async function replayIssuedVouchers(below?: number) {
   })) {
     mockProvider.seedIssued(
       {
-        issuerCuit: "20111111112",
+        issuerCuit: ISSUER_CUIT,
         pointOfSale: document.pointOfSale.number,
         voucherType: document.voucherType,
       },
@@ -74,17 +85,14 @@ async function replayIssuedVouchers(below?: number) {
   }
 }
 
-async function createAndEmit(body: Record<string, unknown> = invoiceC()) {
-  const created = await admin
-    .post("/api/admin/invoicing/invoices")
-    .set("Idempotency-Key", key())
-    .send(body);
-  expect(created.status).toBe(201);
-  return {
-    id: created.body.id as string,
-    emit: await admin.post(`/api/admin/invoicing/invoices/${created.body.id}/emit`).send({}),
-  };
-}
+const documentFor = (orderId: string) =>
+  prisma.fiscalDocument.findFirst({
+    where: { sale: { request: { orderId } } },
+    include: { email: true, sale: { include: { items: true } } },
+  });
+
+const vouchersFor = (orderId: string) =>
+  prisma.fiscalDocument.count({ where: { sale: { request: { orderId } } } });
 
 beforeAll(async () => {
   await emptyFiscalTables();
@@ -93,383 +101,360 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   env.ARCA_MODE = "mock";
+  env.INVOICE_EMAIL_MODE = "mock";
+  env.PUBLIC_WEB_URL = "https://tienda.example.com";
   mockProvider.reset();
+  mockEmailProvider.reset();
   await replayIssuedVouchers();
 });
 
 afterAll(async () => {
   env.ARCA_MODE = "off";
+  env.INVOICE_EMAIL_MODE = "off";
+  env.PUBLIC_WEB_URL = undefined;
   await emptyFiscalTables();
   await prisma.user.deleteMany({ where: { email: adminEmail } });
 });
 
-describe("invoicing configuration", () => {
-  it("is off unless ARCA_MODE says otherwise, and admin-only", async () => {
+const issuerBody = {
+  cuit: ISSUER_CUIT,
+  legalName: "Óptica Ficticia",
+  commercialAddress: "Calle Falsa 123",
+};
+
+describe("scope and configuration", () => {
+  it("is off by default, admin-only, and has no manual invoicing endpoint", async () => {
     env.ARCA_MODE = "off";
     const status = await admin.get("/api/admin/invoicing/status");
     expect(status.body.enabled).toBe(false);
-    expect(status.body.blockers).toContain("La facturación electrónica está desactivada.");
-    const anonymous = await request(app).get("/api/admin/invoicing/status");
-    expect(anonymous.status).toBe(401);
+    expect((await request(app).get("/api/admin/invoicing/status")).status).toBe(401);
+    expect((await admin.post("/api/admin/invoicing/invoices").send({})).status).toBe(404);
   });
 
-  it("never assumes the fiscal condition: issuing is blocked until it is confirmed", async () => {
-    const issuer = await admin.put("/api/admin/invoicing/issuer").send({
-      cuit: "20111111112",
-      legalName: "Óptica Ficticia",
-      commercialAddress: "Calle Falsa 123",
-    });
-    expect(issuer.status).toBe(200);
-    expect(issuer.body.taxConditionCode).toBeNull();
-    const pos = await admin
+  it("never assumes the fiscal setup: a paid order waits until it is confirmed", async () => {
+    await admin.put("/api/admin/invoicing/issuer").send(issuerBody);
+    const order = newOrder();
+    const waiting = await receivePaidOrder(order);
+    expect(waiting.status).toBe("WAITING_DATA");
+    expect(waiting.blockerReason).toMatch(/condición fiscal del emisor no está confirmada/);
+
+    // Test data, as the accountant would confirm it: RI, online point of
+    // sale 7 with Factura A and B, VAT rates and the identification threshold.
+    await admin
+      .post("/api/admin/invoicing/issuer/tax-condition")
+      .send({ taxConditionCode: 1, confirm: true });
+    await admin
       .put("/api/admin/invoicing/points-of-sale")
-      .send({ number: 3, enabledVoucherTypes: [11] });
-    posId = pos.body.pointsOfSale[0].id;
-
-    const status = await admin.get("/api/admin/invoicing/status");
-    expect(status.body.blockers).toEqual([
-      "La condición fiscal del emisor no está confirmada (la confirma el contador).",
-    ]);
-    const blocked = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", key())
-      .send(invoiceC());
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error.code).toBe("INVOICING_NOT_READY");
-
-    const unconfirmed = await admin
-      .post("/api/admin/invoicing/issuer/tax-condition")
-      .send({ taxConditionCode: 6 });
-    expect(unconfirmed.status).toBe(400);
-    // Test data: a fictitious issuer confirmed as Monotributo (code 6).
-    const confirmed = await admin
-      .post("/api/admin/invoicing/issuer/tax-condition")
-      .send({ taxConditionCode: 6, confirm: true });
-    expect(confirmed.body.taxConditionCode).toBe(6);
+      .send({ number: 7, enabledVoucherTypes: [1, 6], forOnlineSales: true });
+    expect((await receivePaidOrder(order)).blockerReason).toMatch(/desde qué monto/);
+    await admin
+      .put("/api/admin/invoicing/issuer")
+      .send({ ...issuerBody, finalConsumerIdThreshold: "100000.00" });
+    expect((await receivePaidOrder(order)).blockerReason).toMatch(/alícuota de IVA de armazones/);
+    await admin.put("/api/admin/invoicing/issuer").send({
+      ...issuerBody,
+      finalConsumerIdThreshold: "100000.00",
+      frameVatRateCode: 5,
+      lensVatRateCode: 4,
+      accessoryVatRateCode: 5,
+    });
     expect((await admin.get("/api/admin/invoicing/status")).body.blockers).toEqual([]);
+
+    // The waiting order is picked up by the next run.
+    const run = await admin.post("/api/admin/invoicing/run").send({});
+    expect(run.body).toMatchObject({ emitted: 1, emailsSent: 1 });
+    expect(await documentFor(order.orderId)).toMatchObject({
+      status: "AUTHORIZED",
+      voucherType: 6,
+      number: 1,
+    });
   });
 });
 
-describe("issuing with the simulated ARCA", () => {
-  it("authorizes consecutive numbers with a CAE, without touching stock", async () => {
-    const variant = await prisma.productVariant.findFirst({
-      select: { id: true, sku: true, stock: true },
-    });
-    const items = [
-      {
-        description: "Armazón",
-        quantity: "1",
-        unitPrice: "45000.00",
-        vatRateCode: null,
-        variantId: variant?.id ?? null,
-      },
-    ];
-    const first = await createAndEmit(invoiceC({ items }));
-    expect(first.emit.status).toBe(200);
-    expect(first.emit.body).toMatchObject({
-      status: "AUTHORIZED",
-      number: 1,
-      environment: "mock",
-      totalAmount: 45000,
-    });
-    expect(first.emit.body.cae).toMatch(/^\d{14}$/);
-    expect(first.emit.body.items[0].variantSku).toBe(variant?.sku ?? null);
-    if (variant) {
-      const after = await prisma.productVariant.findUnique({ where: { id: variant.id } });
-      expect(after?.stock).toBe(variant.stock);
-    }
-    const second = await createAndEmit();
-    expect(second.emit.body.number).toBe(2);
-
-    // Emitting an authorized voucher again changes nothing.
-    const again = await admin.post(`/api/admin/invoicing/invoices/${first.id}/emit`).send({});
-    expect(again.body).toMatchObject({ status: "AUTHORIZED", number: 1, cae: first.emit.body.cae });
-  });
-
-  it("requires an Idempotency-Key and returns the same voucher for a repeated request", async () => {
-    const missing = await admin.post("/api/admin/invoicing/invoices").send(invoiceC());
-    expect(missing.status).toBe(400);
-    const idempotencyKey = key();
-    const a = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", idempotencyKey)
-      .send(invoiceC());
-    const b = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", idempotencyKey)
-      .send(invoiceC());
-    expect(a.status).toBe(201);
-    expect(b.status).toBe(200);
-    expect(b.body.id).toBe(a.body.id);
-    const other = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", idempotencyKey)
-      .send(
-        invoiceC({
-          items: [{ description: "Otro", quantity: "2", unitPrice: "1.00", vatRateCode: null }],
-        }),
+describe("paid order → voucher → email", () => {
+  it("refuses orders whose payment is not verified", async () => {
+    const pending = newOrder({ status: "PENDING_PAYMENT" });
+    await expect(processPaidOrder(pending)).rejects.toThrow(/pagado/);
+    const mismatch = newOrder();
+    mismatch.payment = { ...mismatch.payment, amount: "1.00" };
+    await expect(processPaidOrder(mismatch)).rejects.toThrow(/no coincide/);
+    for (const order of [pending, mismatch]) {
+      expect(await prisma.onlineInvoiceRequest.count({ where: { orderId: order.orderId } })).toBe(
+        0,
       );
-    expect(other.status).toBe(409);
+    }
   });
 
-  it("checks voucher type, receptor condition, VAT and identification against the official tables", async () => {
-    const send = (body: Record<string, unknown>) =>
-      admin.post("/api/admin/invoicing/invoices").set("Idempotency-Key", key()).send(body);
-    // Type not enabled for this point of sale.
-    expect((await send(invoiceC({ voucherType: 6 }))).status).toBe(400);
-    // Class C never carries VAT.
-    const vat = await send(
-      invoiceC({
-        items: [{ description: "X", quantity: "1", unitPrice: "10.00", vatRateCode: 5 }],
-      }),
-    );
-    expect(vat.body.error.message).toMatch(/no lleva IVA/);
-    // Unidentified receptor while the threshold is not configured.
-    const unidentified = invoiceC({
-      receptor: { docType: 99, docNumber: "0", ivaConditionCode: 5 },
-    });
-    expect((await send(unidentified)).body.error.message).toMatch(
-      /identificar al consumidor final/,
-    );
-    await admin.put("/api/admin/invoicing/issuer").send({
-      cuit: "20111111112",
-      legalName: "Óptica Ficticia",
-      commercialAddress: "Calle Falsa 123",
-      finalConsumerIdThreshold: "100000.00",
-    });
-    expect((await send(unidentified)).status).toBe(201);
-    const large = invoiceC({
-      receptor: { docType: 99, docNumber: "0", ivaConditionCode: 5 },
-      items: [{ description: "X", quantity: "1", unitPrice: "100000.00", vatRateCode: null }],
-    });
-    expect((await send(large)).body.error.message).toMatch(/identificar al receptor/);
-    // Date window of concept 1.
-    expect((await send(invoiceC({ issueDate: "2020-01-01" }))).status).toBe(400);
-    // Totals are never accepted from the client (unknown keys are ignored).
-    const withTotal = await send({ ...invoiceC(), totalAmount: 1 });
-    expect(withTotal.body.totalAmount).toBe(45000);
-  });
+  it("issues a Factura B with CAE for a final consumer and emails the PDF with a private link", async () => {
+    const variant = await prisma.productVariant.findFirst({ select: { id: true, stock: true } });
+    const order = newOrder();
+    expect((await processPaidOrder(order)).status).toBe("INVOICED");
 
-  it("class A/B: refuses an incompatible receptor and sends one AlicIva per rate", async () => {
-    // Test data: a second point of sale with class B enabled.
-    const pos = await admin
-      .put("/api/admin/invoicing/points-of-sale")
-      .send({ number: 4, enabledVoucherTypes: [1, 6] });
-    const posB = pos.body.pointsOfSale.find((p: { number: number }) => p.number === 4).id;
-    const send = (body: Record<string, unknown>) =>
-      admin.post("/api/admin/invoicing/invoices").set("Idempotency-Key", key()).send(body);
-
-    const aToFinalConsumer = await send(invoiceC({ pointOfSaleId: posB, voucherType: 1 }));
-    expect(aToFinalConsumer.body.error.message).toMatch(/no puede recibir un comprobante clase A/);
-    const noRate = await send(invoiceC({ pointOfSaleId: posB, voucherType: 6 }));
-    expect(noRate.body.error.message).toMatch(/falta el código de IVA/);
-
-    const created = await send(
-      invoiceC({
-        pointOfSaleId: posB,
-        voucherType: 6,
-        items: [
-          { description: "Armazón", quantity: "1", unitPrice: "100.00", vatRateCode: 5 },
-          { description: "Estuche", quantity: "1", unitPrice: "50.00", vatRateCode: 4 },
-        ],
-      }),
-    );
-    expect(created.body).toMatchObject({ netAmount: 150, vatAmount: 26.25, totalAmount: 176.25 });
-    const emitted = await admin
-      .post(`/api/admin/invoicing/invoices/${created.body.id}/emit`)
-      .send({});
-    expect(emitted.body).toMatchObject({ status: "AUTHORIZED", number: 1 });
-    const stored = await prisma.fiscalDocument.findUnique({ where: { id: created.body.id } });
-    expect(stored?.requestSnapshot).toMatchObject({
-      total: "176.25",
-      vat: "26.25",
+    const document = await documentFor(order.orderId);
+    expect(document).toMatchObject({ status: "AUTHORIZED", voucherType: 6, environment: "mock" });
+    expect(document!.cae).toMatch(/^\d{14}$/);
+    expect(document!.sale.totalAmount.toFixed(2)).toBe("60500.00");
+    expect(document!.sale.netAmount.toFixed(2)).toBe("50950.23");
+    expect(document!.sale.vatAmount.toFixed(2)).toBe("9549.77");
+    expect(document!.requestSnapshot).toMatchObject({
+      docType: 99,
+      docNumber: "0",
+      total: "60500.00",
       receptorIvaConditionId: 5,
       vatLines: [
-        { code: 4, base: "50.00", amount: "5.25" },
-        { code: 5, base: "100.00", amount: "21.00" },
+        { code: 4, base: "10950.23", amount: "1149.77" },
+        { code: 5, base: "40000.00", amount: "8400.00" },
       ],
     });
+    expect(document!.email).toMatchObject({
+      status: "SENT",
+      recipient: "cliente@example.com",
+      attempts: 1,
+    });
+
+    const message = mockEmailProvider.sent.find((m) => m.subject.includes(order.orderNumber))!;
+    expect(message.attachment.content.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(message.text).toContain(
+      `https://tienda.example.com/factura/${document!.id}#${invoiceAccessToken(document!.id)}`,
+    );
+    // The original order is kept exactly as it was paid.
+    const stored = await prisma.onlineInvoiceRequest.findUnique({
+      where: { orderId: order.orderId },
+    });
+    expect(stored!.orderSnapshot).toMatchObject({
+      grandTotal: "60500.00",
+      orderNumber: order.orderNumber,
+    });
+    if (variant) {
+      const after = await prisma.productVariant.findUnique({ where: { id: variant.id } });
+      expect(after!.stock).toBe(variant.stock);
+    }
+  });
+
+  it("a redelivered or concurrent confirmation never issues twice", async () => {
+    const order = newOrder();
+    await Promise.allSettled([
+      processPaidOrder(order),
+      processPaidOrder(order),
+      processPaidOrder(order),
+    ]);
+    await processPaidOrder(order);
+    await runOnlineInvoicing();
+    expect(await prisma.onlineInvoiceRequest.count({ where: { orderId: order.orderId } })).toBe(1);
+    expect(await vouchersFor(order.orderId)).toBe(1);
+    expect((await documentFor(order.orderId))!.status).toBe("AUTHORIZED");
+    expect(
+      mockEmailProvider.sent.filter((m) => m.subject.includes(order.orderNumber)),
+    ).toHaveLength(1);
+  });
+
+  it("a buyer with CUIT waits for the IVA condition; completed by the admin, gets a Factura A", async () => {
+    const order = newOrder({
+      invoiceRequested: true,
+      billingName: "Empresa Ficticia SA",
+      billingTaxId: "30-00000000-7",
+    });
+    const waiting = await processPaidOrder(order);
+    expect(waiting.status).toBe("WAITING_DATA");
+    const listed = await admin
+      .get("/api/admin/invoicing/requests")
+      .query({ status: "WAITING_DATA" });
+    expect(listed.body.map((row: { id: string }) => row.id)).toContain(waiting.id);
+
+    const invalid = await admin
+      .post(`/api/admin/invoicing/requests/${waiting.id}/complete`)
+      .send({ receptorIvaConditionCode: 1, receptorDocType: 96 });
+    expect(invalid.status).toBe(400);
+    const completed = await admin
+      .post(`/api/admin/invoicing/requests/${waiting.id}/complete`)
+      .send({ receptorIvaConditionCode: 1, receptorDocType: 80 });
+    expect(completed.body.status).toBe("INVOICED");
+    await admin.post("/api/admin/invoicing/run").send({});
+    const document = await documentFor(order.orderId);
+    expect(document).toMatchObject({ status: "AUTHORIZED", voucherType: 1 });
+    expect(document!.sale).toMatchObject({ receptorDocType: 80, receptorDocNumber: "30000000007" });
   });
 });
 
-describe("numbering, concurrency and uncertain answers", () => {
+describe("email: its own state, resent without issuing again", () => {
+  it("a failed email backs off; resending sends the same invoice", async () => {
+    mockEmailProvider.failNext();
+    const order = newOrder();
+    await processPaidOrder(order);
+    const document = await documentFor(order.orderId);
+    expect(document!.status).toBe("AUTHORIZED");
+    expect(document!.email).toMatchObject({ status: "FAILED", attempts: 1 });
+    expect(document!.email!.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now());
+    // Not due yet: a run does not hammer the email provider.
+    await runOnlineInvoicing();
+    expect((await documentFor(order.orderId))!.email!.status).toBe("FAILED");
+
+    const resent = await admin
+      .post(`/api/admin/invoicing/invoices/${document!.id}/resend-email`)
+      .send({ recipient: "otro@example.com" });
+    expect(resent.status).toBe(200);
+    expect(resent.body.email).toMatchObject({ status: "SENT", recipient: "otro@example.com" });
+    expect(resent.body).toMatchObject({
+      cae: document!.cae,
+      number: document!.number,
+      attempts: 1,
+    });
+    expect(await vouchersFor(order.orderId)).toBe(1);
+  });
+});
+
+describe("ARCA failures are recovered without duplicates", () => {
   const lastNumber = async () =>
     (
       await prisma.fiscalDocument.findFirst({
-        where: { pointOfSaleId: posId, status: "AUTHORIZED" },
+        where: { voucherType: 6, status: { in: ["AUTHORIZED", "NEEDS_REVIEW"] } },
         orderBy: { number: "desc" },
       })
     )?.number ?? 0;
 
-  it("a rejection stores ARCA's reasons and releases the number", async () => {
-    mockProvider.injectFault("REJECT");
-    const { id, emit } = await createAndEmit();
-    expect(emit.body).toMatchObject({ status: "REJECTED", number: null });
-    expect(emit.body.arcaErrors[0].code).toBe(10015);
-    const expected = (await lastNumber()) + 1;
-    const retry = await admin.post(`/api/admin/invoicing/invoices/${id}/emit`).send({});
-    expect(retry.body).toMatchObject({ status: "AUTHORIZED", number: expected });
-  });
-
-  it("a lost answer after ARCA authorized: UNCERTAIN, sequence locked, settled by FECompConsultar", async () => {
+  it("lost answer after ARCA authorized: UNCERTAIN; the run verifies it, then emails", async () => {
     const expected = (await lastNumber()) + 1;
     mockProvider.injectFault("TIMEOUT_AFTER_AUTHORIZING");
-    const { id, emit } = await createAndEmit();
-    expect(emit.status).toBe(502);
-    expect(emit.body.error.code).toBe("INVOICE_UNCERTAIN");
-    const pending = await admin.get(`/api/admin/invoicing/invoices/${id}`);
-    expect(pending.body).toMatchObject({ status: "UNCERTAIN", number: expected, cae: null });
+    const order = newOrder();
+    await processPaidOrder(order);
+    expect(await documentFor(order.orderId)).toMatchObject({
+      status: "UNCERTAIN",
+      number: expected,
+      cae: null,
+      email: null,
+    });
+    // Locked: the next order waits instead of taking a number.
+    const other = newOrder();
+    await processPaidOrder(other);
+    expect((await documentFor(other.orderId))!.status).toBe("DRAFT");
 
-    // Never re-sent blindly, and no other voucher can take the next number.
-    expect((await admin.post(`/api/admin/invoicing/invoices/${id}/emit`).send({})).status).toBe(
-      409,
-    );
-    const other = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", key())
-      .send(invoiceC());
-    expect(
-      (await admin.post(`/api/admin/invoicing/invoices/${other.body.id}/emit`).send({})).status,
-    ).toBe(409);
-
-    const verified = await admin.post(`/api/admin/invoicing/invoices/${id}/verify`).send({});
-    expect(verified.body).toMatchObject({ status: "AUTHORIZED", number: expected });
-    expect(verified.body.cae).toMatch(/^\d{14}$/);
-    // Released: the other voucher now takes the next number.
-    const next = await admin.post(`/api/admin/invoicing/invoices/${other.body.id}/emit`).send({});
-    expect(next.body).toMatchObject({ status: "AUTHORIZED", number: expected + 1 });
+    const run = await runOnlineInvoicing();
+    expect(run.verified).toBe(1);
+    const settled = await documentFor(order.orderId);
+    expect(settled).toMatchObject({ status: "AUTHORIZED", number: expected });
+    expect(settled!.email!.status).toBe("SENT");
+    expect(await documentFor(other.orderId)).toMatchObject({
+      status: "AUTHORIZED",
+      number: expected + 1,
+    });
   });
 
-  it("a request that never reached ARCA goes back to draft and is sent again with the same number", async () => {
+  it("a request that never reached ARCA is sent again with the same number", async () => {
     const expected = (await lastNumber()) + 1;
     mockProvider.injectFault("TIMEOUT_BEFORE_REACHING");
-    const { id } = await createAndEmit();
-    const verified = await admin.post(`/api/admin/invoicing/invoices/${id}/verify`).send({});
-    expect(verified.body).toMatchObject({ status: "DRAFT", number: null });
-    const emitted = await admin.post(`/api/admin/invoicing/invoices/${id}/emit`).send({});
-    expect(emitted.body).toMatchObject({ status: "AUTHORIZED", number: expected });
+    const order = newOrder();
+    await processPaidOrder(order);
+    expect((await documentFor(order.orderId))!.status).toBe("UNCERTAIN");
+    await runOnlineInvoicing();
+    expect(await documentFor(order.orderId)).toMatchObject({
+      status: "AUTHORIZED",
+      number: expected,
+    });
   });
 
-  it("a voucher found with different data is left for manual review", async () => {
+  it("a rejection is left to a person; sending it again after review works", async () => {
+    mockProvider.injectFault("REJECT");
+    const order = newOrder();
+    await processPaidOrder(order);
+    const document = await documentFor(order.orderId);
+    expect(document).toMatchObject({ status: "REJECTED", number: null });
+    await runOnlineInvoicing();
+    expect((await documentFor(order.orderId))!.status).toBe("REJECTED");
+    const retried = await admin.post(`/api/admin/invoicing/invoices/${document!.id}/emit`).send({});
+    expect(retried.body.status).toBe("AUTHORIZED");
+  });
+
+  it("a voucher found with different data goes to manual review", async () => {
     const expected = (await lastNumber()) + 1;
     mockProvider.injectFault("TIMEOUT_BEFORE_REACHING");
-    const { id } = await createAndEmit();
+    const order = newOrder();
+    await processPaidOrder(order);
     mockProvider.seedIssued(
-      { issuerCuit: "20111111112", pointOfSale: 3, voucherType: 11 },
+      { issuerCuit: ISSUER_CUIT, pointOfSale: 7, voucherType: 6 },
       {
         number: expected,
         docType: 96,
         docNumber: "22222222",
-        issueDate: today().replaceAll("-", ""),
+        issueDate: "20261025",
         total: "1.00",
         result: "A",
         authorizationCode: "70000000000099",
         emissionType: "CAE",
-        dueDate: "20261231",
+        dueDate: "20261104",
       },
     );
-    const verified = await admin.post(`/api/admin/invoicing/invoices/${id}/verify`).send({});
-    expect(verified.body.status).toBe("NEEDS_REVIEW");
-    expect((await admin.post(`/api/admin/invoicing/invoices/${id}/emit`).send({})).status).toBe(
-      409,
-    );
-    // Manual review is outside this test: free the sequence for the next ones.
-    await prisma.fiscalSequence.updateMany({
-      where: { inFlightDocumentId: id },
-      data: { inFlightDocumentId: null },
-    });
+    await runOnlineInvoicing();
+    expect((await documentFor(order.orderId))!.status).toBe("NEEDS_REVIEW");
   });
 
   it("stops before sending when ARCA's next number is held by a local voucher", async () => {
     const review = await prisma.fiscalDocument.findFirstOrThrow({
       where: { status: "NEEDS_REVIEW" },
     });
-    // ARCA answers as if that number were free (pathological): nothing is sent.
+    // Manual review is outside this test: free the sequence first.
+    await prisma.fiscalSequence.updateMany({
+      where: { inFlightDocumentId: review.id },
+      data: { inFlightDocumentId: null },
+    });
+    // ARCA answers as if that number were free (pathological).
     mockProvider.reset();
     await replayIssuedVouchers(review.number!);
-    const { id, emit } = await createAndEmit();
-    expect(emit.status).toBe(502);
-    expect(emit.body.error.message).toMatch(/ya figura en otro comprobante local/);
-    const after = await admin.get(`/api/admin/invoicing/invoices/${id}`);
-    expect(after.body).toMatchObject({ status: "DRAFT", number: null });
-    expect(await prisma.fiscalSequence.count({ where: { inFlightDocumentId: id } })).toBe(0);
-  });
-
-  it("an ARCA outage during verification keeps the voucher pending", async () => {
-    mockProvider.injectFault("TIMEOUT_AFTER_AUTHORIZING");
-    const { id } = await createAndEmit();
-    mockProvider.injectFault("CONSULT_DOWN");
-    const down = await admin.post(`/api/admin/invoicing/invoices/${id}/verify`).send({});
-    expect(down.status).toBe(502);
-    expect((await admin.get(`/api/admin/invoicing/invoices/${id}`)).body.status).toBe("UNCERTAIN");
-    expect(
-      (await admin.post(`/api/admin/invoicing/invoices/${id}/verify`).send({})).body.status,
-    ).toBe("AUTHORIZED");
-  });
-
-  it("two simultaneous emissions on the same point of sale and type: one waits (409)", async () => {
-    const a = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", key())
-      .send(invoiceC());
-    const b = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", key())
-      .send(invoiceC());
-    mockProvider.setLatency(150);
-    const results = await Promise.all([
-      admin.post(`/api/admin/invoicing/invoices/${a.body.id}/emit`).send({}),
-      admin.post(`/api/admin/invoicing/invoices/${b.body.id}/emit`).send({}),
-    ]);
-    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
-    const numbers = await prisma.fiscalDocument.groupBy({
-      by: ["number"],
-      where: { pointOfSaleId: posId, status: "AUTHORIZED" },
-      _count: true,
-    });
-    expect(numbers.every((row) => row._count === 1)).toBe(true);
+    const order = newOrder();
+    await processPaidOrder(order);
+    const document = await documentFor(order.orderId);
+    expect(document).toMatchObject({ status: "DRAFT", number: null });
+    const events = await prisma.fiscalAuditEvent.findMany({ where: { documentId: document!.id } });
+    expect(JSON.stringify(events)).toContain("ya figura en otro comprobante local");
+    expect(await prisma.fiscalSequence.count({ where: { inFlightDocumentId: document!.id } })).toBe(
+      0,
+    );
   });
 });
 
-describe("PDF, list and audit", () => {
-  it("downloads a PDF only for authorized vouchers, marked as simulated", async () => {
-    const { id, emit } = await createAndEmit();
-    expect(emit.body.status).toBe("AUTHORIZED");
-    const pdf = await admin
-      .get(`/api/admin/invoicing/invoices/${id}/pdf`)
+describe("buyer download and admin history", () => {
+  it("the buyer downloads with the token in a header; anything else is a 404", async () => {
+    const document = await prisma.fiscalDocument.findFirstOrThrow({
+      where: { status: "AUTHORIZED" },
+    });
+    const token = invoiceAccessToken(document.id);
+    const ok = await request(app)
+      .get(`/api/invoices/${document.id}/pdf`)
+      .set("X-Invoice-Access-Token", token)
       .buffer(true)
       .parse((res, done) => {
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => done(null, Buffer.concat(chunks)));
       });
-    expect(pdf.status).toBe(200);
-    expect(pdf.headers["content-type"]).toBe("application/pdf");
-    expect(pdf.headers["content-disposition"]).toMatch(/Factura-C-00003-\d{8}\.pdf/);
-    expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe("%PDF-");
+    expect(ok.status).toBe(200);
+    expect(ok.headers["content-type"]).toBe("application/pdf");
+    expect((ok.body as Buffer).subarray(0, 5).toString()).toBe("%PDF-");
 
-    const draft = await admin
-      .post("/api/admin/invoicing/invoices")
-      .set("Idempotency-Key", key())
-      .send(invoiceC());
-    expect((await admin.get(`/api/admin/invoicing/invoices/${draft.body.id}/pdf`)).status).toBe(
-      409,
+    expect((await request(app).get(`/api/invoices/${document.id}/pdf`)).status).toBe(404);
+    expect((await request(app).get(`/api/invoices/${document.id}/pdf?token=${token}`)).status).toBe(
+      404,
     );
+    const other = await prisma.fiscalDocument.findFirstOrThrow({
+      where: { status: { not: "AUTHORIZED" } },
+    });
+    const notAuthorized = await request(app)
+      .get(`/api/invoices/${other.id}/pdf`)
+      .set("X-Invoice-Access-Token", invoiceAccessToken(other.id));
+    expect(notAuthorized.status).toBe(404);
   });
 
-  it("lists by status and keeps an audit trail without secrets", async () => {
+  it("lists online invoices with their email status; the audit trail holds no secrets", async () => {
     const list = await admin.get("/api/admin/invoicing/invoices").query({ status: "AUTHORIZED" });
-    expect(list.status).toBe(200);
     expect(list.body.data.length).toBeGreaterThan(0);
-    expect(list.body.data.every((row: { status: string }) => row.status === "AUTHORIZED")).toBe(
-      true,
-    );
-
+    expect(list.body.data[0]).toMatchObject({
+      orderNumber: expect.stringContaining("SOJ-"),
+      emailStatus: "SENT",
+    });
     const detail = await admin.get(`/api/admin/invoicing/invoices/${list.body.data[0].id}`);
     expect(detail.body.events.map((event: { action: string }) => event.action)).toEqual(
-      expect.arrayContaining(["CREATED", "SEND_STARTED", "AUTHORIZED"]),
+      expect.arrayContaining(["CREATED", "SEND_STARTED", "AUTHORIZED", "EMAIL_SENT"]),
     );
     const everything = JSON.stringify(await prisma.fiscalAuditEvent.findMany());
-    expect(everything).not.toMatch(/token|sign|PRIVATE KEY|CERTIFICATE/i);
+    expect(everything).not.toMatch(/token|PRIVATE KEY|CERTIFICATE/i);
   });
 });

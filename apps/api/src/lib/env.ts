@@ -54,6 +54,12 @@ const envSchema = z.object({
   ARCA_CERT_PATH: z.string().min(1).optional(),
   ARCA_KEY_PATH: z.string().min(1).optional(),
   ARCA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  // Sending invoices to buyers: "off" (default) or "mock". No real email
+  // provider is chosen yet — that adapter comes with its own variables.
+  INVOICE_EMAIL_MODE: z.enum(["off", "mock"]).default("off"),
+  // Public web origin, for the buyer's download link in the email
+  // (same name as the checkout branch uses).
+  PUBLIC_WEB_URL: z.string().url().optional(),
 });
 
 export const env = envSchema
