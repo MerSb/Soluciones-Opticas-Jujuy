@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ProductsPage } from "../src/pages/ProductsPage";
+import { ProductsPage, resultsSummary } from "../src/pages/ProductsPage";
 
 const BASE_PRODUCT = {
   brand: { name: "Andina Eyewear", slug: "andina-eyewear" },
@@ -127,7 +127,7 @@ describe("ProductsPage", () => {
 
   it("shows an empty state with a clear-filters action for a valid empty result", async () => {
     vi.stubGlobal("fetch", mockCatalogFetch());
-    const router = renderProductsPage("/products?q=xyz-no-match");
+    const router = renderProductsPage("/products?brand=marca-inexistente");
 
     expect(
       await screen.findByText(/no encontramos anteojos con esos filtros/i),
@@ -257,5 +257,36 @@ describe("ProductsPage", () => {
 
     await close();
     await waitFor(() => expect(screen.getByRole("button", { name: /^Filtros/ })).toHaveFocus());
+  });
+
+  it("announces how many products a search found", async () => {
+    vi.stubGlobal("fetch", mockCatalogFetch());
+    renderProductsPage("/products?q=aviador");
+    expect(await screen.findByText("Andina Aviador")).toBeInTheDocument();
+    expect(await screen.findByText("Encontramos 1 resultado.")).toBeInTheDocument();
+  });
+
+  it("explains an empty search instead of showing a blank page", async () => {
+    vi.stubGlobal("fetch", mockCatalogFetch());
+    renderProductsPage("/products?q=trebol");
+    expect(
+      await screen.findByText(/No encontramos productos con ese nombre\. Probá con otra palabra/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No encontramos productos con ese nombre.")).toBeInTheDocument();
+  });
+});
+
+describe("resultsSummary", () => {
+  it("says it is searching while a search request is in flight", () => {
+    expect(resultsSummary({ total: 3, searching: true, hasSearch: true })).toBe(
+      "Buscando productos…",
+    );
+  });
+
+  it("keeps the plain count when there is no search", () => {
+    expect(resultsSummary({ total: 5, searching: true, hasSearch: false })).toBe("5 resultados");
+    expect(resultsSummary({ total: 5, searching: false, hasSearch: true })).toBe(
+      "Encontramos 5 resultados.",
+    );
   });
 });

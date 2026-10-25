@@ -25,6 +25,25 @@ const ACTIVE_FILTER_KEYS = [
 ] as const;
 const SKELETON_KEYS = ["s1", "s2", "s3", "s4", "s5", "s6"];
 
+// The live line above the results: it never stays blank while a search
+// is running or after one comes back empty.
+export function resultsSummary({
+  total,
+  searching,
+  hasSearch,
+}: {
+  total: number | undefined;
+  searching: boolean;
+  hasSearch: boolean;
+}): string {
+  if (searching && hasSearch) return "Buscando productos…";
+  if (total === undefined) return "";
+  const noun = total === 1 ? "resultado" : "resultados";
+  if (!hasSearch) return `${total} ${noun}`;
+  if (total === 0) return "No encontramos productos con ese nombre.";
+  return `Encontramos ${total} ${noun}.`;
+}
+
 export function ProductsPage() {
   const { filters, updateFilters, removeFilter, clearFilters, setPage } = useCatalogFilters();
   const { data, isLoading, isError, isFetching, refetch } = useProductsQuery(filters);
@@ -104,9 +123,11 @@ export function ProductsPage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <p className="text-sm text-text-muted" aria-live="polite">
-                {data
-                  ? `${data.pagination.total} ${data.pagination.total === 1 ? "resultado" : "resultados"}`
-                  : ""}
+                {resultsSummary({
+                  total: data?.pagination.total,
+                  searching: isFetching,
+                  hasSearch: Boolean(filters.q),
+                })}
               </p>
               <div className="hidden lg:block">
                 <SortSelect
@@ -157,7 +178,11 @@ export function ProductsPage() {
               {!isLoading && !isError && data && data.data.length === 0 && (
                 <StatusMessage
                   variant="empty"
-                  message="No encontramos anteojos con esos filtros."
+                  message={
+                    filters.q
+                      ? "No encontramos productos con ese nombre. Probá con otra palabra, la marca o el código del producto."
+                      : "No encontramos anteojos con esos filtros."
+                  }
                   action={
                     <button
                       type="button"

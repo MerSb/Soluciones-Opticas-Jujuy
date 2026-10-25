@@ -262,6 +262,75 @@ function toPrismaOrderBy(sort: ProductSort | undefined): Prisma.ProductOrderByWi
 
 // -------- search path: raw SQL --------
 //
+// Matching rule (fix for "TREBOL" being found in the admin but not in the
+// shop): `p.name % q` alone compares the trigram set of the WHOLE name
+// against the query, so a long name that contains the exact word scored
+// ~0.18 — under pg_trgm's 0.3 threshold — and was dropped. A product now
+// matches when EVERY word of the query appears (case- and
+// accent-insensitive) in its name, brand, or one of its variants' SKU or
+// color — or is a close fuzzy match of a word in the name (typo
+// tolerance, `<%` = word_similarity, threshold 0.6). Only the
+// completeness/kind conditions decide visibility — unpublished products
+// stay out exactly as before.
+
+// Lowercase + strip the Spanish accents, in SQL. translate() needs no
+// extension (unaccent would require a new one in every environment).
+const ACCENTED = "áàäâãéèëêíìïîóòöôõúùüûñç";
+const UNACCENTED = "aaaaaeeeeiiiiooooouuuunc";
+
+function normalizedSql(column: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`translate(lower(${column}), ${ACCENTED}, ${UNACCENTED})`;
+}
+
+export function normalizeSearchText(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function searchTokens(q: string): string[] {
+  return normalizeSearchText(q).split(" ").filter(Boolean).slice(0, 8);
+}
+
+function searchMatchCondition(q: string): Prisma.Sql {
+  const tokenConditions = searchTokens(q).map((token) => {
+    const pattern = `%${escapeLike(token)}%`;
+    // Typo tolerance only for real words — a 1–2 letter token has no
+    // meaningful trigrams.
+    const fuzzy =
+      token.length >= 3
+        ? Prisma.sql`OR ${token} <% ${normalizedSql(Prisma.sql`p.name`)}`
+        : Prisma.empty;
+    return Prisma.sql`(
+      ${normalizedSql(Prisma.sql`p.name`)} LIKE ${pattern}
+      OR ${normalizedSql(Prisma.sql`b.name`)} LIKE ${pattern}
+      OR EXISTS (
+        SELECT 1 FROM product_variants sv
+        WHERE sv.product_id = p.id
+          AND (${normalizedSql(Prisma.sql`sv.sku`)} LIKE ${pattern}
+               OR ${normalizedSql(Prisma.sql`coalesce(sv.color, '')`)} LIKE ${pattern})
+      )
+      ${fuzzy}
+    )`;
+  });
+  return tokenConditions.length > 0
+    ? Prisma.sql`(${Prisma.join(tokenConditions, " AND ")})`
+    : Prisma.sql`FALSE`;
+}
+
+// Exact-word hits first, then the typo-tolerant ones.
+function searchRelevance(q: string): Prisma.Sql {
+  const normalizedQuery = normalizeSearchText(q);
+  const pattern = `%${escapeLike(normalizedQuery)}%`;
+  return Prisma.sql`(
+    CASE WHEN ${normalizedSql(Prisma.sql`p.name`)} LIKE ${pattern} THEN 1 ELSE 0 END
+    + word_similarity(${normalizedQuery}, ${normalizedSql(Prisma.sql`p.name`)})
+  )`;
+}
+
+//
 // Prisma's query builder has no equivalent of pg_trgm's `%` (similarity)
 // operator or the similarity() function — only `contains`/ILIKE, which
 // would find substrings but not typo-tolerant matches. Typo tolerance is
@@ -289,7 +358,7 @@ async function searchProducts(
       JOIN product_images pi ON pi.variant_id = v.id
       WHERE v.product_id = p.id
     )`,
-    Prisma.sql`p.name % ${q}`,
+    searchMatchCondition(q),
     // ADR-0028 — same rule as catalogKindWhere() (lib/product-kind.ts).
     query.kind === "ACCESSORY"
       ? Prisma.sql`p.kind = 'ACCESSORY' AND p.sold_individually = true`
@@ -325,7 +394,7 @@ async function searchProducts(
            p.frame_width::float8 AS "frameWidth",
            b.name AS "brandName", b.slug AS "brandSlug",
            c.name AS "categoryName", c.slug AS "categorySlug",
-           similarity(p.name, ${q}) AS relevance
+           ${searchRelevance(q)} AS relevance
     FROM products p
     JOIN brands b ON b.id = p.brand_id
     JOIN categories c ON c.id = p.category_id
