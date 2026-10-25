@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: "/admin/lens-types", label: "Cristales" },
   { to: "/admin/lens-treatments", label: "Tratamientos" },
   { to: "/admin/shipping", label: "Envíos" },
+  { to: "/admin/invoicing", label: "Facturación" },
 ];
 
 // Same top-nav-over-content shell as AccountLayout — no dense sidebar

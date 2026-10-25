@@ -15,6 +15,7 @@ import { checkoutRouter } from "./checkout.routes.js";
 import { ordersRouter } from "./orders.routes.js";
 import { accountRouter } from "./account.routes.js";
 import { paymentsRouter } from "./payments.routes.js";
+import { invoicesRouter } from "./invoices.routes.js";
 
 export const apiRouter = Router();
 
@@ -33,4 +34,5 @@ apiRouter.use("/checkout", checkoutRouter);
 apiRouter.use("/orders", ordersRouter);
 apiRouter.use("/account", accountRouter);
 apiRouter.use("/payments", paymentsRouter);
+apiRouter.use("/invoices", invoicesRouter);
 apiRouter.use("/admin", adminRouter);

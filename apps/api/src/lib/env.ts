@@ -64,6 +64,17 @@ const envSchema = z.object({
     .url()
     .transform((value) => value.replace(/\/+$/, ""))
     .optional(),
+  // Electronic invoicing (ADR-0036). "off" by default; "mock" simulates
+  // ARCA; "homologacion" talks to ARCA's test services. Production is not
+  // an accepted value on purpose. The certificate and key are files outside
+  // the repository — never their contents in an env var or the database.
+  ARCA_MODE: z.enum(["off", "mock", "homologacion"]).default("off"),
+  ARCA_CERT_PATH: z.string().min(1).optional(),
+  ARCA_KEY_PATH: z.string().min(1).optional(),
+  ARCA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  // Sending invoices to buyers: "off" (default) or "mock". No real email
+  // provider is chosen yet — that adapter comes with its own variables.
+  INVOICE_EMAIL_MODE: z.enum(["off", "mock"]).default("off"),
 });
 
 export const env = envSchema

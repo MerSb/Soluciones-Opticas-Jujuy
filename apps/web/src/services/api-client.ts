@@ -133,6 +133,24 @@ export function apiPost<T>(
   });
 }
 
+// Files (e.g. an invoice PDF): same credentials and error shape as
+// request(), without the JSON parsing. One silent refresh on 401, too.
+export async function apiGetBlob(
+  path: string,
+  extraHeaders?: Record<string, string>,
+  allowRefresh = true,
+): Promise<Blob> {
+  const response = await fetch(new URL(path, env.apiBaseUrl), {
+    credentials: "include",
+    headers: extraHeaders,
+  });
+  if (response.status === 401 && allowRefresh && (await refreshSession())) {
+    return apiGetBlob(path, extraHeaders, false);
+  }
+  if (!response.ok) throw await toApiClientError(response);
+  return response.blob();
+}
+
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "PATCH",
