@@ -9,6 +9,10 @@ import type {
 // offers and which ids it sends; validation and every price shown in the
 // breakdown come from the backend quote (GET /api/products/:slug/quote).
 
+/** The one wording for a CUSTOM graduation anywhere after configuration
+ * (cart, checkout, order): no prescription data is ever asked for. */
+export const CUSTOM_GRADUATION_LABEL = "Graduación personalizada — A coordinar con la óptica";
+
 export interface LensSelection {
   /** null = "Sin cristales" — always a valid choice. */
   lensTypeId: string | null;
