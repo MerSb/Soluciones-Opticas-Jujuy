@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, Link, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdminNewProductPage } from "../src/pages/admin/AdminNewProductPage";
 import { ThemeProvider } from "../src/app/theme";
@@ -23,7 +23,14 @@ interface Call {
   body: unknown;
 }
 
-function stubBackend(options: { failCloudinaryOnce?: boolean; failProductCreate?: boolean } = {}) {
+function stubBackend(
+  options: {
+    failCloudinaryOnce?: boolean;
+    failProductCreate?: boolean;
+    /** Holds the product creation until this promise resolves. */
+    holdProductCreate?: Promise<void>;
+  } = {},
+) {
   const calls: Call[] = [];
   let products = 0;
   let variants = 0;
@@ -52,6 +59,7 @@ function stubBackend(options: { failCloudinaryOnce?: boolean; failProductCreate?
       return json(404, { error: { code: "NOT_FOUND", message: "No." } });
     }
     if (method === "POST" && url.pathname === "/api/admin/products") {
+      if (options.holdProductCreate) await options.holdProductCreate;
       if (options.failProductCreate) {
         return json(409, {
           error: { code: "CONFLICT", message: "Ya existe un producto con ese nombre." },
@@ -88,7 +96,16 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter(
     [
-      { path: "/admin/products/new", element: <AdminNewProductPage /> },
+      {
+        path: "/admin/products/new",
+        element: (
+          <>
+            <Link to="/admin/products">Ir al listado</Link>
+            <AdminNewProductPage />
+          </>
+        ),
+      },
+      { path: "/admin/products", element: <p>Listado de productos</p> },
       { path: "/admin/products/:id", element: <p>Ficha del producto</p> },
     ],
     { initialEntries: ["/admin/products/new"] },
@@ -354,5 +371,60 @@ describe("AdminNewProductPage — several products at once", () => {
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
     await waitFor(() => expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull());
+  });
+
+  it("while a product is being saved, its tab cannot be closed and the page cannot be left", async () => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const calls = stubBackend({
+      holdProductCreate: new Promise<void>((resolve) => (release = resolve)),
+    });
+    const confirm = vi.spyOn(window, "confirm");
+    renderPage();
+    await fillProduct(user, { name: "Uno QA", price: "1000" });
+    await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
+    await fillProduct(user, { name: "Dos QA", price: "2000" });
+    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+    expect(await within(panel()).findByRole("button", { name: "Guardando…" })).toBeDisabled();
+
+    const close = screen.getByRole("button", { name: "Cerrar Dos QA" });
+    expect(close).toBeDisabled();
+    expect(close).toHaveAttribute("title", "Esperá a que termine de guardarse");
+    await user.click(close);
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+
+    await user.click(screen.getByRole("link", { name: "Ir al listado" }));
+    expect(
+      await screen.findByText(/Esperá a que termine de guardarse el producto/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Listado de productos")).toBeNull();
+    expect(confirm).not.toHaveBeenCalled();
+
+    release();
+    expect(await within(panel()).findByText("✓ «Dos QA» guardado.")).toBeInTheDocument();
+    expect(
+      calls.filter((call) => call.method === "POST" && call.path === "/api/admin/products"),
+    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.queryByText(/Esperá a que termine de guardarse el producto/)).toBeNull(),
+    );
+  });
+
+  it("leaving with unsaved changes asks first; untouched or saved tabs leave freely", async () => {
+    const user = userEvent.setup();
+    stubBackend();
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    renderPage();
+    await fillProduct(user, { name: "Uno QA", price: "1000" });
+    await user.click(screen.getByRole("link", { name: "Ir al listado" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("las fotos elegidas se pierden"));
+    expect(within(panel()).getByLabelText("Nombre")).toHaveValue("Uno QA");
+    await user.click(screen.getByRole("link", { name: "Ir al listado" }));
+    expect(await screen.findByText("Listado de productos")).toBeInTheDocument();
+    // What was typed stays as a draft for later.
+    expect(window.localStorage.getItem(STORAGE_KEY)).toContain("Uno QA");
   });
 });

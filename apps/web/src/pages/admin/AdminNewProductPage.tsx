@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useBlocker, useNavigate, useSearchParams } from "react-router-dom";
 import type { ProductKind } from "@soluciones-opticas/shared";
 import { SeoHead } from "../../components/ui/SeoHead";
 import { useIncludedAccessoriesQuery } from "../../services/queries/products";
@@ -128,6 +128,39 @@ export function AdminNewProductPage() {
   );
 
   const anyDirty = Object.values(meta).some((tab) => tab.dirty || tab.saving);
+  const anySaving = Object.values(meta).some((tab) => tab.saving);
+  const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
+  // Our own redirect after a single-tab save must not be blocked.
+  const allowNavigation = useRef(false);
+
+  // Leaving for another admin page: never while a product is being saved
+  // (the request would finish unseen and a retry could create it twice);
+  // with unsaved changes, only after confirming (photos would be lost).
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !allowNavigation.current && anyDirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (anySaving) {
+      blocker.reset();
+      setNavigationNotice("Esperá a que termine de guardarse el producto antes de salir.");
+      return;
+    }
+    if (
+      window.confirm(
+        "Hay productos sin guardar. Lo escrito queda como borrador, pero las fotos elegidas se pierden. ¿Salir igual?",
+      )
+    ) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker, anySaving]);
+  useEffect(() => {
+    if (!anySaving) setNavigationNotice(null);
+  }, [anySaving]);
+
   useEffect(() => {
     if (!anyDirty) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -178,6 +211,7 @@ export function AdminNewProductPage() {
     persist(tabsRef.current);
     // A single form behaves as before: straight to the new product's page.
     if (tabsRef.current.length === 1 && tabsRef.current[0]!.id === tabId) {
+      allowNavigation.current = true;
       navigate(`/admin/products/${productId}`, { replace: true });
     }
   }
@@ -243,6 +277,7 @@ export function AdminNewProductPage() {
                   type="button"
                   onClick={() => closeTab(tab.id)}
                   disabled={state?.saving}
+                  title={state?.saving ? "Esperá a que termine de guardarse" : undefined}
                   aria-label={`Cerrar ${label}`}
                   className="px-2 py-2 text-sm text-text-muted hover:text-danger disabled:opacity-40"
                 >
@@ -261,6 +296,11 @@ export function AdminNewProductPage() {
           + Nuevo producto
         </button>
       </div>
+      {navigationNotice && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {navigationNotice}
+        </p>
+      )}
       {tabs.length >= MAX_TABS && (
         <p className="mt-2 text-xs text-text-muted">Máximo {MAX_TABS} pestañas a la vez.</p>
       )}
