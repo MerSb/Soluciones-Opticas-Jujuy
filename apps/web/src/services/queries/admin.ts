@@ -175,7 +175,7 @@ export function useAdminProductQuery(id: string | undefined) {
   });
 }
 
-function invalidateProduct(queryClient: ReturnType<typeof useQueryClient>, id: string) {
+export function invalidateProduct(queryClient: ReturnType<typeof useQueryClient>, id: string) {
   queryClient.invalidateQueries({ queryKey: adminProductsQueryKey });
   queryClient.invalidateQueries({ queryKey: adminProductDetailQueryKey(id) });
   invalidateCatalogWide(queryClient);
@@ -295,28 +295,29 @@ async function uploadFileToCloudinary(
   return { publicId: result.public_id };
 }
 
+/** The whole sign → Cloudinary → register flow for one file. Also used by
+ * the multi-tab new-product page, which saves outside a mutation hook. */
+export async function uploadProductImage(
+  productId: string,
+  variantId: string,
+  { file, alt, isPrimary }: { file: File; alt: string; isPrimary: boolean },
+): Promise<AdminImageDto> {
+  const signature = await apiPost<UploadSignatureDto>(
+    `/api/admin/products/${productId}/variants/${variantId}/images/sign-upload`,
+  );
+  const uploaded = await uploadFileToCloudinary(signature, file);
+  const body: CreateImageRequest = { cloudinaryPublicId: uploaded.publicId, alt, isPrimary };
+  return apiPost<AdminImageDto>(
+    `/api/admin/products/${productId}/variants/${variantId}/images`,
+    body,
+  );
+}
+
 export function useUploadProductImageMutation(productId: string, variantId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      file,
-      alt,
-      isPrimary,
-    }: {
-      file: File;
-      alt: string;
-      isPrimary: boolean;
-    }) => {
-      const signature = await apiPost<UploadSignatureDto>(
-        `/api/admin/products/${productId}/variants/${variantId}/images/sign-upload`,
-      );
-      const uploaded = await uploadFileToCloudinary(signature, file);
-      const body: CreateImageRequest = { cloudinaryPublicId: uploaded.publicId, alt, isPrimary };
-      return apiPost<AdminImageDto>(
-        `/api/admin/products/${productId}/variants/${variantId}/images`,
-        body,
-      );
-    },
+    mutationFn: (input: { file: File; alt: string; isPrimary: boolean }) =>
+      uploadProductImage(productId, variantId, input),
     onSuccess: () => invalidateProduct(queryClient, productId),
   });
 }
