@@ -21,9 +21,9 @@ El emulador local que se usó en la auditoría (`vercel_emu.py`) resolvía `/spa
 ## Corrección
 
 1. **Rewrites a URLs limpias:** `/spa` y `/spa-private`. Un test exige que ningún destino local termine en `.html`.
-2. **`apps/web/middleware.ts` (Vercel Routing Middleware), solo para `/products/:slug` y `/accesorios/:slug`:**
+2. **`apps/web/middleware.ts` (Vercel Routing Middleware, runtime Node.js), solo para `/products/:slug` y `/accesorios/:slug`:**
    - Consulta `GET /api/products/<slug>`, con un límite de 2,5 s.
-   - Si la API responde 404, devuelve el contenido de `404.html` con status 404 y `X-Robots-Tag: noindex`. La app sigue mostrando «Producto no encontrado».
+   - Si la API responde 404, hace un rewrite interno a `/404` (404.html) con status 404 y `X-Robots-Tag: noindex`. La app sigue mostrando «Producto no encontrado». Es un rewrite y no un `fetch` al propio sitio, porque en los Preview ese `fetch` choca con Deployment Protection.
    - Ante cualquier otra respuesta (200, 5xx, timeout o error de red), sigue al rewrite y responde 200 (_fail-open_). Así, una caída de la API nunca convierte una ficha real en 404.
    - No hay catch-all: una ruta inventada sigue siendo 404 real.
    - `/login` y `/admin/*` responden 200 con `noindex` (meta y header). La autorización la sigue haciendo la API; el shell no contiene datos.

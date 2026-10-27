@@ -1,4 +1,4 @@
-import { next } from "@vercel/functions/middleware";
+import { next, rewrite } from "@vercel/functions/middleware";
 
 // Vercel Routing Middleware (file convention: next to package.json; the
 // Vercel project's root directory is apps/web). Only product pages run
@@ -23,17 +23,6 @@ export const config = {
 const DEFAULT_API = "https://soluciones-opticas-api-production.up.railway.app";
 const API_TIMEOUT_MS = 2500;
 
-// Headers copied from the static 404.html response (Vercel already added
-// vercel.json's security headers to it). Not content-length/-encoding:
-// fetch decodes the body.
-const KEPT_HEADERS = [
-  "content-type",
-  "x-content-type-options",
-  "referrer-policy",
-  "x-frame-options",
-  "permissions-policy",
-];
-
 export default async function middleware(request: Request): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return next();
   const url = new URL(request.url);
@@ -54,22 +43,11 @@ export default async function middleware(request: Request): Promise<Response> {
   }
   if (status !== 404) return next();
 
-  // 404.html is served at /404 (cleanUrls). If it can't be read, the
-  // shell still renders the app's own not-found page — only the status
-  // is lost.
-  let page: Response;
-  let body: string;
-  try {
-    page = await fetch(new URL("/404", url));
-    if (!page.ok) return next();
-    body = await page.text();
-  } catch {
-    return next();
-  }
-  const headers = new Headers({ "cache-control": "no-store", "x-robots-tag": "noindex" });
-  for (const name of KEPT_HEADERS) {
-    const value = page.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  return new Response(request.method === "HEAD" ? null : body, { status: 404, headers });
+  // 404.html is served at /404 (cleanUrls). An internal rewrite, not a
+  // fetch: a fetch to our own URL would hit Deployment Protection on
+  // previews.
+  return rewrite(new URL("/404", url), {
+    status: 404,
+    headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
+  });
 }
