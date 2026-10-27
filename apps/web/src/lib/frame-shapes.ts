@@ -9,6 +9,8 @@ export interface FrameShapeHelp {
   shape: OfficialFrameShape;
   description: string;
   alsoCalled: string[];
+  /** Approved old values that are not other names of the shape (a model). */
+  oldValues?: string[];
 }
 
 export const FRAME_SHAPE_HELP = [
@@ -21,7 +23,7 @@ export const FRAME_SHAPE_HELP = [
     shape: "Aviador",
     description:
       "Forma de gota, más ancha arriba; muchas veces con una barrita doble sobre la nariz.",
-    alsoCalled: ["aviator", "piloto"],
+    alsoCalled: ["aviator", "piloto", "semi-aviador", "aviador cuadrado"],
   },
   {
     shape: "Ovalado",
@@ -36,7 +38,7 @@ export const FRAME_SHAPE_HELP = [
   {
     shape: "Cuadrado",
     description: "Alto y ancho parecidos, con esquinas marcadas.",
-    alsoCalled: ["cuadrada", "square"],
+    alsoCalled: ["cuadrada", "square", "cuadrado redondeado"],
   },
   {
     shape: "Rectangular",
@@ -50,8 +52,9 @@ export const FRAME_SHAPE_HELP = [
   },
   {
     shape: "Hexagonal",
-    description: "Seis lados visibles, como una celda de panal.",
+    description: "Seis lados visibles, como una celda de panal. Los modelos Caravan van acá.",
     alsoCalled: ["exagonal", "hexágono"],
+    oldValues: ["caravan"],
   },
   {
     shape: "Geométrico",
@@ -82,15 +85,19 @@ const plain = (value: string) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/[-_]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
-/** The official shape an old value is a known synonym of ("Gatito" →
- * Cat-eye), to suggest it in the admin; null when it is not one. */
+/** The official shape an old value stands for ("Gatito" → Cat-eye,
+ * "Caravan" → Hexagonal), to suggest it in the admin; null when unknown. */
 export function officialShapeFor(value: string): OfficialFrameShape | null {
   const target = plain(value);
   return (
     FRAME_SHAPE_HELP.find((item) =>
-      (item.alsoCalled as readonly string[]).some((name) => plain(name) === target),
+      [...item.alsoCalled, ...("oldValues" in item ? item.oldValues : [])].some(
+        (name) => plain(name) === target,
+      ),
     )?.shape ?? null
   );
 }

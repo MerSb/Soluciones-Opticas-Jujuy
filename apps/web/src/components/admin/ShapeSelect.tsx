@@ -56,7 +56,7 @@ export function ShapeSelect({
         {help
           ? `${help.description} También se dice: ${help.alsoCalled.join(", ")}.`
           : equivalent
-            ? `«${value}» es otro nombre de ${equivalent}. Si elegís ${equivalent} queda en la lista oficial; si no tocás nada, se guarda como estaba.`
+            ? `«${value}» corresponde a ${equivalent}. Si elegís ${equivalent} queda en la lista oficial; si no tocás nada, se guarda como estaba.`
             : legacy
               ? "Este valor no está en la lista oficial. Elegí la forma que corresponda; si no tocás nada, se guarda como estaba."
               : "Si no estás seguro de la forma, dejalo así: queda marcado para revisar."}{" "}
@@ -71,19 +71,26 @@ export function ShapeSelect({
         </button>
       </p>
       {showGuide && (
-        <dl
+        <div
           id={`${id}-guide`}
-          className="mt-2 grid gap-2 rounded-md border border-border bg-surface p-3 text-xs sm:grid-cols-2"
+          className="mt-2 rounded-md border border-border bg-surface p-3 text-xs"
         >
-          {FRAME_SHAPE_HELP.map((item) => (
-            <div key={item.shape}>
-              <dt className="font-semibold text-text">{item.shape}</dt>
-              <dd className="text-text-muted">
-                {item.description} <span className="italic">({item.alsoCalled.join(", ")})</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
+          <dl className="grid gap-2 sm:grid-cols-2">
+            {FRAME_SHAPE_HELP.map((item) => (
+              <div key={item.shape}>
+                <dt className="font-semibold text-text">{item.shape}</dt>
+                <dd className="text-text-muted">
+                  {item.description} <span className="italic">({item.alsoCalled.join(", ")})</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-text">
+            Usá siempre el nombre de la lista. Por ejemplo: semi-aviador y aviador cuadrado →
+            Aviador; cuadrado redondeado → Cuadrado; rombo → Geométrico; modelos Caravan →
+            Hexagonal. El nombre comercial no cambia.
+          </p>
+        </div>
       )}
     </div>
   );

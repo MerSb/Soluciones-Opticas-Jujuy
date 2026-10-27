@@ -104,8 +104,32 @@ describe("ShapeSelect", () => {
   it("names the official equivalent of an old synonym without changing it", () => {
     renderWith(<ShapeHarness initial="Gatito" />);
     expect(screen.getByLabelText("Forma")).toHaveValue("Gatito");
-    expect(screen.getByText(/«Gatito» es otro nombre de Cat-eye/)).toBeInTheDocument();
+    expect(screen.getByText(/«Gatito» corresponde a Cat-eye/)).toBeInTheDocument();
     expect(screen.getByText(/si no tocás nada, se guarda como estaba/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["Semi-Aviador", "Aviador"],
+    ["Aviador cuadrado", "Aviador"],
+    ["Cuadrado Redondeado", "Cuadrado"],
+    ["Rombo", "Geométrico"],
+    ["Caravan", "Hexagonal"],
+  ])("«%s» is shown as an old value that corresponds to %s", (value, shape) => {
+    renderWith(<ShapeHarness initial={value} />);
+    expect(screen.getByLabelText("Forma")).toHaveValue(value);
+    expect(
+      screen.getByText(new RegExp(`«${value}» corresponde a ${shape}\\.`)),
+    ).toBeInTheDocument();
+  });
+
+  it("the guide asks for the official names", async () => {
+    const user = userEvent.setup();
+    renderWith(<ShapeHarness initial="" />);
+    await user.click(screen.getByRole("button", { name: "¿Cuál elijo?" }));
+    expect(screen.getByText(/Usá siempre el nombre de la lista/)).toHaveTextContent(
+      "semi-aviador y aviador cuadrado → Aviador; cuadrado redondeado → Cuadrado; rombo → Geométrico; modelos Caravan → Hexagonal",
+    );
+    expect(screen.getByText(/Los modelos Caravan van acá/)).toBeInTheDocument();
   });
 });
 

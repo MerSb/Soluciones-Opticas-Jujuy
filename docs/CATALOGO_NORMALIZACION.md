@@ -60,29 +60,33 @@ Auditoría de solo lectura (`BEGIN TRANSACTION READ ONLY`). El detalle por produ
   Metálico» cargado como Redondo, o «Semi aviador cuadrado ranurado» cargado como Rectangular. No se
   cambian: quedan para revisión.
 
-## 2. Diccionario oficial propuesto
+## 2. Diccionario oficial
 
 Cada producto tiene **una sola forma**, o ninguna («Sin clasificar / Requiere revisión»). Los
-sinónimos solo ayudan a buscar y nunca crean opciones nuevas.
+sinónimos ayudan a buscar y a normalizar, y nunca crean opciones nuevas.
 
-| Forma oficial | Sinónimos (búsqueda y normalización)         | Descripción breve                                           |
-| ------------- | -------------------------------------------- | ----------------------------------------------------------- |
-| Cat-eye       | gatito, gatita, ojo de gato, cat eye, cateye | Puntas superiores elevadas hacia afuera                     |
-| Aviador       | aviator, piloto                              | Lente en forma de gota, doble puente frecuente              |
-| Ovalado       | ovalada, oval, ovalados                      | Contorno curvo, más ancho que alto, sin esquinas            |
-| Redondo       | redonda, redondos, circular, round           | Lente circular                                              |
-| Cuadrado      | cuadrada, cuadrados, square                  | Alto y ancho parecidos, esquinas marcadas                   |
-| Rectangular   | rectángulo, rectangulares, rectangle         | Más ancho que alto, líneas rectas                           |
-| Mariposa      | butterfly                                    | Parte superior ancha que se angosta abajo; suele ser grande |
-| Hexagonal     | exagonal, hexagonales, hexágono              | Seis lados visibles                                         |
-| Geométrico    | geométrica, geometric, octogonal, rombo      | Otras formas poligonales (octogonal, rombo…)                |
-| Envolvente    | wrap, wraparound                             | Curvado alrededor del rostro (deportivos)                   |
+| Forma oficial | Sinónimos (búsqueda y normalización)                                 | Descripción breve                                           |
+| ------------- | -------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Cat-eye       | gatito, gatita, ojo de gato, cat eye, cateye                         | Puntas de arriba que suben hacia los costados               |
+| Aviador       | aviator, piloto, **semi-aviador**, semiaviador, **aviador cuadrado** | Forma de gota; muchas veces con barrita doble               |
+| Ovalado       | ovalada, oval, ovalados                                              | Contorno curvo, más ancho que alto, sin esquinas            |
+| Redondo       | redonda, redondos, circular, round                                   | Lente redonda                                               |
+| Cuadrado      | cuadrada, cuadrados, square, **cuadrado redondeado**                 | Alto y ancho parecidos, esquinas marcadas                   |
+| Rectangular   | rectángulo, rectangulares, rectangle                                 | Más ancho que alto, líneas rectas                           |
+| Mariposa      | butterfly                                                            | Parte superior ancha que se angosta abajo; suele ser grande |
+| Hexagonal     | exagonal, hexagonales, hexágono                                      | Seis lados visibles. Los modelos Caravan van acá            |
+| Geométrico    | geométrica, geometric, octogonal, **rombo**                          | Otras formas poligonales (octogonal, rombo…)                |
+| Envolvente    | wrap, wraparound                                                     | Curvado alrededor del rostro (deportivos)                   |
 
-- **Hexagonal:** propongo forma propia, porque ya hay 6 activos y es una forma que el público busca.
-  Octogonal y rombo entran en Geométrico mientras sean pocos.
+**Equivalencias aprobadas por Roberto (27/10/2026):** Rombo → Geométrico, Semi-aviador → Aviador,
+Aviador cuadrado → Aviador, Cuadrado redondeado → Cuadrado y Caravan → Hexagonal.
+
+- **Caravan no es un sinónimo de búsqueda:** es un modelo (la única ficha es «Unicity Caravan negro
+  metal grueso», de marca **Unicity**). Se registra como «valor anterior aprobado» (`oldValues`):
+  - normaliza y filtra como Hexagonal;
+  - buscar «caravan» encuentra el modelo por su nombre, no todos los hexagonales;
+  - si una ficha menciona Caravan en el nombre y tiene otra forma, va a revisión.
 - **Oversize no es una forma:** es tamaño, y queda como característica.
-- **Semi-aviador, «Aviador cuadrado», Caravan y «Cuadrado redondeado»:** no los convierto en formas
-  sin la decisión de Roberto. Hoy van a revisión manual.
 
 **Separación de conceptos** (sin migración en esta etapa):
 
@@ -96,24 +100,31 @@ sinónimos solo ayudan a buscar y nunca crean opciones nuevas.
 
 ## 3. Normalizables con seguridad (reglas explícitas)
 
-| Regla                                                     | Productos                                                  |
-| --------------------------------------------------------- | ---------------------------------------------------------- |
-| «Gatito» → Cat-eye (sinónimo explícito)                   | 6 activos (VITA, Whynot ×2, Nakyma, Borsalino, Las Oreiro) |
-| «Exagonal»/«exagonal» → Hexagonal (ortografía)            | 2 activos + 1 eliminado                                    |
-| «Rombo» → Geométrico (sinónimo, si se aprueba Geométrico) | 1 activo (Vulk Villyts)                                    |
+Vista previa sobre el respaldo `20261027T011554Z` (producción sin cambios a las 01:24 UTC):
 
-En total, **9 activos y 1 eliminado.** Ninguno se aplica sin aprobación explícita.
+| Regla                                      | Productos                                              | Estado               |
+| ------------------------------------------ | ------------------------------------------------------ | -------------------- |
+| Aviador cuadrado → Aviador                 | 3 activos (Vulk OMBUXE, Tascani, Quintorigo)           | Aprobada por Roberto |
+| Semi-aviador / Semi Aviador → Aviador      | 1 activo (Horien) + 2 eliminados                       | Aprobada por Roberto |
+| Cuadrado Redondeado → Cuadrado             | 2 activos (Paris, Fangshi) + 1 eliminado               | Aprobada por Roberto |
+| Rombo → Geométrico                         | 1 activo (Vulk Villyts)                                | Aprobada por Roberto |
+| Caravan → Hexagonal                        | 1 activo (Unicity Caravan; marca y nombre sin cambios) | Aprobada por Roberto |
+| «Gatito» → Cat-eye (sinónimo)              | 6 activos                                              | Pendiente            |
+| «Exagonal»/«exagonal» → Hexagonal (grafía) | 2 activos + 1 eliminado                                | Pendiente            |
 
-## 4. Revisión manual
+En total, **20 propuestas automáticas:** 11 aprobadas (8 activas y 3 eliminadas) y 9 pendientes de
+confirmación. Ninguna se aplica sin aprobación explícita.
 
-- **18 activos sin forma.** No se infiere la forma por el nombre (15 son infantiles).
-- **9 activos ambiguos:**
-  - Aviador cuadrado ×3;
-  - Cuadrado Redondeado ×2;
-  - las combinaciones «Aviador , ovalado» y «Redondo , Gatito»;
-  - Semi-Aviador;
-  - Caravan.
-- **7 activos cuyo nombre contradice la forma**, y los posibles duplicados de §1.
+## 4. Revisión manual (23, antes 33)
+
+Las equivalencias aprobadas resuelven 10 de los 33 casos: Aviador cuadrado ×3, Semi-aviador ×3,
+Cuadrado Redondeado ×3 y Caravan ×1. Rombo ya era automático. Siguen pendientes:
+
+- **18 sin forma** (15 infantiles). No se deduce la forma por el nombre.
+- **3 con dos formas:** «Aviador , ovalado» (Starup) y «Redondo , Gatito» (Horien, y uno eliminado
+  de Carolina Emanuel).
+- **2 cuyo nombre contradice la forma:** «Hexagonal Gris Metálico» cargado como Redondo, y «Semi
+  aviador cuadrado ranurado» cargado como Rectangular.
 
 ## 5. Arquitectura
 
@@ -197,6 +208,16 @@ elegida.
     el navegador (escritorio, tablet y celular) no hubo desborde horizontal, errores ni escrituras.
   - `revertir.sql` devolvió las 10 filas; las 3217 huellas quedaron idénticas a las originales.
     Repetirlo cambió 0.
+- **Ensayo de las equivalencias de Roberto (27/10/2026, copia del respaldo `20261027T011554Z`):**
+  - Se aprobaron solo las 11 filas de sus cinco equivalencias; las 9 de Gatito y Exagonal quedaron
+    pendientes.
+  - `aplicar.sql` cambió 11 filas; repetirlo cambió 0.
+  - De 3233 filas, solo difieren esas 11 de `products`. Sin la columna `shape`, `products` es
+    idéntico (nombres, marcas, precios, `updated_at`). Variantes, SKU, stock y fotos no cambiaron.
+  - Filtros después del cambio: Aviador 17, Cuadrado 56, Hexagonal 7, Geométrico 1. Las URLs viejas
+    (`?shape=Rombo`, `Caravan`, `Semi-Aviador`…) muestran el grupo oficial. Buscar «caravan»
+    encuentra solo el modelo Caravan.
+  - `revertir.sql` devolvió las 11; las 3233 huellas quedaron idénticas. Repetirlo cambió 0.
 - **Despliegue** (con autorización):
   1. Respaldo verificado.
   2. Push del código (sin migraciones).
@@ -206,10 +227,8 @@ elegida.
 ## 9. Riesgos y decisiones pendientes
 
 - **Roberto:**
-  - aprobar los nombres oficiales;
-  - si Hexagonal y Geométrico son formas propias;
-  - qué hacer con Semi-aviador, «Aviador cuadrado», Caravan y «Cuadrado redondeado»;
-  - la forma de los 18 sin clasificar.
+  - confirmar Gatito → Cat-eye y Exagonal → Hexagonal (9 fichas);
+  - los 23 casos de §4, con la hoja de revisión.
 - **Características como campo propio:** requiere migración; conviene alinearlo con las etiquetas de
   B.
 - **Duplicados y SKU con mayúsculas:** decidir uno por uno. No se borra nada.

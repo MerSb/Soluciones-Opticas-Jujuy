@@ -24,7 +24,9 @@ import {
   FRAME_SHAPES,
   canonicalShape,
   isOfficialShape,
+  isOldShapeValue,
   normalizeShapeText,
+  type FrameShapeDefinition,
 } from "../src/lib/frame-shapes.js";
 
 export interface CatalogFrame {
@@ -50,12 +52,13 @@ export interface PreviewRow extends CatalogFrame {
 }
 
 // Words in a name that suggest a shape — used ONLY to flag a contradiction
-// for review, never to propose a shape.
+// for review, never to propose a shape. Approved old values count too: a
+// name that says "Caravan" points to Hexagonal.
 const NAME_HINTS: Record<string, RegExp> = Object.fromEntries(
-  FRAME_SHAPES.map((definition) => [
+  (FRAME_SHAPES as readonly FrameShapeDefinition[]).map((definition) => [
     definition.shape,
     new RegExp(
-      `\\b(${[definition.shape, ...definition.synonyms]
+      `\\b(${[definition.shape, ...definition.synonyms, ...(definition.oldValues ?? [])]
         .map((word) => normalizeShapeText(word).replace(/ /g, "\\s"))
         .join("|")})`,
     ),
@@ -68,6 +71,17 @@ export function nameSuggests(name: string): string[] {
     .filter(([, pattern]) => pattern.test(text))
     .map(([shape]) => shape);
 }
+
+// Equivalences Roberto approved on 27/10/2026, named as such in the preview.
+const APPROVED_BY_ROBERTO = new Set([
+  "rombo",
+  "semi aviador",
+  "semiaviador",
+  "aviador cuadrado",
+  "cuadrado redondeado",
+  "cuadrada redondeada",
+  "caravan",
+]);
 
 /** The rules, explicit and in order. Only an unambiguous dictionary match
  * of the CURRENT shape is "alta"; everything else goes to review. */
@@ -95,6 +109,15 @@ export function classify(frame: CatalogFrame): PreviewRow | null {
     };
   }
   const official = /[,/+]| y /.test(frame.shape) ? null : canonicalShape(frame.shape);
+  if (official && hints.length > 0 && !hints.includes(official)) {
+    // The value maps, but the name points elsewhere: not unambiguous.
+    return {
+      ...base,
+      proposed: null,
+      reason: `«${frame.shape}» equivale a ${official}, pero el nombre sugiere ${hints.join(" / ")}: revisar`,
+      confidence: "revisión",
+    };
+  }
   if (official) {
     const sameWord = normalizeShapeText(official) === normalizeShapeText(frame.shape);
     return {
@@ -102,7 +125,11 @@ export function classify(frame: CatalogFrame): PreviewRow | null {
       proposed: official,
       reason: sameWord
         ? "difiere solo en mayúsculas, tildes o espacios"
-        : `«${frame.shape}» es sinónimo registrado de ${official}`,
+        : isOldShapeValue(frame.shape)
+          ? `«${frame.shape}» → ${official}: equivalencia aprobada por Roberto (no es una forma; el nombre no cambia)`
+          : APPROVED_BY_ROBERTO.has(normalizeShapeText(frame.shape))
+            ? `«${frame.shape}» → ${official}: equivalencia aprobada por Roberto`
+            : `«${frame.shape}» es sinónimo registrado de ${official}`,
       confidence: "alta",
     };
   }
@@ -227,29 +254,20 @@ tr.alta td:nth-child(4){color:#0f6b4a}tr.revision td:nth-child(4){color:#8a5a00}
 
 // ─── Review sheet (for the person who decides) ─────────────────────────
 
-// Plain-word advice for the values that need an eye on the photo. Only a
-// suggestion on the sheet: nothing is preselected or approved.
-const REVIEW_ADVICE: Record<string, string> = {
-  "aviador cuadrado":
-    "Suele ser un aviador de lente más cuadrada: Aviador si tiene forma de gota o barrita doble sobre la nariz; si no, Cuadrado.",
-  "semi aviador": "Es una variante del aviador: probablemente Aviador.",
-  caravan:
-    "«Caravan» es un modelo clásico de aviador con lente cuadrada: Aviador o Cuadrado, según la foto.",
-  "cuadrado redondeado": "Cuadrado con esquinas suaves: probablemente Cuadrado.",
-};
-
 export function reviewAdvice(row: PreviewRow): string {
   if (row.confidence === "alta") {
-    return row.shape !== null && normalizeShapeText(row.shape) === "rombo"
-      ? "Un rombo es una forma de lados rectos: en la lista queda dentro de Geométrico. Si preferís otra, marcá No."
-      : `Es la misma forma con otro nombre: pasaría a llamarse ${row.proposed}.`;
+    if (row.shape !== null && normalizeShapeText(row.shape) === "rombo")
+      return "Un rombo es una forma de lados rectos: en la lista queda dentro de Geométrico. Si preferís otra, marcá No.";
+    if (row.shape !== null && isOldShapeValue(row.shape))
+      return `«${row.shape}» no es una forma sino un modelo; según lo decidido, es ${row.proposed}. Cambia solo la forma: el nombre y la marca quedan igual.`;
+    return `Es la misma forma con otro nombre: pasaría a llamarse ${row.proposed}.`;
   }
   if (row.shape === null || row.shape.trim() === "")
     return "No tiene forma cargada: elegila mirando la foto, o dejala sin clasificar.";
   if (isOfficialShape(row.shape))
     return `El nombre dice ${row.nameSuggests.join(" / ")}, pero la forma cargada es ${row.shape}: elegí la correcta.`;
-  const advice = REVIEW_ADVICE[normalizeShapeText(row.shape)];
-  if (advice) return advice;
+  if (canonicalShape(row.shape))
+    return `«${row.shape}» equivale a ${canonicalShape(row.shape)}, pero el nombre sugiere ${row.nameSuggests.join(" / ")}: elegí la correcta mirando la foto.`;
   return /[,/+]| y /.test(row.shape)
     ? "Tiene dos formas cargadas: elegí la que más se ve en la foto."
     : "Esta forma no está en la lista: elegí la más parecida mirando la foto.";

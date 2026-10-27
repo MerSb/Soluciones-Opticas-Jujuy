@@ -35,6 +35,8 @@ const FIXTURES: Record<string, { name: string; shape: string | null }> = {
   mixed: { name: `Mixto ${TAG}`, shape: "Redondo , Gatito" },
   // Lowercase plural with an "s": catches a normalization that drops letters.
   squares: { name: `Marco Ancho ${TAG}`, shape: "cuadrados" },
+  // A model line, not a shape: approved as Hexagonal; the name stays.
+  caravan: { name: `Unicity Caravan ${TAG}`, shape: "Caravan" },
 };
 
 const search = async (q: string) =>
@@ -102,8 +104,13 @@ describe("search understands shape synonyms", () => {
   it("aviator, ovalada and exagonal find their shapes; brand, SKU and name still work", async () => {
     expect(await search(`aviator ${TAG}`)).toEqual([slugOf("aviator")]);
     expect(await search(`ovalada ${TAG}`)).toEqual([slugOf("oval")]);
-    expect(await search(`hexagonal ${TAG}`)).toEqual([slugOf("hexa")]);
     expect(await search(`square ${TAG}`)).toEqual([slugOf("squares")]);
+    // «caravan» finds the model by its name — not every hexagonal frame…
+    expect(await search(`caravan ${TAG}`)).toEqual([slugOf("caravan")]);
+    // …while «hexagonal» also finds the one still stored as «Caravan».
+    expect((await search(`hexagonal ${TAG}`)).sort()).toEqual(
+      [slugOf("hexa"), slugOf("caravan")].sort(),
+    );
     expect(await search(`SKU-${TAG}-NONE`)).toEqual([slugOf("none")]);
     expect((await search(`marca ${TAG}`)).length).toBe(Object.keys(FIXTURES).length);
     expect(await search(`petalos ${TAG}`)).toEqual([slugOf("legacyCat")]);
@@ -117,7 +124,9 @@ describe("catalog shape filter", () => {
       expect(found).toEqual(expect.arrayContaining([slugOf("cat"), slugOf("legacyCat")]));
       expect(found).not.toContain(slugOf("mixed"));
     }
-    expect(await listShape("Hexagonal")).toContain(slugOf("hexa"));
+    expect(await listShape("Hexagonal")).toEqual(
+      expect.arrayContaining([slugOf("hexa"), slugOf("caravan")]),
+    );
     expect(await listShape("Cuadrado")).toContain(slugOf("squares"));
     // An unknown value keeps the old behaviour: exact match.
     expect(await listShape("Redondo , Gatito")).toContain(slugOf("mixed"));
@@ -238,13 +247,14 @@ describe("normalization procedure on a database", () => {
         .filter((row) => row.status === "aprobado")
         .map((row) => row.shape)
         .sort(),
-    ).toEqual(["Exagonal", "Gatito", "cuadrados"]);
+    ).toEqual(["Caravan", "Exagonal", "Gatito", "cuadrados"]);
     // A reviewer also decides one manual row; the mixed one is left pending.
     const decisions = parseCsv(toCsv(rows)).map((row) =>
       row.id === fx.ids.none ? { ...row, decision: "aprobado", forma_propuesta: "Redondo" } : row,
     );
     const { changes } = planChanges(decisions);
     expect(changes.map((change) => `${change.from} → ${change.to}`).sort()).toEqual([
+      "Caravan → Hexagonal",
       "Exagonal → Hexagonal",
       "Gatito → Cat-eye",
       "cuadrados → Cuadrado",
@@ -252,18 +262,20 @@ describe("normalization procedure on a database", () => {
     ]);
 
     const before = await snapshot();
-    expect(await runSql(applySql(changes, "test"))).toBe(4);
+    expect(await runSql(applySql(changes, "test"))).toBe(5);
     const after = await snapshot();
     expect(after.map((row) => row.rest)).toEqual(before.map((row) => row.rest)); // names, prices, stock, photos, updatedAt
     expect((await prisma.product.findUnique({ where: { id: fx.ids.legacyCat } }))!.shape).toBe(
       "Cat-eye",
     );
+    const caravan = (await prisma.product.findUnique({ where: { id: fx.ids.caravan } }))!;
+    expect([caravan.name, caravan.shape]).toEqual([`Unicity Caravan ${TAG}`, "Hexagonal"]);
     expect((await prisma.product.findUnique({ where: { id: fx.ids.mixed } }))!.shape).toBe(
       "Redondo , Gatito",
     );
 
     expect(await runSql(applySql(changes, "test"))).toBe(0); // idempotent
-    expect(await runSql(revertSql(changes, "test"))).toBe(4);
+    expect(await runSql(revertSql(changes, "test"))).toBe(5);
     expect((await snapshot()).map((row) => row.shape)).toEqual(before.map((row) => row.shape));
     expect(await runSql(revertSql(changes, "test"))).toBe(0);
   });

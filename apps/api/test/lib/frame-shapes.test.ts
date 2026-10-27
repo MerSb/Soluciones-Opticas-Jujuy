@@ -3,6 +3,7 @@ import {
   OFFICIAL_FRAME_SHAPES,
   canonicalShape,
   extractShapePhrases,
+  isOldShapeValue,
   normalizeShapeText,
 } from "../../src/lib/frame-shapes.js";
 import {
@@ -44,6 +45,14 @@ describe("shape dictionary", () => {
     ["rombo", "Geométrico"],
     ["geométrica", "Geométrico"],
     ["wrap", "Envolvente"],
+    // Approved by Roberto, 27/10/2026.
+    ["Semi-Aviador", "Aviador"],
+    ["Semi Aviador", "Aviador"],
+    ["semiaviador", "Aviador"],
+    ["Aviador cuadrado", "Aviador"],
+    ["Cuadrado Redondeado", "Cuadrado"],
+    ["Rombo", "Geométrico"],
+    ["Caravan", "Hexagonal"],
   ])("«%s» → %s", (value, shape) => {
     expect(canonicalShape(value)).toBe(shape);
   });
@@ -51,9 +60,7 @@ describe("shape dictionary", () => {
   it("never guesses: combined, unknown, partial or size words are not shapes", () => {
     for (const value of [
       "Redondo , Gatito",
-      "Aviador cuadrado",
-      "Cuadrado Redondeado",
-      "Caravan",
+      "Aviador , ovalado",
       "Oversize",
       "cat",
       "gato",
@@ -80,6 +87,17 @@ describe("shape dictionary", () => {
       { phrase: "cat eye", shape: "Cat-eye" },
     ]);
     expect(extractShapePhrases("catalina rosa").matches).toEqual([]);
+    expect(extractShapePhrases("aviador cuadrado negro")).toEqual({
+      matches: [{ phrase: "aviador cuadrado", shape: "Aviador" }],
+      rest: "negro",
+    });
+  });
+
+  it("«Caravan» normalizes to Hexagonal but is not a search word: it is a model line", () => {
+    expect(canonicalShape("Caravan")).toBe("Hexagonal");
+    expect(isOldShapeValue("Caravan")).toBe(true);
+    expect(isOldShapeValue("Exagonal")).toBe(false);
+    expect(extractShapePhrases("caravan negro")).toEqual({ matches: [], rest: "caravan negro" });
   });
 });
 
@@ -117,9 +135,31 @@ describe("normalization rules (preview)", () => {
       proposed: null,
       reason: "combina varias formas: elegir una",
     });
-    expect(classify(frame({ shape: "Caravan" }))).toMatchObject({
+    expect(classify(frame({ shape: "Triangular" }))).toMatchObject({
       proposed: null,
       confidence: "revisión",
+    });
+  });
+
+  it("an approved old value is high confidence, keeping the name; a name pointing elsewhere sends it to review", () => {
+    expect(classify(frame({ name: "Unicity Caravan negro", shape: "Caravan" }))).toMatchObject({
+      proposed: "Hexagonal",
+      confidence: "alta",
+      reason:
+        "«Caravan» → Hexagonal: equivalencia aprobada por Roberto (no es una forma; el nombre no cambia)",
+    });
+    expect(
+      classify(frame({ name: "Semiaviador cuadrado", shape: "Aviador cuadrado" })),
+    ).toMatchObject({ proposed: "Aviador", confidence: "alta" });
+    expect(classify(frame({ name: "Gatito rosa", shape: "Caravan" }))).toMatchObject({
+      proposed: null,
+      confidence: "revisión",
+      nameSuggests: ["Cat-eye"],
+    });
+    // Caravan in the name of a product with another official shape: flagged.
+    expect(classify(frame({ name: "Unicity Caravan", shape: "Redondo" }))).toMatchObject({
+      confidence: "revisión",
+      nameSuggests: ["Hexagonal"],
     });
   });
 
@@ -252,8 +292,10 @@ describe("review sheet for the person who decides", () => {
   it("explains each special case in plain words, without preselecting anything", () => {
     const advice = Object.fromEntries(rows.map((row) => [row.shape, reviewAdvice(row)]));
     expect(advice.Rombo).toMatch(/dentro de Geométrico/);
-    expect(advice.Caravan).toMatch(/Aviador o Cuadrado/);
-    expect(advice["Semi-Aviador"]).toMatch(/probablemente Aviador/);
+    expect(advice.Caravan).toMatch(
+      /no es una forma sino un modelo.*Hexagonal.*el nombre y la marca quedan igual/,
+    );
+    expect(advice["Semi-Aviador"]).toMatch(/pasaría a llamarse Aviador/);
     expect(advice["Redondo , Gatito"]).toMatch(/dos formas/);
     const sheet = toReviewHtml(rows, "nube");
     expect(sheet).not.toMatch(/<input[^>]*checked/);
