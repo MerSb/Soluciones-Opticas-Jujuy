@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -12,9 +12,13 @@ import type {
 } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ShapeSelect } from "../../components/admin/ShapeSelect";
+import {
+  PhotoSequencePicker,
+  usePhotoSequence,
+  type PhotoUploadStatus,
+} from "../../components/admin/PhotoSequencePicker";
 import { ApiClientError, apiPost } from "../../services/api-client";
 import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
-import { validateImageFile } from "../../lib/image-validation";
 import {
   EMPTY_PROGRESS,
   hasPendingChanges,
@@ -69,11 +73,6 @@ function describe(error: unknown, fallback: string): string {
   return fallback;
 }
 
-interface Photo {
-  file: File;
-  url: string;
-}
-
 export function AdminProductDraftForm({
   initialFields,
   initialProgress = EMPTY_PROGRESS,
@@ -89,8 +88,10 @@ export function AdminProductDraftForm({
   const id = useId();
   const [fields, setFields] = useState<ProductDraftFields>(initialFields);
   const [progress, setProgress] = useState<DraftProgress>(initialProgress);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [photoError, setPhotoError] = useState<string | null>(null);
+  // Photos are numbered by clicking them (PhotoSequencePicker); only the
+  // numbered ones are uploaded, in that order.
+  const sequence = usePhotoSequence();
+  const photos = sequence.selected;
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -102,20 +103,12 @@ export function AdminProductDraftForm({
 
   const isAccessory = fields.kind === "ACCESSORY";
   const productCreated = progress.productId !== null;
-  const dirty = hasPendingChanges(fields, photos.length, saved);
+  const dirty = hasPendingChanges(fields, sequence.candidates.length, saved);
 
   useEffect(() => {
     onChange({ fields, progress, photoCount: photos.length, dirty, saved, saving });
     // onChange is a stable callback from the parent.
   }, [fields, progress, photos.length, dirty, saved, saving]);
-
-  // Previews are object URLs: release them when the tab goes away.
-  useEffect(
-    () => () => {
-      for (const photo of photosRef.current) URL.revokeObjectURL(photo.url);
-    },
-    [],
-  );
 
   function set<K extends keyof ProductDraftFields>(key: K, value: ProductDraftFields[K]) {
     setSaveError(null);
@@ -125,25 +118,6 @@ export function AdminProductDraftForm({
   function updateProgress(next: DraftProgress) {
     progressRef.current = next;
     setProgress(next);
-  }
-
-  function addPhotos(event: ChangeEvent<HTMLInputElement>) {
-    const chosen = Array.from(event.target.files ?? []);
-    event.target.value = ""; // choosing the same file again must fire change
-    const rejected = chosen.map(validateImageFile).find((error) => error !== null);
-    setPhotoError(rejected ?? null);
-    const valid = chosen.filter((file) => validateImageFile(file) === null);
-    setPhotos((current) => [
-      ...current,
-      ...valid.map((file) => ({ file, url: URL.createObjectURL(file) })),
-    ]);
-  }
-
-  function removePhoto(index: number) {
-    setPhotos((current) => {
-      URL.revokeObjectURL(current[index]!.url);
-      return current.filter((_, i) => i !== index);
-    });
   }
 
   const wantsVariant =
@@ -242,6 +216,15 @@ export function AdminProductDraftForm({
       setSaving(false);
     }
   }
+
+  // Already uploaded photos keep their number; the one being saved shows it.
+  const uploadedKeys = new Set(photos.slice(0, progress.uploadedPhotos).map((p) => p.key));
+  const photoStatuses: Record<string, PhotoUploadStatus> = Object.fromEntries([
+    ...[...uploadedKeys].map((key) => [key, "saved" as const]),
+    ...(saving && photos[progress.uploadedPhotos]
+      ? [[photos[progress.uploadedPhotos]!.key, "uploading" as const]]
+      : []),
+  ]);
 
   const selectClass =
     "w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text disabled:opacity-60";
@@ -493,51 +476,15 @@ export function AdminProductDraftForm({
       </fieldset>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-text" htmlFor={`${id}-photos`}>
-          Fotos (JPEG, PNG o WebP)
-        </label>
-        <input
-          id={`${id}-photos`}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          multiple
+        <p className="mb-1.5 text-sm font-medium text-text">Fotos de este color</p>
+        <PhotoSequencePicker
+          sequence={sequence}
+          firstIsPrimary={previouslyUploadedPhotos === 0}
+          existingCount={previouslyUploadedPhotos}
           disabled={saving}
-          onChange={addPhotos}
-          className="block text-sm text-text"
+          locked={uploadedKeys}
+          statuses={photoStatuses}
         />
-        {photoError && (
-          <p role="alert" className="mt-1 text-sm text-danger">
-            {photoError}
-          </p>
-        )}
-        {photos.length > 0 && (
-          <ul className="mt-3 flex flex-wrap gap-3" aria-label="Fotos elegidas">
-            {photos.map((photo, index) => (
-              <li key={photo.url} className="w-24 text-xs text-text">
-                <img
-                  src={photo.url}
-                  alt=""
-                  className="h-24 w-24 rounded-md border border-border object-cover"
-                />
-                <span className="block truncate" title={photo.file.name}>
-                  {photo.file.name}
-                </span>
-                {index < progress.uploadedPhotos ? (
-                  <span className="text-success">Subida</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => removePhoto(index)}
-                    disabled={saving}
-                    className="text-danger hover:underline"
-                  >
-                    Quitar
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       {!productCreated && <SimilarProductsWarning name={fields.name} sku={fields.sku} />}

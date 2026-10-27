@@ -17,6 +17,14 @@ const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim(
 // is 0); 0 typed on purpose is still accepted.
 const isBlank = (value: string) => value.trim() === "";
 const STOCK_REQUIRED = "Ingresá el stock (0 si no hay unidades).";
+// Same description the new-product page gives its photos ("— foto N" is
+// added per photo).
+function photoAltBase(productName: string, variant: AdminVariantDto): string {
+  return (
+    [productName.trim(), variant.label, variant.color].filter(Boolean).join(" — ") || variant.sku
+  );
+}
+
 const priceOrNull = (value: string) => (value.trim() === "" ? null : Number(value));
 
 // ADR-0028: an accessory's variants are its colors or presentations
@@ -25,10 +33,13 @@ const priceOrNull = (value: string) => (value.trim() === "" ? null : Number(valu
 export function AdminVariantsEditor({
   productId,
   productSlug = "",
+  productName = "",
   variants,
   kind = "FRAME",
 }: {
   productId: string;
+  /** For the description of new photos ("Product — Color — foto N"). */
+  productName?: string;
   /** For suggested SKUs of new accessory colors. */
   productSlug?: string;
   variants: AdminVariantDto[];
@@ -85,9 +96,19 @@ export function AdminVariantsEditor({
       <div className="mt-4 space-y-4">
         {variants.map((variant) =>
           isAccessory ? (
-            <AccessoryVariantCard key={variant.id} productId={productId} variant={variant} />
+            <AccessoryVariantCard
+              key={variant.id}
+              productId={productId}
+              productName={productName}
+              variant={variant}
+            />
           ) : (
-            <VariantCard key={variant.id} productId={productId} variant={variant} />
+            <VariantCard
+              key={variant.id}
+              productId={productId}
+              productName={productName}
+              variant={variant}
+            />
           ),
         )}
         {variants.length === 0 && (
@@ -231,7 +252,15 @@ function confirmDeleteAccessoryVariant(name: string, imageCount: number): boolea
   );
 }
 
-function VariantCard({ productId, variant }: { productId: string; variant: AdminVariantDto }) {
+function VariantCard({
+  productId,
+  productName,
+  variant,
+}: {
+  productId: string;
+  productName: string;
+  variant: AdminVariantDto;
+}) {
   const updateVariant = useUpdateVariantMutation(productId);
   const deleteVariant = useDeleteVariantMutation(productId);
   const [stock, setStock] = useState(variant.stock.toString());
@@ -306,6 +335,7 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
         productId={productId}
         variantId={variant.id}
         images={variant.images}
+        altBase={photoAltBase(productName, variant)}
       />
     </div>
   );
@@ -313,9 +343,11 @@ function VariantCard({ productId, variant }: { productId: string; variant: Admin
 
 function AccessoryVariantCard({
   productId,
+  productName,
   variant,
 }: {
   productId: string;
+  productName: string;
   variant: AdminVariantDto;
 }) {
   const updateVariant = useUpdateVariantMutation(productId);
@@ -430,6 +462,7 @@ function AccessoryVariantCard({
         productId={productId}
         variantId={variant.id}
         images={variant.images}
+        altBase={photoAltBase(productName, variant)}
       />
     </div>
   );

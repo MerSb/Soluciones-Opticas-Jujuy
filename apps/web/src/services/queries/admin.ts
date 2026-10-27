@@ -25,6 +25,7 @@ import type {
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../api-client";
+import { orderWithNewPhotosLast } from "../../lib/photo-sequence";
 import { recommendationsQueryKey } from "./recommendations";
 
 export const adminBrandsQueryKey = ["admin", "brands"] as const;
@@ -315,13 +316,103 @@ export async function uploadProductImage(
   );
 }
 
-export function useUploadProductImageMutation(productId: string, variantId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { file: File; alt: string; isPrimary: boolean }) =>
-      uploadProductImage(productId, variantId, input),
-    onSuccess: () => invalidateProduct(queryClient, productId),
-  });
+export interface SequencePhoto {
+  file: File;
+  alt: string;
+  isPrimary: boolean;
+}
+
+export type SequencePhotoResult =
+  { ok: true; image: AdminImageDto } | { ok: false; error: unknown };
+
+const PARALLEL_UPLOADS = 3;
+
+/**
+ * Uploads several photos so the variant ends up with them in exactly the
+ * given order, however long each file takes. The slow part (the file going
+ * to Cloudinary) runs up to three at a time; registering each photo with our
+ * API — which appends it after the last one — happens strictly one by one in
+ * sequence order. A photo that fails doesn't stop the others; its result
+ * says why, so the caller can offer a retry.
+ */
+export async function uploadPhotosInSequence(
+  productId: string,
+  variantId: string,
+  photos: SequencePhoto[],
+  onSettled?: (index: number, result: SequencePhotoResult) => void,
+): Promise<SequencePhotoResult[]> {
+  // One settled-later promise per photo, filled by a few workers that take
+  // photos in sequence order — so photo 1 is never queued behind photo 9.
+  const settlers: { resolve: (id: string) => void; reject: (error: unknown) => void }[] = [];
+  const uploaded = photos.map(
+    (_, index) =>
+      new Promise<string>((resolve, reject) => {
+        settlers[index] = { resolve, reject };
+      }),
+  );
+  // Awaited below, in order; until then a failure must not count as unhandled.
+  for (const promise of uploaded) promise.catch(() => undefined);
+  let next = 0;
+  const worker = async () => {
+    while (next < photos.length) {
+      const index = next;
+      next += 1;
+      try {
+        const signature = await apiPost<UploadSignatureDto>(
+          `/api/admin/products/${productId}/variants/${variantId}/images/sign-upload`,
+        );
+        settlers[index]!.resolve(
+          (await uploadFileToCloudinary(signature, photos[index]!.file)).publicId,
+        );
+      } catch (error) {
+        settlers[index]!.reject(error);
+      }
+    }
+  };
+  for (let i = 0; i < Math.min(PARALLEL_UPLOADS, photos.length); i += 1) void worker();
+
+  const results: SequencePhotoResult[] = [];
+  for (const [index, photo] of photos.entries()) {
+    let result: SequencePhotoResult;
+    try {
+      const publicId = await uploaded[index]!;
+      const body: CreateImageRequest = {
+        cloudinaryPublicId: publicId,
+        alt: photo.alt,
+        isPrimary: photo.isPrimary,
+      };
+      const image = await apiPost<AdminImageDto>(
+        `/api/admin/products/${productId}/variants/${variantId}/images`,
+        body,
+      );
+      result = { ok: true, image };
+    } catch (error) {
+      result = { ok: false, error };
+    }
+    results.push(result);
+    onSettled?.(index, result);
+  }
+  return results;
+}
+
+/** After a retry, puts the new photos back in their chosen sequence (a
+ * retried photo was appended after ones that come later). Existing photos
+ * keep their place; nothing is sent when the order is already right. */
+export async function restorePhotoSequence(
+  productId: string,
+  variantId: string,
+  newIdsInSequence: string[],
+): Promise<void> {
+  const product = await apiGet<AdminProductDetail>(`/api/admin/products/${productId}`);
+  const variant = product.variants.find((v) => v.id === variantId);
+  if (!variant) return;
+  const currentIds = variant.images.map((image) => image.id);
+  const wanted = orderWithNewPhotosLast(currentIds, newIdsInSequence);
+  if (wanted.every((id, index) => id === currentIds[index])) return;
+  await apiPut<AdminImageDto[]>(
+    `/api/admin/products/${productId}/variants/${variantId}/images/order`,
+    { imageIds: wanted } satisfies ReorderImagesRequest,
+  );
 }
 
 export function useUpdateImageMutation(productId: string, variantId: string) {

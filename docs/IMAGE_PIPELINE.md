@@ -18,6 +18,31 @@ Admin picks a file
 
 The API never receives file bytes at any point.
 
+## Choosing the order (click to number)
+
+The admin brings in several photos at once (the native picker or a drop) and then **clicks them in
+the order they should be shown**: the first click is 1 (the primary, on a variant with no photos
+yet), the next 2, and so on; clicking a numbered photo again takes it out and the rest close the
+gap. Only numbered photos are uploaded. The "Orden final" strip shows the sequence before "Subir".
+Used by the variant editor (`AdminPhotoSequenceUpload`) and the new-product tabs
+(`AdminProductDraftForm`); the picker is `components/admin/PhotoSequencePicker.tsx`, the pure
+rules `lib/photo-sequence.ts`.
+
+Why not the picker's own order: browsers don't define the order of a multi-file `FileList` — it
+depends on the OS and on how the files were selected — and no API exposes click order.
+
+How the order survives uploads finishing at different times (`uploadPhotosInSequence`): files go
+to Cloudinary up to three at a time, but each photo is **registered with the API strictly one by
+one, in sequence order** — and the API appends every new image after the last (under the variant
+lock), so the stored order is the clicked one. A failed photo doesn't stop the rest; its retry is
+appended, then `restorePhotoSequence` sends one `PUT …/images/order` that puts it back in its
+number (photos that were already on the variant keep their place). No API change.
+
+Safety rules: on a variant that already has photos, new ones go after them and are never sent as
+primary (the primary only changes with "Marcar como principal"); the same file chosen twice is
+listed once; a double click uploads once. The arrows and "Marcar como principal" remain for
+adjusting the order later. Each photo's description is generated: `Product — Color — foto N`.
+
 ## Environment variables
 
 Server-side (`apps/api`, never exposed to the frontend):
@@ -126,6 +151,6 @@ unit tests (`test/lib/cloudinary.test.ts`, `test/services/image-provider.service
 - No automatic reconciliation for an upload abandoned before its confirm call ever arrives (a true
   orphan with nothing pointing to it).
 - No image editing/cropping in the Admin UI — the uploaded file is used as-is.
-- No drag-and-drop reordering — `sortOrder` exists and is respected, but is only ever set at
-  creation time; reordering existing images isn't exposed in the Admin UI (no concrete UX need
-  identified yet — see ADR-0021's "avoid unnecessary complexity" precedent).
+- No drag-and-drop reordering of saved photos: the order is chosen by clicking before uploading,
+  and adjusted afterwards with the arrows / "Marcar como principal" (`PUT …/images/order`).
+- Photo descriptions are generated (`Product — Color — foto N`), not typed per photo.

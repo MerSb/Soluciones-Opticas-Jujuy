@@ -8,7 +8,7 @@ import {
   useReorderImagesMutation,
   useUpdateImageMutation,
 } from "../../services/queries/admin";
-import { AdminImageUploadForm } from "./AdminImageUploadForm";
+import { AdminPhotoSequenceUpload } from "./AdminPhotoSequenceUpload";
 
 type MoveDirection = "up" | "down";
 
@@ -81,10 +81,13 @@ export function AdminVariantImagesEditor({
   productId,
   variantId,
   images,
+  altBase,
 }: {
   productId: string;
   variantId: string;
   images: AdminImageDto[];
+  /** "Product — Color", for the description of new photos. */
+  altBase: string;
 }) {
   const updateImage = useUpdateImageMutation(productId, variantId);
   const deleteImage = useDeleteImageMutation(productId, variantId);
@@ -302,10 +305,11 @@ export function AdminVariantImagesEditor({
         </p>
       )}
 
-      <AdminImageUploadForm
+      <AdminPhotoSequenceUpload
         productId={productId}
         variantId={variantId}
-        isFirstImage={total === 0}
+        existingCount={total}
+        altBase={altBase}
       />
     </div>
   );

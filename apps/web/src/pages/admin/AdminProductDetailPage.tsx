@@ -417,6 +417,7 @@ export function AdminProductDetailPage() {
         <AdminVariantsEditor
           productId={product.id}
           productSlug={product.slug}
+          productName={product.name}
           variants={product.variants}
           kind={product.kind}
         />

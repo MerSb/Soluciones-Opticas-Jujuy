@@ -38,13 +38,18 @@ function renderEditor(images: AdminImageDto[]) {
       <MemoryRouter>{children}</MemoryRouter>
     </QueryClientProvider>
   );
-  const view = render(<AdminVariantImagesEditor productId="p1" variantId="v1" images={images} />, {
-    wrapper,
-  });
+  const view = render(
+    <AdminVariantImagesEditor productId="p1" variantId="v1" images={images} altBase="Modelo" />,
+    {
+      wrapper,
+    },
+  );
   return {
     ...view,
     refetchWith: (next: AdminImageDto[]) =>
-      view.rerender(<AdminVariantImagesEditor productId="p1" variantId="v1" images={next} />),
+      view.rerender(
+        <AdminVariantImagesEditor productId="p1" variantId="v1" images={next} altBase="Modelo" />,
+      ),
   };
 }
 
@@ -352,6 +357,6 @@ describe("AdminVariantImagesEditor", () => {
     renderEditor([]);
     expect(screen.getByText("Todavía no hay imágenes para esta variante.")).toBeInTheDocument();
     expect(screen.queryByRole("list")).toBeNull();
-    expect(screen.getByLabelText("Seleccionar imagen")).toHaveAttribute("type", "file");
+    expect(screen.getByLabelText("Elegir fotos")).toHaveAttribute("type", "file");
   });
 });
