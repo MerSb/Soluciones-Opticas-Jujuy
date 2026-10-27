@@ -1,4 +1,4 @@
-import { next } from "@vercel/functions";
+import { next } from "@vercel/functions/middleware";
 
 // Vercel Routing Middleware (file convention: next to package.json; the
 // Vercel project's root directory is apps/web). Only product pages run
@@ -10,8 +10,11 @@ import { next } from "@vercel/functions";
 // else — 200, an API error, a timeout — continues to the rewrite, so an
 // API outage never turns a real product into a 404 (fail open).
 
+// runtime: without it the file convention builds for the deprecated edge
+// runtime (vercel build warns); Node.js is Vercel's recommended runtime.
 export const config = {
   matcher: ["/products/:slug", "/accesorios/:slug"],
+  runtime: "nodejs",
 };
 
 // Same API vercel.json already proxies /sitemap.xml to. VITE_API_BASE_URL
