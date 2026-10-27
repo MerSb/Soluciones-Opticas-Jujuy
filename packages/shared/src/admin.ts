@@ -67,10 +67,15 @@ export interface AdminImageDto {
 }
 
 export interface CreateImageRequest {
+  /** A file of this variant, as signed by …/images/sign-upload. Sending
+   * one already saved answers that image (200) instead of a new one. */
   cloudinaryPublicId: string;
   alt: string;
   sortOrder?: number;
   isPrimary?: boolean;
+  /** Retry of an upload that may not have finished: the API checks the
+   * file exists first (409 IMAGE_NOT_UPLOADED if not). */
+  verifyUpload?: boolean;
 }
 
 export interface UpdateImageRequest {

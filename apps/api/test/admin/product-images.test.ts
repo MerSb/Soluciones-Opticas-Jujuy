@@ -4,6 +4,9 @@ import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { createAdminAgent } from "./helpers.js";
 import * as imageProvider from "../../src/services/image-provider.service.js";
+import { ownedPublicId } from "../image-ids.js";
+import { ApiError } from "../../src/lib/api-error.js";
+import { imageFolder } from "../../src/lib/image-ownership.js";
 
 // Ordering, primary-image protection and per-variant serialization of
 // image writes. The provider boundary is mocked exactly like
@@ -14,6 +17,7 @@ vi.mock("../../src/services/image-provider.service.js", () => ({
   generateUploadSignature: vi.fn(),
   deleteRemoteAsset: vi.fn(async () => undefined),
   tryCleanupOrphanedAsset: vi.fn(async () => undefined),
+  assetExists: vi.fn(async () => true),
 }));
 
 const app = createApp();
@@ -86,10 +90,16 @@ async function newVariant() {
   };
 }
 
+// A new valid public_id for the variant of this images URL.
+function idFor(base: string): string {
+  const [, , , , productId, , variantId] = base.split("/");
+  return ownedPublicId(productId!, variantId!);
+}
+
 async function addImage(base: string, label: string, extra: Record<string, unknown> = {}) {
   const response = await admin
     .post(base)
-    .send({ cloudinaryPublicId: `test/${RUN_ID}/${label}`, alt: `Foto ${label}`, ...extra });
+    .send({ cloudinaryPublicId: idFor(base), alt: `Foto ${label}`, ...extra });
   expect(response.status).toBe(201);
   return response.body as Img;
 }
@@ -367,16 +377,21 @@ describe("delete keeps exactly one primary", () => {
     expect(await imagesOf(variantId)).toEqual([]);
   });
 
-  it("never deletes a remote file that another image row still references", async () => {
+  it("never deletes a remote file that isn't this variant's (older or foreign data): the row goes, the file stays", async () => {
     const { base, variantId } = await newVariant();
-    const a = await addImage(base, "shared");
-    const twin = (
-      await admin.post(base).send({ cloudinaryPublicId: a.cloudinaryPublicId, alt: "Misma foto" })
-    ).body as Img;
+    const legacy = await prisma.productImage.create({
+      data: {
+        variantId,
+        cloudinaryPublicId: `soluciones-opticas/staging/products/otro/otra/${RUN_ID}`,
+        alt: "Foto antigua",
+        sortOrder: 0,
+        isPrimary: true,
+      },
+    });
 
-    expect((await admin.delete(`${base}/${twin.id}`)).status).toBe(204);
+    expect((await admin.delete(`${base}/${legacy.id}`)).status).toBe(204);
     expect(imageProvider.deleteRemoteAsset).not.toHaveBeenCalled();
-    expect((await imagesOf(variantId)).map((i) => i.id)).toEqual([a.id]);
+    expect(await imagesOf(variantId)).toEqual([]);
   });
 
   it("the public listing card switches to the promoted image", async () => {
@@ -484,7 +499,7 @@ describe("concurrency — per-variant serialization", () => {
     const { base, variantId } = await newVariant();
     const responses = await Promise.all(
       [0, 1, 2, 3, 4].map((n) =>
-        admin.post(base).send({ cloudinaryPublicId: `test/${RUN_ID}/par-${n}`, alt: `Par ${n}` }),
+        admin.post(base).send({ cloudinaryPublicId: idFor(base), alt: `Par ${n}` }),
       ),
     );
     expect(responses.every((r) => r.status === 201)).toBe(true);
@@ -500,12 +515,163 @@ describe("concurrency — per-variant serialization", () => {
 
     const [reorder, upload] = await Promise.all([
       admin.put(`${base}/order`).send({ imageIds: [a.id, c.id, b.id] }),
-      admin.post(base).send({ cloudinaryPublicId: `test/${RUN_ID}/race-c`, alt: "Race c" }),
+      admin.post(base).send({ cloudinaryPublicId: idFor(base), alt: "Race c" }),
     ]);
 
     expect(upload.status).toBe(201);
     expect([200, 409]).toContain(reorder.status);
     const images = await expectInvariant(variantId);
     expect(images).toHaveLength(4);
+  });
+});
+
+describe("ownership, idempotency and safe deletes (Cloudinary files)", () => {
+  const noRemoteCalls = () => {
+    expect(imageProvider.deleteRemoteAsset).not.toHaveBeenCalled();
+    expect(imageProvider.tryCleanupOrphanedAsset).not.toHaveBeenCalled();
+  };
+  const UUID = "0f1e2d3c-4b5a-4968-8776-655443322110";
+
+  it("refuses any public_id that isn't a file of this variant — and touches no file", async () => {
+    const { base, productId, variantId } = await newVariant();
+    const other = await newVariant();
+    const refused = [
+      `${imageFolder(other.productId, other.variantId)}${UUID}`, // another product's variant
+      `${imageFolder(productId, other.variantId)}${UUID}`, // another variant
+      `soluciones-opticas/staging/products/${productId}/${variantId}/${UUID}`, // another environment
+      `${imageFolder(productId, variantId)}not-a-uuid`,
+      `${imageFolder(productId, variantId)}${UUID}/extra`,
+      `${imageFolder(productId, variantId)}../${UUID}`,
+      `${imageFolder(productId, variantId)}${UUID.toUpperCase()}`,
+      `test/${RUN_ID}/made-up`,
+    ];
+    for (const cloudinaryPublicId of refused) {
+      const response = await admin.post(base).send({ cloudinaryPublicId, alt: "Ajena" });
+      expect(response.status, cloudinaryPublicId).toBe(400);
+    }
+    expect(await imagesOf(variantId)).toEqual([]);
+    noRemoteCalls();
+  });
+
+  it("registering the same file again answers the saved photo (200), never a second row", async () => {
+    const { base, variantId } = await newVariant();
+    const publicId = idFor(base);
+    const first = await admin.post(base).send({ cloudinaryPublicId: publicId, alt: "Primera" });
+    const retry = await admin.post(base).send({ cloudinaryPublicId: publicId, alt: "Reintento" });
+
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(200);
+    expect(retry.body.id).toBe(first.body.id);
+    expect(retry.body.alt).toBe("Primera"); // the saved photo, untouched
+    expect(await imagesOf(variantId)).toHaveLength(1);
+    noRemoteCalls();
+  });
+
+  it("concurrent registrations of the same file end with exactly one row, all answering it", async () => {
+    const { base, variantId } = await newVariant();
+    const publicId = idFor(base);
+    const responses = await Promise.all(
+      [0, 1, 2, 3, 4, 5].map((n) =>
+        admin.post(base).send({ cloudinaryPublicId: publicId, alt: `Carrera ${n}` }),
+      ),
+    );
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 200, 201]);
+    expect(new Set(responses.map((r) => r.body.id)).size).toBe(1);
+    expect(await expectInvariant(variantId)).toHaveLength(1);
+    noRemoteCalls();
+  });
+
+  it("a file already saved on another variant is a conflict, and nothing is deleted", async () => {
+    const { base, productId, variantId } = await newVariant();
+    const other = await newVariant();
+    const publicId = `${imageFolder(productId, variantId)}${UUID}`;
+    // Inconsistent older data: a row of another variant pointing to this variant's file.
+    await prisma.productImage.create({
+      data: { variantId: other.variantId, cloudinaryPublicId: publicId, alt: "x", isPrimary: true },
+    });
+
+    const response = await admin.post(base).send({ cloudinaryPublicId: publicId, alt: "Mía" });
+    expect(response.status).toBe(409);
+    expect(await imagesOf(variantId)).toEqual([]);
+    noRemoteCalls();
+  });
+
+  describe("verifyUpload (a retry that isn't sure the file arrived)", () => {
+    it("saves it only once Cloudinary confirms the file", async () => {
+      const { base } = await newVariant();
+      const publicId = idFor(base);
+      const response = await admin
+        .post(base)
+        .send({ cloudinaryPublicId: publicId, alt: "Verificada", verifyUpload: true });
+      expect(response.status).toBe(201);
+      expect(imageProvider.assetExists).toHaveBeenCalledWith(publicId);
+    });
+
+    it("409 IMAGE_NOT_UPLOADED when Cloudinary doesn't have it: no row, nothing deleted", async () => {
+      const { base, variantId } = await newVariant();
+      vi.mocked(imageProvider.assetExists).mockResolvedValueOnce(false);
+      const response = await admin
+        .post(base)
+        .send({ cloudinaryPublicId: idFor(base), alt: "No llegó", verifyUpload: true });
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe("IMAGE_NOT_UPLOADED");
+      expect(await imagesOf(variantId)).toEqual([]);
+      noRemoteCalls();
+    });
+
+    it("an already saved photo is answered without asking Cloudinary", async () => {
+      const { base } = await newVariant();
+      const saved = await addImage(base, "ya-guardada");
+      const response = await admin
+        .post(base)
+        .send({ cloudinaryPublicId: saved.cloudinaryPublicId, alt: "x", verifyUpload: true });
+      expect(response.status).toBe(200);
+      expect(response.body.id).toBe(saved.id);
+      expect(imageProvider.assetExists).not.toHaveBeenCalled();
+    });
+
+    it("if Cloudinary can't answer, nothing is saved or deleted (502)", async () => {
+      const { base, variantId } = await newVariant();
+      vi.mocked(imageProvider.assetExists).mockRejectedValueOnce(
+        ApiError.badGateway("No pudimos comprobar si la foto llegó a subirse."),
+      );
+      const response = await admin
+        .post(base)
+        .send({ cloudinaryPublicId: idFor(base), alt: "x", verifyUpload: true });
+      expect(response.status).toBe(502);
+      expect(await imagesOf(variantId)).toEqual([]);
+      noRemoteCalls();
+    });
+  });
+
+  it("an edit can't point a photo at another file; the same value is accepted", async () => {
+    const { base } = await newVariant();
+    const image = await addImage(base, "fija");
+    const changed = await admin
+      .patch(`${base}/${image.id}`)
+      .send({ cloudinaryPublicId: idFor(base) });
+    expect(changed.status).toBe(400);
+    const same = await admin
+      .patch(`${base}/${image.id}`)
+      .send({ cloudinaryPublicId: image.cloudinaryPublicId, alt: "Nueva descripción" });
+    expect(same.status).toBe(200);
+    expect(same.body.cloudinaryPublicId).toBe(image.cloudinaryPublicId);
+    expect(same.body.alt).toBe("Nueva descripción");
+  });
+
+  it("deleting a variant removes only its own files; a foreign file is kept", async () => {
+    const { base, productId, variantId } = await newVariant();
+    const own = await addImage(base, "propia");
+    const foreignId = `soluciones-opticas/staging/products/otro/otra/${RUN_ID}-vd`;
+    await prisma.productImage.create({
+      data: { variantId, cloudinaryPublicId: foreignId, alt: "Ajena", sortOrder: 5 },
+    });
+
+    const response = await admin.delete(`/api/admin/products/${productId}/variants/${variantId}`);
+    expect(response.status).toBe(204);
+    expect(vi.mocked(imageProvider.deleteRemoteAsset).mock.calls).toEqual([
+      [own.cloudinaryPublicId],
+    ]);
+    expect(await imagesOf(variantId)).toEqual([]);
   });
 });

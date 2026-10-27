@@ -278,29 +278,29 @@ way. Unknown/deleted product slug → `404`.
 `docs/adr/0021-admin-catalog-management.md` for the full design reasoning; this section is the
 endpoint reference.
 
-| Method                        | Path                                                             | Notes                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| GET                           | `/api/admin/brands`                                              | All brands, active and soft-deleted alike                                                                                             |
-| POST                          | `/api/admin/brands`                                              | `{ name, description?, logoPublicId? }`                                                                                               |
-| GET                           | `/api/admin/brands/:id`                                          |                                                                                                                                       |
-| PATCH                         | `/api/admin/brands/:id`                                          | No `slug` field accepted (ADR-0013)                                                                                                   |
-| DELETE                        | `/api/admin/brands/:id`                                          | Soft-delete; `409` if it still backs an active product                                                                                |
-| POST                          | `/api/admin/brands/:id/restore`                                  |                                                                                                                                       |
-| GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                    | Same shape as brands                                                                                                                  |
-| GET                           | `/api/admin/products`                                            | `?page&limit&q&includeDeleted` — paginated                                                                                            |
-| POST                          | `/api/admin/products`                                            | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                                                         |
-| GET                           | `/api/admin/products/:id`                                        | Soft-deleted products are still fetchable directly                                                                                    |
-| PATCH                         | `/api/admin/products/:id`                                        | No `slug` field accepted                                                                                                              |
-| DELETE                        | `/api/admin/products/:id`                                        | Soft-delete                                                                                                                           |
-| POST                          | `/api/admin/products/:id/restore`                                |                                                                                                                                       |
-| POST                          | `/api/admin/products/:id/variants`                               | `{ color?, material?, sku, stock?, priceOverride? }`; duplicate `sku` → `409`                                                         |
-| PATCH                         | `/api/admin/products/:id/variants/:variantId`                    |                                                                                                                                       |
-| DELETE                        | `/api/admin/products/:id/variants/:variantId`                    | **Hard** delete (cascades its images) — see ADR-0021                                                                                  |
-| POST                          | `/api/admin/products/:id/variants/:variantId/images/sign-upload` | Returns an `UploadSignatureDto` for a direct-to-Cloudinary upload — see "Image upload" below                                          |
-| POST                          | `/api/admin/products/:id/variants/:variantId/images`             | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary? }` — persists metadata _after_ the browser already uploaded directly to Cloudinary |
-| PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId`    |                                                                                                                                       |
-| DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId`    | Hard delete — deletes the remote Cloudinary asset first, then the DB row (see below)                                                  |
-| GET                           | `/api/admin/dashboard`                                           | `/admin`'s landing page data — KPIs + small operational alerts. See `docs/ADMIN_DASHBOARD_V2.md` for exact metric/alert definitions   |
+| Method                        | Path                                                             | Notes                                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET                           | `/api/admin/brands`                                              | All brands, active and soft-deleted alike                                                                                                  |
+| POST                          | `/api/admin/brands`                                              | `{ name, description?, logoPublicId? }`                                                                                                    |
+| GET                           | `/api/admin/brands/:id`                                          |                                                                                                                                            |
+| PATCH                         | `/api/admin/brands/:id`                                          | No `slug` field accepted (ADR-0013)                                                                                                        |
+| DELETE                        | `/api/admin/brands/:id`                                          | Soft-delete; `409` if it still backs an active product                                                                                     |
+| POST                          | `/api/admin/brands/:id/restore`                                  |                                                                                                                                            |
+| GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                    | Same shape as brands                                                                                                                       |
+| GET                           | `/api/admin/products`                                            | `?page&limit&q&includeDeleted` — paginated                                                                                                 |
+| POST                          | `/api/admin/products`                                            | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                                                              |
+| GET                           | `/api/admin/products/:id`                                        | Soft-deleted products are still fetchable directly                                                                                         |
+| PATCH                         | `/api/admin/products/:id`                                        | No `slug` field accepted                                                                                                                   |
+| DELETE                        | `/api/admin/products/:id`                                        | Soft-delete                                                                                                                                |
+| POST                          | `/api/admin/products/:id/restore`                                |                                                                                                                                            |
+| POST                          | `/api/admin/products/:id/variants`                               | `{ color?, material?, sku, stock?, priceOverride? }`; duplicate `sku` → `409`                                                              |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId`                    |                                                                                                                                            |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId`                    | **Hard** delete (cascades its images) — see ADR-0021                                                                                       |
+| POST                          | `/api/admin/products/:id/variants/:variantId/images/sign-upload` | Returns an `UploadSignatureDto` for a direct-to-Cloudinary upload — see "Image upload" below                                               |
+| POST                          | `/api/admin/products/:id/variants/:variantId/images`             | `{ cloudinaryPublicId, alt, sortOrder?, isPrimary?, verifyUpload? }` — persists metadata _after_ the direct upload; idempotent (see below) |
+| PATCH                         | `/api/admin/products/:id/variants/:variantId/images/:imageId`    |                                                                                                                                            |
+| DELETE                        | `/api/admin/products/:id/variants/:variantId/images/:imageId`    | Hard delete — deletes the remote Cloudinary asset first, then the DB row (see below)                                                       |
+| GET                           | `/api/admin/dashboard`                                           | `/admin`'s landing page data — KPIs + small operational alerts. See `docs/ADMIN_DASHBOARD_V2.md` for exact metric/alert definitions        |
 
 **Image upload:** real, signed direct-to-Cloudinary upload — see
 `docs/adr/0022-cloudinary-image-pipeline.md` and `docs/IMAGE_PIPELINE.md` for the full
@@ -315,6 +315,21 @@ a clear message otherwise. Only one image per variant can be `isPrimary: true` a
 a new one unsets the previous automatically. Deleting an image deletes the remote asset first,
 then the DB row — a remote failure leaves the DB row untouched (safe to retry); if metadata
 persistence fails after a real upload, the API best-effort deletes the now-orphaned remote asset.
+
+**Which files an image may point to, and which ones the API may delete** (`lib/image-ownership.ts`):
+`cloudinaryPublicId` must be exactly `soluciones-opticas/<APP_ENV>/products/<id>/<variantId>/<uuid>`
+— the folder `sign-upload` signs for that variant (`APP_ENV` is `staging` on the current production
+deploy). Anything else is `400` and no file is touched. A `public_id` is saved once (registrations
+are serialized per variant, and a unique index enforces it in the database once its migration is
+applied): sending one already saved on that variant answers the saved image with `200` instead of
+creating another (`201`) — so a retry after a lost answer, or two concurrent requests, end with one
+row. On
+another variant it is `409`. `verifyUpload: true` (a retry that isn't sure the file arrived) makes
+the API ask Cloudinary first: `409` with code `IMAGE_NOT_UPLOADED` when it doesn't have it (upload
+again), `502` when it can't tell. `PATCH` can't change an image's `cloudinaryPublicId` (`400`).
+Deleting an image or a variant — and the cleanup after a failed create — removes a file only when it
+belongs to that variant and no other row points to it; otherwise the file is kept and the incident
+logged.
 
 **Every Admin mutation is immediately visible** to the public catalog and the recommendation
 engine — they read the same `Product`/`ProductVariant`/`ProductImage` rows, no cache or sync step

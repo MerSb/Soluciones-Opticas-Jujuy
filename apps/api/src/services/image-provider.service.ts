@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { env } from "../lib/env.js";
 import { ApiError } from "../lib/api-error.js";
+import { imageFolder } from "../lib/image-ownership.js";
 import {
   destroyRemoteAsset,
   generateSignedUploadParams,
   isCloudinaryConfigured,
+  remoteAssetExists,
   type UploadSignature,
 } from "../lib/cloudinary.js";
 
@@ -24,9 +25,10 @@ export function isConfigured(): boolean {
 // (§11) — folder path is fully server-determined from real ids,
 // suffixed with a fresh server-generated UUID, so there is no
 // collision, no path traversal, and no private information (customer
-// names, original filenames) ever encoded into a public_id.
+// names, original filenames) ever encoded into a public_id. The folder is
+// the one lib/image-ownership.ts accepts on create.
 function buildPublicId(productId: string, variantId: string): string {
-  return `soluciones-opticas/${env.APP_ENV}/products/${productId}/${variantId}/${randomUUID()}`;
+  return `${imageFolder(productId, variantId)}${randomUUID()}`;
 }
 
 export function requireConfigured(): void {
@@ -55,6 +57,22 @@ export async function deleteRemoteAsset(publicId: string): Promise<void> {
     console.error("Cloudinary destroy failed", { publicId, error });
     throw ApiError.badGateway(
       "No se pudo eliminar la imagen del proveedor. Probá de nuevo en unos minutos.",
+    );
+  }
+}
+
+// Whether Cloudinary really stores this file — asked only when a client
+// retries a photo it isn't sure finished uploading (createImage's
+// verifyUpload), so a row never points to a file that isn't there. One
+// Admin API read; a failure to answer is an error, never a guess.
+export async function assetExists(publicId: string): Promise<boolean> {
+  requireConfigured();
+  try {
+    return await remoteAssetExists(publicId);
+  } catch (error) {
+    console.error("Cloudinary existence check failed", { publicId, error });
+    throw ApiError.badGateway(
+      "No pudimos comprobar si la foto llegó a subirse. Probá de nuevo en unos minutos.",
     );
   }
 }

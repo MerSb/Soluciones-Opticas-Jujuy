@@ -17,6 +17,7 @@ import { ApiError } from "../lib/api-error.js";
 import { generateUniqueSlug } from "../lib/slug.js";
 import { MAX_IMAGE_BYTES } from "../lib/image-validation.js";
 import { IMAGE_ORDER } from "../lib/image-order.js";
+import { isOwnedPublicId } from "../lib/image-ownership.js";
 import { computeIsComplete } from "../lib/product-completeness.js";
 import * as imageProvider from "./image-provider.service.js";
 import type {
@@ -663,11 +664,18 @@ function toSkuConflictOrRethrow(error: unknown, sku: string | undefined): unknow
 //     the exact same class of gap deleteImage already accepts for its
 //     own DB-delete-after-remote-success step — logged loudly if it's
 //     ever the *last* step that fails, never silently swallowed.
+//
+// A file is only destroyed when it belongs to this variant and no image of
+// another variant points to it (canDestroyRemote); otherwise it is kept and
+// logged, and the variant is still deleted.
 export async function deleteVariant(productId: string, variantId: string): Promise<void> {
   const variant = await requireVariantOfProduct(productId, variantId);
+  const ownImageIds = variant.images.map((image) => image.id);
 
-  for (const image of variant.images) {
-    await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
+  for (const publicId of new Set(variant.images.map((image) => image.cloudinaryPublicId))) {
+    if (await canDestroyRemote(publicId, productId, variantId, ownImageIds, "deleteVariant")) {
+      await imageProvider.deleteRemoteAsset(publicId);
+    }
   }
 
   try {
@@ -697,6 +705,53 @@ async function requireImageOfVariant(
     throw ApiError.notFound(`No image found with id "${imageId}" on variant "${variantId}".`);
   }
   return image;
+}
+
+// The one rule before our API removes a file from Cloudinary (deleteImage,
+// deleteVariant, a failed create): the file must belong to this exact
+// variant (lib/image-ownership.ts) and no image row other than the ones
+// being removed may point to it. When either can't be confirmed — a
+// foreign or legacy id, a shared file, or the check itself failing — the
+// file is kept and the incident logged: a kept file only costs storage, a
+// wrong delete loses a commercial photo.
+async function canDestroyRemote(
+  publicId: string,
+  productId: string,
+  variantId: string,
+  removedImageIds: string[],
+  operation: string,
+): Promise<boolean> {
+  if (!isOwnedPublicId(publicId, productId, variantId)) {
+    console.warn("Cloudinary file kept: it does not belong to this variant", {
+      operation,
+      publicId,
+      productId,
+      variantId,
+    });
+    return false;
+  }
+  try {
+    const others = await prisma.productImage.count({
+      where: { cloudinaryPublicId: publicId, id: { notIn: removedImageIds } },
+    });
+    if (others === 0) return true;
+    console.warn("Cloudinary file kept: another image still points to it", {
+      operation,
+      publicId,
+      others,
+    });
+  } catch (error) {
+    console.error("Cloudinary file kept: could not check who points to it", {
+      operation,
+      publicId,
+      error,
+    });
+  }
+  return false;
+}
+
+function isUniquePublicIdViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 // Only one primary image per variant — when the incoming write sets
@@ -766,27 +821,55 @@ async function readImage(tx: Prisma.TransactionClient, imageId: string) {
   return tx.productImage.findUniqueOrThrow({ where: { id: imageId }, select: IMAGE_SELECT });
 }
 
+export const IMAGE_NOT_UPLOADED = "IMAGE_NOT_UPLOADED";
+
 // Called *after* the browser has already uploaded the file straight to
 // Cloudinary (see signImageUpload below) — this only ever persists
-// metadata. §25 "orphan prevention": if that persistence itself fails
-// (variant deleted concurrently, a DB error, ...), the asset the client
-// just told us about already exists in Cloudinary with nothing in our
-// database referencing it. Best-effort cleanup is attempted before the
-// original error is rethrown — a failure during cleanup is logged, not
-// surfaced, so it never masks the real error the caller needs to see.
-//
+// metadata. Rules, in order:
+//   1. The public_id must be a file of this very variant
+//      (lib/image-ownership.ts): anything else is refused with 400 and
+//      nothing is deleted — not even "cleaned up".
+//   2. Idempotent: a public_id is saved once (unique index). Sending it
+//      again — a retry after a lost answer, or two concurrent requests —
+//      answers the saved row (200) instead of creating another.
+//   3. `verifyUpload` (a retry of a photo the client isn't sure finished
+//      uploading): before saving, Cloudinary must confirm it has the file;
+//      if not, 409 IMAGE_NOT_UPLOADED and the client uploads it again.
+//   4. §25 orphan prevention: if saving fails, the just-uploaded file is
+//      removed best-effort — only through canDestroyRemote, so never a
+//      file some saved row points to (e.g. the row a racing request
+//      saved).
 // A new image goes last (max sortOrder + 1); the variant's first image is
 // always primary. An image created as primary goes first (normalizeImageOrder).
 export async function createImage(
   productId: string,
   variantId: string,
   body: CreateImageBody,
-): Promise<AdminImageDto> {
+): Promise<{ image: AdminImageDto; created: boolean }> {
   await requireVariantOfProduct(productId, variantId);
+  const publicId = body.cloudinaryPublicId;
+  if (!isOwnedPublicId(publicId, productId, variantId)) {
+    throw ApiError.validation(
+      "La foto no corresponde a esta variante. Volvé a subirla desde el panel.",
+      { field: "cloudinaryPublicId" },
+    );
+  }
+
+  const saved = await savedImageFor(publicId, variantId);
+  if (saved) return { image: toImageDto(saved), created: false };
+  if (body.verifyUpload && !(await imageProvider.assetExists(publicId))) {
+    throw new ApiError(409, IMAGE_NOT_UPLOADED, "La foto no llegó a subirse. Volvé a subirla.");
+  }
 
   try {
-    const row = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       if (!(await lockVariantImages(tx, variantId))) throw variantGone(variantId);
+      // Re-read under the lock: a concurrent request may have just saved it.
+      const again = await tx.productImage.findUnique({
+        where: { cloudinaryPublicId: publicId },
+        select: IMAGE_SELECT,
+      });
+      if (again) return { row: again, created: false };
       const siblings = await tx.productImage.aggregate({
         where: { variantId },
         _max: { sortOrder: true },
@@ -801,23 +884,38 @@ export async function createImage(
       const sortOrder =
         body.sortOrder ?? (siblings._count._all === 0 ? 0 : (siblings._max.sortOrder ?? 0) + 1);
       const created = await tx.productImage.create({
-        data: {
-          variantId,
-          cloudinaryPublicId: body.cloudinaryPublicId,
-          alt: body.alt,
-          sortOrder,
-          isPrimary,
-        },
+        data: { variantId, cloudinaryPublicId: publicId, alt: body.alt, sortOrder, isPrimary },
         select: { id: true },
       });
       await normalizeImageOrder(tx, variantId);
-      return readImage(tx, created.id);
+      return { row: await readImage(tx, created.id), created: true };
     });
-    return toImageDto(row);
+    if (result.row.variantId !== variantId) throw foreignImage();
+    return { image: toImageDto(result.row), created: result.created };
   } catch (error) {
-    await imageProvider.tryCleanupOrphanedAsset(body.cloudinaryPublicId);
+    if (isUniquePublicIdViolation(error)) {
+      const winner = await savedImageFor(publicId, variantId);
+      if (winner) return { image: toImageDto(winner), created: false };
+    }
+    if (await canDestroyRemote(publicId, productId, variantId, [], "createImage")) {
+      await imageProvider.tryCleanupOrphanedAsset(publicId);
+    }
     throw error;
   }
+}
+
+function foreignImage(): ApiError {
+  return ApiError.conflict("Esa foto ya está guardada en otra variante.");
+}
+
+// The row already saved under this public_id, if any (one at most: unique).
+async function savedImageFor(publicId: string, variantId: string) {
+  const row = await prisma.productImage.findUnique({
+    where: { cloudinaryPublicId: publicId },
+    select: IMAGE_SELECT,
+  });
+  if (row && row.variantId !== variantId) throw foreignImage();
+  return row;
 }
 
 export async function signImageUpload(
@@ -842,10 +940,21 @@ export async function updateImage(
     // Re-read under the lock: a concurrent request may have changed it.
     const current = await tx.productImage.findFirst({
       where: { id: imageId, variantId },
-      select: { isPrimary: true },
+      select: { isPrimary: true, cloudinaryPublicId: true },
     });
     if (!current) {
       throw ApiError.notFound(`No image found with id "${imageId}" on variant "${variantId}".`);
+    }
+    // The file of a saved photo never changes: pointing a row at another
+    // file would let a later delete destroy that file.
+    if (
+      body.cloudinaryPublicId !== undefined &&
+      body.cloudinaryPublicId !== current.cloudinaryPublicId
+    ) {
+      throw ApiError.validation(
+        "El archivo de una foto no se puede cambiar. Subí una foto nueva y eliminá la anterior.",
+        { field: "cloudinaryPublicId" },
+      );
     }
     if (body.isPrimary === false && current.isPrimary) {
       throw ApiError.conflict(
@@ -858,9 +967,6 @@ export async function updateImage(
     await tx.productImage.update({
       where: { id: imageId },
       data: {
-        ...(body.cloudinaryPublicId !== undefined
-          ? { cloudinaryPublicId: body.cloudinaryPublicId }
-          : {}),
         ...(body.alt !== undefined ? { alt: body.alt } : {}),
         ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
         ...(body.isPrimary !== undefined ? { isPrimary: body.isPrimary } : {}),
@@ -946,11 +1052,10 @@ export async function deleteImage(
   imageId: string,
 ): Promise<void> {
   const image = await requireImageOfVariant(productId, variantId, imageId);
-  // Never remove a remote file another image row still points to.
-  const sharedBy = await prisma.productImage.count({
-    where: { cloudinaryPublicId: image.cloudinaryPublicId, id: { not: imageId } },
-  });
-  if (sharedBy === 0) {
+  // Never remove a file of another variant, or one another row points to.
+  if (
+    await canDestroyRemote(image.cloudinaryPublicId, productId, variantId, [imageId], "deleteImage")
+  ) {
     await imageProvider.deleteRemoteAsset(image.cloudinaryPublicId);
   }
   try {

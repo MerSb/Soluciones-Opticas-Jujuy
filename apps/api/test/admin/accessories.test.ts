@@ -3,6 +3,7 @@ import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { createAdminAgent } from "./helpers.js";
+import { ownedPublicId } from "../image-ids.js";
 
 // ADR-0028 — accessories are products (kind = ACCESSORY) with variants for
 // colors/presentations. The image provider is mocked like every admin test.
@@ -87,7 +88,7 @@ async function addVariant(productId: string, body: Record<string, unknown>) {
 async function addImage(productId: string, variantId: string, label: string) {
   const response = await admin
     .post(`/api/admin/products/${productId}/variants/${variantId}/images`)
-    .send({ cloudinaryPublicId: `test/${RUN_ID}/${label}`, alt: `Foto ${label}` });
+    .send({ cloudinaryPublicId: ownedPublicId(productId, variantId), alt: `Foto ${label}` });
   expect(response.status).toBe(201);
   return response.body;
 }

@@ -3,6 +3,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { createAdminAgent } from "./admin/helpers.js";
+import { ownedPublicId } from "./image-ids.js";
 
 // Same boundary-mock convention as admin/products.test.ts — no real
 // Cloudinary call needed just to attach a cloudinaryPublicId to a
@@ -92,10 +93,14 @@ beforeAll(async () => {
     expect(response.status).toBe(201);
     return response.body.id as string;
   }
-  async function attachImage(productId: string, variantId: string, publicId: string) {
+  async function attachImage(productId: string, variantId: string) {
     const response = await adminAgent
       .post(`/api/admin/products/${productId}/variants/${variantId}/images`)
-      .send({ cloudinaryPublicId: publicId, alt: "Foto de prueba", isPrimary: true });
+      .send({
+        cloudinaryPublicId: ownedPublicId(productId, variantId),
+        alt: "Foto de prueba",
+        isPrimary: true,
+      });
     expect(response.status).toBe(201);
   }
 
@@ -107,12 +112,12 @@ beforeAll(async () => {
 
   const p3 = await createProduct(`Completeness ZeroStock ${RUN_ID}`);
   const p3Variant = await createVariant(p3.id, `COMPLETE-P3-${RUN_ID}`, 0);
-  await attachImage(p3.id, p3Variant, `completeness-test/${RUN_ID}/p3`);
+  await attachImage(p3.id, p3Variant);
   completeNoStock = p3;
 
   const p4 = await createProduct(`Completeness InStock ${RUN_ID}`);
   const p4Variant = await createVariant(p4.id, `COMPLETE-P4-${RUN_ID}`, 5);
-  await attachImage(p4.id, p4Variant, `completeness-test/${RUN_ID}/p4`);
+  await attachImage(p4.id, p4Variant);
   completeInStock = p4;
 });
 

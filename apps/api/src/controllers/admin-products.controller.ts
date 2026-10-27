@@ -84,7 +84,9 @@ export const deleteVariant = asyncHandler(async (_req: Request, res: Response) =
 export const createImage = asyncHandler(async (_req: Request, res: Response) => {
   const { id, variantId } = res.locals.params as { id: string; variantId: string };
   const body = res.locals.body as CreateImageBody;
-  res.status(201).json(await adminProductsService.createImage(id, variantId, body));
+  // 200 when that photo was already saved (a retry): the same row, nothing new.
+  const { image, created } = await adminProductsService.createImage(id, variantId, body);
+  res.status(created ? 201 : 200).json(image);
 });
 
 export const updateImage = asyncHandler(async (_req: Request, res: Response) => {

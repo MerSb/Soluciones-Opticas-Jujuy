@@ -51,7 +51,16 @@ async function createCompleteProduct(
           stock: variant.stock,
           priceOverride: variant.priceOverride ?? null,
           images: variant.image
-            ? { create: [{ cloudinaryPublicId: `test/${RUN_ID}`, alt: "Test", isPrimary: true }] }
+            ? {
+                create: [
+                  // One file per image: public_ids are unique.
+                  {
+                    cloudinaryPublicId: `test/${RUN_ID}/${variant.sku}`,
+                    alt: "Test",
+                    isPrimary: true,
+                  },
+                ],
+              }
             : undefined,
         })),
       },

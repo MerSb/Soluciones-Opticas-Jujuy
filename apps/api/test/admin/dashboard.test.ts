@@ -4,6 +4,7 @@ import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/lib/prisma.js";
 import { createAdminAgent } from "./helpers.js";
 import { observeWhileStable } from "../stable-snapshot.js";
+import { ownedPublicId } from "../image-ids.js";
 
 // Same boundary-mock convention as admin/products.test.ts — no real
 // Cloudinary call needed just to attach a cloudinaryPublicId to a
@@ -93,10 +94,14 @@ async function createVariant(
   return response.body.id as string;
 }
 
-async function attachImage(productId: string, variantId: string, publicId: string) {
+async function attachImage(productId: string, variantId: string) {
   const response = await adminAgent
     .post(`/api/admin/products/${productId}/variants/${variantId}/images`)
-    .send({ cloudinaryPublicId: publicId, alt: "Foto de prueba", isPrimary: true });
+    .send({
+      cloudinaryPublicId: ownedPublicId(productId, variantId),
+      alt: "Foto de prueba",
+      isPrimary: true,
+    });
   expect(response.status).toBe(201);
 }
 
@@ -157,7 +162,7 @@ beforeAll(async () => {
   // either alert.
   const a5 = await createProduct(edgeName("with-image"));
   const a5Variant = await createVariant(a5, { sku: `DASH-A5-${RUN_ID}`, stock: 5 });
-  await attachImage(a5, a5Variant, `dash-test/${RUN_ID}/a5`);
+  await attachImage(a5, a5Variant);
 
   // A6 — two variants, both stock 0 (so: out of stock), but one of them
   // carries an image — "without images" is a PRODUCT-level fact, so
@@ -167,7 +172,7 @@ beforeAll(async () => {
   const a6VariantNoImage = await createVariant(a6, { sku: `DASH-A6-A-${RUN_ID}`, stock: 0 });
   const a6VariantWithImage = await createVariant(a6, { sku: `DASH-A6-B-${RUN_ID}`, stock: 0 });
   void a6VariantNoImage;
-  await attachImage(a6, a6VariantWithImage, `dash-test/${RUN_ID}/a6`);
+  await attachImage(a6, a6VariantWithImage);
 
   // -------- Group B: 6 minimal out-of-stock, image-less products, --------
   // -------- named to prove the max-5 cap and the name-asc ordering. --------

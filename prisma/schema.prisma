@@ -157,7 +157,9 @@ model ProductImage {
 
   /// Cloudinary public_id — never the full delivery URL. See ADR-0010;
   /// the API/integration layer builds the delivery URL at request time.
-  cloudinaryPublicId String @map("cloudinary_public_id")
+  /// One row per file (unique): makes registering idempotent and keeps two
+  /// rows from sharing — and later deleting — the same Cloudinary file.
+  cloudinaryPublicId String @unique @map("cloudinary_public_id")
   /// Required, not defaulted to empty — accessibility requirement.
   /// The admin/seed layer is responsible for supplying real alt text
   /// (falling back to the product name is an application concern, not

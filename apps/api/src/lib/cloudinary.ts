@@ -86,3 +86,18 @@ export async function destroyRemoteAsset(publicId: string): Promise<DestroyResul
   const response = await cloudinary.uploader.destroy(publicId, { invalidate: true });
   return response.result === "ok" ? "ok" : "not_found";
 }
+
+// True when Cloudinary has this exact upload; false on its "not found"
+// (HTTP 404). Any other failure (network, auth, rate limit) rejects — the
+// caller must not treat an unanswered question as "missing".
+export async function remoteAssetExists(publicId: string): Promise<boolean> {
+  ensureConfigured();
+  try {
+    await cloudinary.api.resource(publicId, { resource_type: "image", type: "upload" });
+    return true;
+  } catch (error) {
+    const httpCode = (error as { error?: { http_code?: number } }).error?.http_code;
+    if (httpCode === 404) return false;
+    throw error;
+  }
+}

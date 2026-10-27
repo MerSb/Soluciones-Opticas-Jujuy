@@ -124,7 +124,12 @@ export type UpdateVariantBody = z.infer<typeof updateVariantBodySchema>;
 // matched against Cloudinary's own id shape, which this project has no
 // SDK to validate against yet.
 export const createImageBodySchema = z.object({
+  // Must be a file of this variant (lib/image-ownership.ts, checked in the
+  // service against the route's ids).
   cloudinaryPublicId: z.string().trim().min(1).max(500),
+  // A retry of a photo the client isn't sure finished uploading: Cloudinary
+  // is asked whether it has the file before the row is saved.
+  verifyUpload: z.boolean().optional(),
   alt: z.string().trim().min(1).max(300),
   // Omitted (the admin UI never sends it): the image goes last — the
   // service assigns max(sortOrder) + 1 under the variant lock.
