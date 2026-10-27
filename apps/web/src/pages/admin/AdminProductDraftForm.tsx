@@ -26,7 +26,6 @@ import {
   type ProductDraftFields,
 } from "../../lib/product-drafts";
 import {
-  findRegisteredImages,
   invalidateProduct,
   uploadProductImage,
   useSimilarProductsQuery,
@@ -101,10 +100,11 @@ export function AdminProductDraftForm({
   const progressRef = useRef(progress);
   const photosRef = useRef(photos);
   photosRef.current = photos;
-  // The photo whose upload failed after being signed, with every public_id
+  // The photo whose upload failed after being signed, with the public_id
   // it was signed with: it may be saved after all (only the answer lost),
-  // so the retry asks the API first, and it can't be unselected meanwhile.
-  const unsureRef = useRef<{ key: string; publicIds: string[] } | null>(null);
+  // so its retry registers that id again (the API saves each one once)
+  // before uploading anything, and it can't be unselected meanwhile.
+  const unsureRef = useRef<{ key: string; publicId: string } | null>(null);
   const [unsureKey, setUnsureKey] = useState<string | null>(null);
 
   const isAccessory = fields.kind === "ACCESSORY";
@@ -193,27 +193,24 @@ export function AdminProductDraftForm({
       for (let index = uploadedPhotos; index < list.length; index += 1) {
         step = `photo:${index + 1}`;
         const key = list[index]!.key;
-        const unsure = unsureRef.current?.key === key ? unsureRef.current.publicIds : [];
-        const alreadySaved =
-          unsure.length > 0 && (await findRegisteredImages(productId, variantId!, unsure)).size > 0;
-        if (!alreadySaved) {
-          const alt = [fields.name.trim(), fields.color.trim(), `foto ${index + 1}`]
-            .filter(Boolean)
-            .join(" — ");
-          await uploadProductImage(
-            productId,
-            variantId!,
-            {
-              file: list[index]!.file,
-              alt,
-              // The first photo of the color is the primary one.
-              isPrimary: index === 0 && previouslyUploadedPhotos === 0,
-            },
-            (publicId) => {
-              unsureRef.current = { key, publicIds: [...unsure, publicId] };
-            },
-          );
-        }
+        const previous = unsureRef.current?.key === key ? unsureRef.current.publicId : undefined;
+        const alt = [fields.name.trim(), fields.color.trim(), `foto ${index + 1}`]
+          .filter(Boolean)
+          .join(" — ");
+        await uploadProductImage(
+          productId,
+          variantId!,
+          {
+            file: list[index]!.file,
+            alt,
+            // The first photo of the color is the primary one.
+            isPrimary: index === 0 && previouslyUploadedPhotos === 0,
+          },
+          (publicId) => {
+            unsureRef.current = { key, publicId };
+          },
+          previous,
+        );
         unsureRef.current = null;
         uploadedPhotos = index + 1;
         updateProgress({ productId, variantId, uploadedPhotos });

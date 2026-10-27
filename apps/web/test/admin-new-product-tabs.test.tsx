@@ -41,6 +41,7 @@ function stubBackend(
   let lostAnswers = options.loseRegisterAnswerOnce ? 1 : 0;
   // Saved photos per variant, as the admin product read returns them.
   const saved = new Map<string, { id: string; cloudinaryPublicId: string }[]>();
+  const stored = new Set<string>(); // files "Cloudinary" has
   const fetchMock = vi.fn(async (raw: string | URL, init?: RequestInit) => {
     const url = new URL(raw);
     const method = init?.method ?? "GET";
@@ -61,7 +62,9 @@ function stubBackend(
         throw new TypeError("Failed to fetch");
       }
       // Like Cloudinary: stored under the public_id our API signed.
-      return json(200, { public_id: (init!.body as FormData).get("public_id") });
+      const publicId = (init!.body as FormData).get("public_id") as string;
+      stored.add(publicId);
+      return json(200, { public_id: publicId });
     }
     if (method === "GET" && url.pathname === "/api/admin/brands") return json(200, BRANDS);
     if (method === "GET" && url.pathname === "/api/admin/categories") return json(200, CATEGORIES);
@@ -95,10 +98,17 @@ function stubBackend(
     }
     if (method === "POST" && url.pathname.endsWith("/images")) {
       const variantId = url.pathname.split("/")[6]!;
-      const image = {
-        id: `img-${calls.length}`,
-        cloudinaryPublicId: (body as { cloudinaryPublicId: string }).cloudinaryPublicId,
-      };
+      const request = body as { cloudinaryPublicId: string; verifyUpload?: boolean };
+      // Like the API: a saved public_id answers the saved image; a retry
+      // whose file never reached Cloudinary is refused.
+      const already = saved
+        .get(variantId)
+        ?.find((i) => i.cloudinaryPublicId === request.cloudinaryPublicId);
+      if (already) return json(200, already);
+      if (request.verifyUpload && !stored.has(request.cloudinaryPublicId)) {
+        return json(409, { error: { code: "IMAGE_NOT_UPLOADED", message: "No llegó." } });
+      }
+      const image = { id: `img-${calls.length}`, cloudinaryPublicId: request.cloudinaryPublicId };
       saved.set(variantId, [...(saved.get(variantId) ?? []), image]);
       if (lostAnswers > 0) {
         lostAnswers -= 1;
@@ -355,12 +365,17 @@ describe("AdminNewProductPage — several products at once", () => {
     expect(
       calls.filter((call) => call.method === "POST" && call.path.endsWith("/variants")),
     ).toHaveLength(1);
+    // The retry first asks for the signed file (never reached Cloudinary: 409),
+    // then uploads it again — one photo saved.
+    const registrations = calls.filter(
+      (call) => call.method === "POST" && call.path.endsWith("/images"),
+    );
     expect(
-      calls.filter((call) => call.method === "POST" && call.path.endsWith("/images")),
-    ).toHaveLength(1);
+      registrations.map((call) => (call.body as { verifyUpload?: boolean }).verifyUpload),
+    ).toEqual([true, undefined]);
   });
 
-  it("the API saved a photo but its answer was lost: the retry finds it and never saves it twice", async () => {
+  it("the API saved a photo but its answer was lost: the retry gets it back and never uploads it twice", async () => {
     const user = userEvent.setup();
     const calls = stubBackend({ loseRegisterAnswerOnce: true });
     renderPage();
@@ -384,10 +399,15 @@ describe("AdminNewProductPage — several products at once", () => {
     const registrations = calls.filter(
       (call) => call.method === "POST" && call.path.endsWith("/images"),
     );
-    expect(registrations.map((call) => (call.body as { alt: string }).alt)).toEqual([
-      "Uno QA — Negro — foto 1",
-      "Uno QA — Negro — foto 2",
+    type Registration = { cloudinaryPublicId: string; alt: string; verifyUpload?: boolean };
+    const bodies = registrations.map((call) => call.body as Registration);
+    // Photo 1 sent again with the same public_id: the API answers the saved one.
+    expect(bodies.map((b) => [b.alt, b.verifyUpload])).toEqual([
+      ["Uno QA — Negro — foto 1", undefined],
+      ["Uno QA — Negro — foto 1", true],
+      ["Uno QA — Negro — foto 2", undefined],
     ]);
+    expect(bodies[1]!.cloudinaryPublicId).toBe(bodies[0]!.cloudinaryPublicId);
     expect(calls.filter((call) => call.path.endsWith("/sign-upload"))).toHaveLength(2);
   });
 

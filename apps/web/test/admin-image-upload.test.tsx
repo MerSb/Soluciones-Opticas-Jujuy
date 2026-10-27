@@ -45,6 +45,8 @@ interface Backend {
   reorders: string[][];
   /** Files stored in Cloudinary that no saved photo points to. */
   orphans: string[];
+  /** Every registration request body, including retries. */
+  registerCalls: { cloudinaryPublicId: string; verifyUpload?: boolean }[];
   signatures: number;
   maxParallelUploads: number;
 }
@@ -57,7 +59,9 @@ interface Backend {
  * `failOnce` — Cloudinary rejects the file; `loseCloudinaryAnswer` — the
  * file is stored but the browser never gets the answer; `loseRegisterAnswer`
  * — the API saves the photo but the browser never gets the answer.
- * `failCheck` makes the product read used before a retry fail.
+ * Registering is idempotent like the real API (a saved public_id answers
+ * 200), and `verifyUpload` asks "Cloudinary" whether the file is stored
+ * (409 IMAGE_NOT_UPLOADED if not); `failCheck` makes that question fail (502).
  */
 function stubBackend({
   existing = [] as AdminImageDto[],
@@ -73,6 +77,7 @@ function stubBackend({
     registered: [],
     reorders: [],
     orphans: [],
+    registerCalls: [],
     signatures: 0,
     maxParallelUploads: 0,
   };
@@ -119,6 +124,15 @@ function stubBackend({
     }
     if (url.endsWith(`/variants/${VARIANT.id}/images`) && method === "POST") {
       const body = JSON.parse(init!.body as string);
+      backend.registerCalls.push(body);
+      const saved = images.find((i) => i.cloudinaryPublicId === body.cloudinaryPublicId);
+      if (saved) return json(200, saved);
+      if (body.verifyUpload && failCheck) {
+        return json(502, { error: { code: "BAD_GATEWAY", message: "No pudimos comprobar." } });
+      }
+      if (body.verifyUpload && !stored.has(body.cloudinaryPublicId)) {
+        return json(409, { error: { code: "IMAGE_NOT_UPLOADED", message: "No llegó." } });
+      }
       const file = stored.get(body.cloudinaryPublicId)!;
       backend.registered.push({ file, alt: body.alt, isPrimary: body.isPrimary });
       const image: AdminImageDto = {
@@ -137,7 +151,6 @@ function stubBackend({
       return json(201, image);
     }
     if (url.endsWith(`/api/admin/products/${PRODUCT_ID}`) && method === "GET") {
-      if (failCheck) throw new TypeError("Failed to fetch");
       return json(200, { id: PRODUCT_ID, variants: [{ ...VARIANT, images }] });
     }
     if (url.endsWith("/images/order") && method === "PUT") {
@@ -450,14 +463,15 @@ describe("Admin photo upload — choose the order by clicking", () => {
     expect(thumb("x.jpg")).toBeInTheDocument();
     expect(thumb("y.png")).toBeInTheDocument();
   });
-  describe("retrying never duplicates a photo that was in fact saved", () => {
+  describe("retries: the same file is registered again, never uploaded twice", () => {
     async function uploadThree(user: ReturnType<typeof userEvent.setup>) {
       chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg")]);
       for (const name of ["a.jpg", "b.jpg", "c.jpg"]) await user.click(thumb(name));
       await user.click(screen.getByRole("button", { name: "Subir 3 fotos en este orden" }));
     }
+    const retryOf = (backend: Backend) => backend.registerCalls.filter((c) => c.verifyUpload);
 
-    it("the API saved it but its answer was lost: the retry finds it and uploads nothing", async () => {
+    it("the API saved it but its answer was lost: the retry gets the saved photo back", async () => {
       const user = userEvent.setup();
       const { backend, orphans } = stubBackend({ loseRegisterAnswer: ["b.jpg"] });
       renderEditor();
@@ -470,12 +484,13 @@ describe("Admin photo upload — choose the order by clicking", () => {
         await screen.findByText("Se subieron 3 fotos en el orden elegido."),
       ).toBeInTheDocument();
       expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+      expect(retryOf(backend)).toHaveLength(1); // same public_id, verifyUpload
       expect(backend.signatures).toBe(3); // nothing signed or uploaded again
       expect(backend.reorders).toEqual([]); // b was saved in its place
       expect(orphans()).toEqual([]);
     });
 
-    it("Cloudinary stored it but its answer was lost: uploaded again, saved once (the first file is left unused)", async () => {
+    it("Cloudinary stored it but its answer was lost: saved from that file — no second upload, no orphan", async () => {
       const user = userEvent.setup();
       const { backend, orphans } = stubBackend({ loseCloudinaryAnswer: ["b.jpg"] });
       renderEditor();
@@ -486,43 +501,42 @@ describe("Admin photo upload — choose the order by clicking", () => {
       expect(
         await screen.findByText("Se subieron 3 fotos en el orden elegido."),
       ).toBeInTheDocument();
-      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
-      expect(backend.reorders).toEqual([["img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
-      // Not a duplicate photo, but a file nobody points to (documented limit).
-      expect(orphans()).toEqual(["b.jpg"]);
-    });
-
-    it("if the check itself fails, nothing is uploaded again", async () => {
-      const user = userEvent.setup();
-      const { backend } = stubBackend({ loseRegisterAnswer: ["b.jpg"], failCheck: true });
-      renderEditor();
-      await uploadThree(user);
-
-      await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
-
-      expect(
-        await screen.findByText(/No pudimos comprobar qué fotos ya quedaron guardadas/),
-      ).toBeInTheDocument();
+      expect(backend.cloudinary).toEqual(expect.arrayContaining(["a.jpg", "b.jpg", "c.jpg"]));
+      expect(backend.cloudinary).toHaveLength(3);
       expect(backend.signatures).toBe(3);
-      expect(backend.registered).toHaveLength(3);
-      expect(screen.getByRole("button", { name: "Reintentar la que falló" })).toBeEnabled();
+      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
+      expect(backend.reorders).toEqual([["img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
+      expect(orphans()).toEqual([]);
     });
 
-    it("Cloudinary rejected it: the API is checked first, then it is uploaded again", async () => {
+    it("the file never reached Cloudinary: the API says so and only then it is uploaded again", async () => {
       const user = userEvent.setup();
-      const { backend, fetchMock } = stubBackend({ failOnce: ["b.jpg"] });
+      const { backend, orphans } = stubBackend({ failOnce: ["b.jpg"] });
       renderEditor();
       await uploadThree(user);
       await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+
       await screen.findByText("Se subieron 3 fotos en el orden elegido.");
-      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
+      expect(retryOf(backend)).toHaveLength(1);
       expect(backend.signatures).toBe(4);
-      // One read to check before uploading, one to put b back in its place.
-      const reads = fetchMock.mock.calls.filter(
-        ([url, init]) => String(url).endsWith(`/products/${PRODUCT_ID}`) && init?.method !== "POST",
-      );
-      expect(reads).toHaveLength(2);
+      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
       expect(backend.reorders).toEqual([["img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
+      expect(orphans()).toEqual([]);
+    });
+
+    it("if Cloudinary can't confirm, nothing is uploaded again or saved twice; the retry stays", async () => {
+      const user = userEvent.setup();
+      const { backend } = stubBackend({ loseCloudinaryAnswer: ["b.jpg"], failCheck: true });
+      renderEditor();
+      await uploadThree(user);
+      await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Foto 2 · b.jpg: no se pudo subir",
+      );
+      expect(backend.signatures).toBe(3);
+      expect(backend.registered).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Reintentar la que falló" })).toBeEnabled();
     });
   });
 });

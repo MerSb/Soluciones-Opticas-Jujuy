@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiClientError } from "../../services/api-client";
 import {
-  findRegisteredImages,
   invalidateProduct,
   restorePhotoSequence,
   uploadPhotosInSequence,
@@ -13,8 +12,6 @@ import type { PhotoUploadStatus } from "../../components/admin/PhotoSequencePick
 
 const NETWORK_ERROR = "sin conexión";
 const GENERIC_ERROR = "no se pudo subir";
-export const CHECK_FAILED =
-  "No pudimos comprobar qué fotos ya quedaron guardadas, así que no reintentamos (para no duplicarlas). Probá de nuevo en un momento.";
 
 // Our API's 4xx messages are curated Spanish; Cloudinary's text and any
 // 5xx body are never shown as-is.
@@ -65,8 +62,9 @@ export function AdminPhotoSequenceUpload({
   // Double-click guard: state updates are not synchronous.
   const runningRef = useRef(false);
   const savedIds = useRef(new Map<string, string>());
-  // Every public_id each photo was signed with in a failed attempt.
-  const attemptedIds = useRef(new Map<string, string[]>());
+  // The public_id a failed photo was signed with: its retry registers it
+  // again (the API saves each one once) instead of uploading blindly.
+  const attemptedIds = useRef(new Map<string, string>());
 
   const firstIsPrimary = plan ? plan[0]?.isPrimary === true : existingCount === 0;
   const failed = plan?.filter((photo) => statuses[photo.key] === "failed") ?? [];
@@ -97,32 +95,9 @@ export function AdminPhotoSequenceUpload({
     setRunning(true);
     if (!isRetry) setBaseCount(existingCount);
 
-    // A failed photo may in fact be saved (its answer was lost): ask the
-    // API before uploading anything again.
-    const unsure = current.flatMap((photo) =>
-      savedIds.current.has(photo.key) ? [] : (attemptedIds.current.get(photo.key) ?? []),
-    );
-    if (unsure.length > 0) {
-      let registered: Map<string, string>;
-      try {
-        registered = await findRegisteredImages(productId, variantId, unsure);
-      } catch {
-        setOrderError(CHECK_FAILED);
-        runningRef.current = false;
-        setRunning(false);
-        return;
-      }
-      for (const photo of current) {
-        const found = (attemptedIds.current.get(photo.key) ?? [])
-          .map((publicId) => registered.get(publicId))
-          .find((id) => id !== undefined);
-        if (found && !savedIds.current.has(photo.key)) {
-          savedIds.current.set(photo.key, found);
-          setStatuses((now) => ({ ...now, [photo.key]: "saved" }));
-        }
-      }
-    }
-    const pending = current.filter((photo) => !savedIds.current.has(photo.key));
+    const pending = current
+      .filter((photo) => !savedIds.current.has(photo.key))
+      .map((photo) => ({ ...photo, previousPublicId: attemptedIds.current.get(photo.key) }));
     setPlan(current);
     setSuccess(null);
     setOrderError(null);
@@ -135,17 +110,13 @@ export function AdminPhotoSequenceUpload({
     const onSettled = (index: number, result: SequencePhotoResult) => {
       const key = pending[index]!.key;
       if (result.ok) savedIds.current.set(key, result.image.id);
-      else if (result.publicId) {
-        attemptedIds.current.set(key, [...(attemptedIds.current.get(key) ?? []), result.publicId]);
-      }
+      else if (result.publicId) attemptedIds.current.set(key, result.publicId);
       setStatuses((now) => ({ ...now, [key]: result.ok ? "saved" : "failed" }));
       if (!result.ok) setFailures((now) => ({ ...now, [key]: describeFailure(result.error) }));
     };
 
     try {
-      if (pending.length > 0) {
-        await uploadPhotosInSequence(productId, variantId, pending, onSettled);
-      }
+      await uploadPhotosInSequence(productId, variantId, pending, onSettled);
       if (isRetry) {
         const inSequence = current
           .map((photo) => savedIds.current.get(photo.key))

@@ -24,7 +24,7 @@ import type {
   UpdateVariantRequest,
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../api-client";
+import { ApiClientError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../api-client";
 import { orderWithNewPhotosLast } from "../../lib/photo-sequence";
 import { recommendationsQueryKey } from "./recommendations";
 
@@ -300,8 +300,8 @@ async function uploadFileToCloudinary(
 
 // The public_id is chosen by our API when it signs the upload, so it is
 // known before the file goes out — even when Cloudinary's or our API's
-// answer is then lost. That is what lets a retry check whether the photo
-// was in fact saved (findRegisteredImages) instead of uploading it again.
+// answer is then lost. A retry registers that same public_id again
+// (registerSignedAgain) instead of uploading: the API saves each one once.
 async function signAndUpload(
   productId: string,
   variantId: string,
@@ -322,45 +322,57 @@ function registerImage(productId: string, variantId: string, body: CreateImageRe
   );
 }
 
+/** The API's answer when a retried photo never reached Cloudinary. */
+export const IMAGE_NOT_UPLOADED = "IMAGE_NOT_UPLOADED";
+
+/**
+ * Retry of a photo whose earlier attempt was signed as `cloudinaryPublicId`
+ * but didn't finish: the API answers the photo if it was in fact saved, or
+ * saves it once Cloudinary confirms the file arrived. `null` when the file
+ * never got there — only then is it uploaded again.
+ */
+async function registerSignedAgain(
+  productId: string,
+  variantId: string,
+  body: CreateImageRequest,
+): Promise<AdminImageDto | null> {
+  try {
+    return await registerImage(productId, variantId, { ...body, verifyUpload: true });
+  } catch (error) {
+    if (error instanceof ApiClientError && error.code === IMAGE_NOT_UPLOADED) return null;
+    throw error;
+  }
+}
+
 /** The whole sign → Cloudinary → register flow for one file. Also used by
  * the multi-tab new-product page, which saves outside a mutation hook.
- * `onSigned` receives the photo's public_id before the upload starts. */
+ * `onSigned` receives the photo's public_id before the upload starts;
+ * `previousPublicId` is the one a failed earlier attempt was signed with. */
 export async function uploadProductImage(
   productId: string,
   variantId: string,
   { file, alt, isPrimary }: { file: File; alt: string; isPrimary: boolean },
   onSigned?: (publicId: string) => void,
+  previousPublicId?: string,
 ): Promise<AdminImageDto> {
+  if (previousPublicId) {
+    const saved = await registerSignedAgain(productId, variantId, {
+      cloudinaryPublicId: previousPublicId,
+      alt,
+      isPrimary,
+    });
+    if (saved) return saved;
+  }
   const publicId = await signAndUpload(productId, variantId, file, onSigned);
   return registerImage(productId, variantId, { cloudinaryPublicId: publicId, alt, isPrimary });
-}
-
-/**
- * Which of these public_ids are already saved on the variant (public_id →
- * image id). Asked before retrying a photo whose attempt failed after it
- * was signed: if its registration actually went through and only the
- * answer was lost, the photo is already there and must not be uploaded
- * again.
- */
-export async function findRegisteredImages(
-  productId: string,
-  variantId: string,
-  publicIds: readonly string[],
-): Promise<Map<string, string>> {
-  const product = await apiGet<AdminProductDetail>(`/api/admin/products/${productId}`);
-  const images = product.variants.find((v) => v.id === variantId)?.images ?? [];
-  const wanted = new Set(publicIds);
-  return new Map(
-    images
-      .filter((image) => wanted.has(image.cloudinaryPublicId))
-      .map((image) => [image.cloudinaryPublicId, image.id]),
-  );
 }
 
 export interface SequencePhoto {
   file: File;
   alt: string;
   isPrimary: boolean;
+  /** Retry: the public_id a failed earlier attempt was signed with. */
+  previousPublicId?: string;
 }
 
 /** A failure carries the public_id it was signed with, when it got that far. */
@@ -375,7 +387,8 @@ const PARALLEL_UPLOADS = 3;
  * to Cloudinary) runs up to three at a time; registering each photo with our
  * API — which appends it after the last one — happens strictly one by one in
  * sequence order. A photo that fails doesn't stop the others; its result
- * says why, so the caller can offer a retry.
+ * says why, so the caller can offer a retry. A retried photo
+ * (`previousPublicId`) is registered again before anything is uploaded.
  */
 export async function uploadPhotosInSequence(
   productId: string,
@@ -385,11 +398,15 @@ export async function uploadPhotosInSequence(
 ): Promise<SequencePhotoResult[]> {
   // One settled-later promise per photo, filled by a few workers that take
   // photos in sequence order — so photo 1 is never queued behind photo 9.
-  const settlers: { resolve: (id: string) => void; reject: (error: unknown) => void }[] = [];
-  const signedIds: (string | undefined)[] = [];
+  // A retried photo skips the upload here (its file may already be there).
+  const settlers: { resolve: (id: string | null) => void; reject: (error: unknown) => void }[] = [];
+  const signedIds = photos.map((photo) => photo.previousPublicId);
+  const remember = (index: number) => (publicId: string) => {
+    signedIds[index] = publicId;
+  };
   const uploaded = photos.map(
     (_, index) =>
-      new Promise<string>((resolve, reject) => {
+      new Promise<string | null>((resolve, reject) => {
         settlers[index] = { resolve, reject };
       }),
   );
@@ -400,11 +417,12 @@ export async function uploadPhotosInSequence(
     while (next < photos.length) {
       const index = next;
       next += 1;
+      const photo = photos[index]!;
       try {
         settlers[index]!.resolve(
-          await signAndUpload(productId, variantId, photos[index]!.file, (publicId) => {
-            signedIds[index] = publicId;
-          }),
+          photo.previousPublicId
+            ? null
+            : await signAndUpload(productId, variantId, photo.file, remember(index)),
         );
       } catch (error) {
         settlers[index]!.reject(error);
@@ -417,12 +435,20 @@ export async function uploadPhotosInSequence(
   for (const [index, photo] of photos.entries()) {
     let result: SequencePhotoResult;
     try {
+      const body = { alt: photo.alt, isPrimary: photo.isPrimary };
       const publicId = await uploaded[index]!;
-      const image = await registerImage(productId, variantId, {
-        cloudinaryPublicId: publicId,
-        alt: photo.alt,
-        isPrimary: photo.isPrimary,
-      });
+      let image =
+        publicId === null
+          ? await registerSignedAgain(productId, variantId, {
+              ...body,
+              cloudinaryPublicId: photo.previousPublicId!,
+            })
+          : await registerImage(productId, variantId, { ...body, cloudinaryPublicId: publicId });
+      if (!image) {
+        // The retried file never reached Cloudinary: upload it now, in its turn.
+        const fresh = await signAndUpload(productId, variantId, photo.file, remember(index));
+        image = await registerImage(productId, variantId, { ...body, cloudinaryPublicId: fresh });
+      }
       result = { ok: true, image };
     } catch (error) {
       result = { ok: false, error, publicId: signedIds[index] };
