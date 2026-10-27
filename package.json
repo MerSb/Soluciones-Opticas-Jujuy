@@ -14,7 +14,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/postinstall.mjs",
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",

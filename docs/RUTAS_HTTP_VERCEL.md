@@ -28,6 +28,12 @@ El emulador local que se usó en la auditoría (`vercel_emu.py`) resolvía `/spa
    - No hay catch-all: una ruta inventada sigue siendo 404 real.
    - `/login` y `/admin/*` responden 200 con `noindex` (meta y header). La autorización la sigue haciendo la API; el shell no contiene datos.
 
+## Build en Vercel con el middleware
+
+El middleware hace que Vercel compile una función, y ese compilador ejecuta su propio `npm install`. Ignora el comando del proyecto (`npm install --ignore-scripts`) y dispara el `postinstall` de la raíz. Sin el CLI de Prisma, el primer Preview falló con `prisma: command not found`.
+
+`scripts/postinstall.mjs` omite `prisma generate` solo cuando `VERCEL=1`. En Railway y en local sigue generando el cliente: Railpack copia todo el repo antes de instalar cuando existe un `postinstall`.
+
 ## Comportamiento esperado
 
 | Ruta                                               | HTTP | Notas                                                                    |
