@@ -1,13 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AdminVariantDto } from "@soluciones-opticas/shared";
+import type { AdminImageDto, AdminVariantDto } from "@soluciones-opticas/shared";
 import { AdminVariantsEditor } from "../src/pages/admin/AdminVariantsEditor";
 import { renderWithProviders } from "./test-utils";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+// Click-to-number photo upload (docs/IMAGE_PIPELINE.md, "Choosing the
+// order"). Fictional data only; Cloudinary is never reached.
 
 const PRODUCT_ID = "product-1";
 const VARIANT: AdminVariantDto = {
@@ -24,351 +23,400 @@ const VARIANT: AdminVariantDto = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-function makeFile(name: string, type: string, sizeBytes: number): File {
-  const file = new File([new Uint8Array(sizeBytes)], name, { type });
-  return file;
-}
-
-// userEvent.upload() silently filters out files that don't match the
-// input's `accept` attribute, which would make the "wrong file type"
-// test pass for the wrong reason (no file ever attached at all, rather
-// than the app's own validateImageFile rejecting it). Attaching the
-// file directly bypasses that filtering, exercising the real
-// application-level validation instead.
-function attachFile(input: HTMLElement, file: File) {
-  Object.defineProperty(input, "files", { value: [file], configurable: true });
-  fireEvent.change(input);
-}
-
-function mockThreeStepUploadFetch({
-  cloudinaryOk = true,
-  confirmOk = true,
-  networkDown = false,
-} = {}) {
-  return vi.fn().mockImplementation((rawUrl: string | URL, init?: RequestInit) => {
-    const url = String(rawUrl);
-    if (networkDown) return Promise.reject(new TypeError("Failed to fetch"));
-    if (url.includes("/images/sign-upload")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          cloudName: "demo-cloud",
-          apiKey: "demo-key",
-          timestamp: 123,
-          signature: "sig",
-          publicId: "soluciones-opticas/test/products/product-1/variant-1/uuid",
-          allowedFormats: "jpg,jpeg,png,webp",
-          maxFileSizeBytes: 8 * 1024 * 1024,
-        }),
-      });
-    }
-    if (url.startsWith("https://api.cloudinary.com/")) {
-      if (!cloudinaryOk) {
-        return Promise.resolve({
-          ok: false,
-          status: 400,
-          json: async () => ({ error: { message: "Invalid image file" } }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          public_id: "soluciones-opticas/test/products/product-1/variant-1/uuid",
-        }),
-      });
-    }
-    if (url.includes("/images") && init?.method === "POST") {
-      if (!confirmOk) {
-        return Promise.resolve({
-          ok: false,
-          status: 500,
-          json: async () => ({ error: { code: "INTERNAL_ERROR", message: "No se pudo guardar." } }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        status: 201,
-        json: async () => ({
-          id: "image-1",
-          variantId: VARIANT.id,
-          cloudinaryPublicId: "soluciones-opticas/test/products/product-1/variant-1/uuid",
-          alt: JSON.parse(init.body as string).alt,
-          sortOrder: 0,
-          isPrimary: JSON.parse(init.body as string).isPrimary,
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }),
-      });
-    }
-    return Promise.reject(new Error(`Unhandled request: ${init?.method ?? "GET"} ${url}`));
-  });
-}
-
-function fileInput() {
-  return screen.getByLabelText("Seleccionar imagen");
-}
-
-function stubObjectUrls() {
-  // jsdom has no createObjectURL/revokeObjectURL; assigning onto the real
-  // URL keeps `new URL(...)` (used by api-client.ts) working.
-  URL.createObjectURL = vi.fn(() => "blob:preview");
-  URL.revokeObjectURL = vi.fn();
-}
-
-function renderEditor(variant: AdminVariantDto = VARIANT) {
-  return renderWithProviders(<AdminVariantsEditor productId={PRODUCT_ID} variants={[variant]} />);
-}
-
-const EXISTING_IMAGE = {
+const EXISTING_IMAGE: AdminImageDto = {
   id: "image-0",
   variantId: VARIANT.id,
-  cloudinaryPublicId: "soluciones-opticas/test/products/product-1/variant-1/existing",
+  cloudinaryPublicId: "soluciones-opticas/test/existing",
   alt: "Foto existente",
   sortOrder: 0,
   isPrimary: true,
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
-describe("Admin product image upload", () => {
-  it("shows a clear upload zone whose visible button is the real file input's label", () => {
-    renderEditor();
+const jpg = (name: string, sizeBytes = 1000) =>
+  new File([new Uint8Array(sizeBytes)], name, { type: "image/jpeg", lastModified: 1 });
 
-    expect(screen.getByText("Agregá fotos de este producto")).toBeInTheDocument();
-    const input = fileInput();
-    expect(input).toHaveAttribute("type", "file");
-    expect(input).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
-    expect(input).toHaveAccessibleDescription(
-      expect.stringMatching(/Agregá fotos de este producto.*JPEG, PNG o WebP · hasta 8 MB/),
-    );
+interface Backend {
+  /** File names in the order Cloudinary received them. */
+  cloudinary: string[];
+  /** Bodies of every image registration, in order. */
+  registered: { cloudinaryPublicId: string; alt: string; isPrimary: boolean }[];
+  /** Bodies of every PUT …/images/order. */
+  reorders: string[][];
+  maxParallelUploads: number;
+}
+
+/**
+ * Sign → Cloudinary → register, like the real API: a registered photo goes
+ * last. `slow` delays a file's Cloudinary upload (ms) so uploads finish out
+ * of order; `failOnce` makes a file's first Cloudinary upload fail.
+ */
+function stubBackend({
+  existing = [] as AdminImageDto[],
+  slow = {} as Record<string, number>,
+  failOnce = [] as string[],
+  networkDown = false,
+} = {}) {
+  const backend: Backend = { cloudinary: [], registered: [], reorders: [], maxParallelUploads: 0 };
+  let images = [...existing];
+  let inFlight = 0;
+  const failing = new Set(failOnce);
+  const json = (status: number, body: unknown) =>
+    Promise.resolve({ ok: status < 400, status, json: async () => body });
+
+  const fetchMock = vi.fn(async (raw: string | URL, init?: RequestInit) => {
+    const url = String(raw);
+    const method = init?.method ?? "GET";
+    if (url.includes("/images/sign-upload")) {
+      return json(200, {
+        cloudName: "demo",
+        apiKey: "key",
+        timestamp: 1,
+        signature: "sig",
+        publicId: "ignored",
+        allowedFormats: "jpg,jpeg,png,webp",
+        maxFileSizeBytes: 8 * 1024 * 1024,
+      });
+    }
+    if (url.startsWith("https://api.cloudinary.com/")) {
+      const file = (init!.body as FormData).get("file") as File;
+      inFlight += 1;
+      backend.maxParallelUploads = Math.max(backend.maxParallelUploads, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, slow[file.name] ?? 0));
+      inFlight -= 1;
+      if (networkDown) throw new TypeError("Failed to fetch");
+      if (failing.delete(file.name)) {
+        return json(400, { error: { message: "Invalid image file" } });
+      }
+      backend.cloudinary.push(file.name);
+      return json(200, { public_id: `pub/${file.name}` });
+    }
+    if (url.endsWith(`/variants/${VARIANT.id}/images`) && method === "POST") {
+      const body = JSON.parse(init!.body as string);
+      backend.registered.push(body);
+      const image: AdminImageDto = {
+        id: `img-${body.cloudinaryPublicId.slice(4)}`,
+        variantId: VARIANT.id,
+        cloudinaryPublicId: body.cloudinaryPublicId,
+        alt: body.alt,
+        sortOrder: images.length,
+        isPrimary: body.isPrimary || images.length === 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+      images = image.isPrimary
+        ? [image, ...images.map((i) => ({ ...i, isPrimary: false }))]
+        : [...images, image];
+      return json(201, image);
+    }
+    if (url.endsWith(`/api/admin/products/${PRODUCT_ID}`) && method === "GET") {
+      return json(200, { id: PRODUCT_ID, variants: [{ ...VARIANT, images }] });
+    }
+    if (url.endsWith("/images/order") && method === "PUT") {
+      const { imageIds } = JSON.parse(init!.body as string) as { imageIds: string[] };
+      backend.reorders.push(imageIds);
+      images = imageIds.map((id) => images.find((i) => i.id === id)!);
+      return json(200, images);
+    }
+    return Promise.reject(new Error(`Unhandled request: ${method} ${url}`));
   });
+  vi.stubGlobal("fetch", fetchMock);
+  return { backend, fetchMock };
+}
 
-  it("opens the native file picker when the visible button is clicked", async () => {
+function renderEditor(variant: AdminVariantDto = VARIANT) {
+  return renderWithProviders(
+    <AdminVariantsEditor productId={PRODUCT_ID} productName="Modelo QA" variants={[variant]} />,
+  );
+}
+
+// userEvent.upload() drops files that don't match `accept`, which would
+// hide the app's own validation; setting `files` directly doesn't.
+function chooseFiles(files: File[]) {
+  const input = screen.getByLabelText(/^(Elegir fotos|Agregar más fotos)$/);
+  Object.defineProperty(input, "files", { value: files, configurable: true });
+  fireEvent.change(input);
+}
+
+const thumb = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}:`) });
+const finalOrder = () =>
+  within(screen.getByRole("list", { name: "Orden final" }))
+    .getAllByRole("listitem")
+    .map((item) => item.textContent);
+
+beforeEach(() => {
+  let n = 0;
+  // jsdom has no object URLs; keep the real URL constructor (api-client uses it).
+  URL.createObjectURL = vi.fn(() => `blob:preview-${(n += 1)}`);
+  URL.revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("Admin photo upload — choose the order by clicking", () => {
+  it("offers a multi-file picker whose visible button is the real input's label", async () => {
     renderEditor();
+    const input = screen.getByLabelText("Elegir fotos");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveAttribute("multiple");
+    expect(input).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    expect(input).toHaveAccessibleDescription(/todas las de la carpeta.*hasta 8 MB/);
+
     const onPickerClick = vi.fn();
-    fileInput().addEventListener("click", onPickerClick);
-
-    await userEvent.click(screen.getByText("Seleccionar imagen"));
-
+    input.addEventListener("click", onPickerClick);
+    await userEvent.click(screen.getByText("Elegir fotos"));
     expect(onPickerClick).toHaveBeenCalledTimes(1);
   });
 
-  it("is reachable with the keyboard (the real input takes focus)", async () => {
+  it("is reachable with the keyboard", async () => {
     renderEditor();
-    const input = fileInput();
-    for (let i = 0; i < 20 && document.activeElement !== input; i += 1) {
-      await userEvent.tab();
-    }
+    const input = screen.getByLabelText("Elegir fotos");
+    for (let i = 0; i < 20 && document.activeElement !== input; i += 1) await userEvent.tab();
     expect(input).toHaveFocus();
   });
 
-  it("rejects an invalid file type client-side, before any network call", async () => {
-    const fetchMock = mockThreeStepUploadFetch();
-    vi.stubGlobal("fetch", fetchMock);
-    renderEditor();
-
-    attachFile(fileInput(), makeFile("doc.pdf", "application/pdf", 1000));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/formato de imagen no admitido/i);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Subir imagen" })).not.toBeInTheDocument();
-  });
-
-  it("rejects an oversized file client-side, before any network call", async () => {
-    const fetchMock = mockThreeStepUploadFetch();
-    vi.stubGlobal("fetch", fetchMock);
-    renderEditor();
-
-    attachFile(fileInput(), makeFile("huge.jpg", "image/jpeg", 9 * 1024 * 1024));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/supera el tamaño permitido/i);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("previews the selected image with its name and size, and keeps it if the picker is cancelled", async () => {
-    stubObjectUrls();
-    renderEditor();
-
-    attachFile(fileInput(), makeFile("frente-negro.jpg", "image/jpeg", 300 * 1024));
-
-    expect(await screen.findByAltText("Vista previa de la imagen seleccionada")).toHaveAttribute(
-      "src",
-      "blob:preview",
-    );
-    expect(screen.getByText("frente-negro.jpg")).toBeInTheDocument();
-    expect(screen.getByText("300 KB")).toBeInTheDocument();
-    // Same real input, now named for what clicking it does next.
-    expect(screen.getByLabelText("Cambiar imagen")).toHaveAttribute("type", "file");
-
-    // Cancelling the native picker fires `change` with no file.
-    Object.defineProperty(screen.getByLabelText("Cambiar imagen"), "files", {
-      value: [],
-      configurable: true,
-    });
-    fireEvent.change(screen.getByLabelText("Cambiar imagen"));
-    expect(screen.getByText("frente-negro.jpg")).toBeInTheDocument();
-  });
-
-  it("'Quitar' clears the selection", async () => {
-    stubObjectUrls();
-    renderEditor();
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-
-    await userEvent.click(await screen.findByRole("button", { name: "Quitar" }));
-
-    expect(screen.queryByText("frame.jpg")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Seleccionar imagen")).toHaveValue("");
-  });
-
-  it("completes sign → Cloudinary → register, confirms success and clears the selection", async () => {
+  it("numbers photos in click order, not in the order the picker returned them", async () => {
     const user = userEvent.setup();
-    const fetchMock = mockThreeStepUploadFetch();
-    vi.stubGlobal("fetch", fetchMock);
-    stubObjectUrls();
     renderEditor();
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg"), jpg("d.jpg")]);
 
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Foto frontal");
-    await user.click(screen.getByRole("button", { name: "Subir imagen" }));
+    expect(screen.getByText(/Tocá las fotos en el orden en que se van a mostrar/)).toBeVisible();
+    expect(thumb("a.jpg")).toHaveAttribute("aria-pressed", "false");
 
-    expect(await screen.findByText("Imagen subida correctamente.")).toBeInTheDocument();
-    expect(screen.getByRole("status", { name: "Estado de la carga" })).toHaveTextContent(
-      "Imagen subida correctamente.",
+    await user.click(thumb("c.jpg"));
+    await user.click(thumb("a.jpg"));
+    await user.click(thumb("d.jpg"));
+
+    expect(thumb("c.jpg")).toHaveAccessibleName("c.jpg: elegida, número 1, principal");
+    expect(thumb("a.jpg")).toHaveAccessibleName("a.jpg: elegida, número 2");
+    expect(thumb("d.jpg")).toHaveAccessibleName("d.jpg: elegida, número 3");
+    expect(thumb("b.jpg")).toHaveAccessibleName("b.jpg: sin elegir");
+    expect(within(thumb("c.jpg")).getByText("Principal")).toBeInTheDocument();
+    expect(finalOrder()).toEqual(["1Principalc.jpg", "2a.jpg", "3d.jpg"]);
+    expect(screen.getByText(/3 de 4 elegidas · las no elegidas no se suben/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Subir 3 fotos en este orden" })).toBeEnabled();
+  });
+
+  it("clicking a numbered photo again takes it out and renumbers the rest", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(thumb("b.jpg"));
+    await user.click(thumb("c.jpg"));
+
+    await user.click(thumb("a.jpg"));
+
+    expect(thumb("a.jpg")).toHaveAttribute("aria-pressed", "false");
+    expect(thumb("b.jpg")).toHaveAccessibleName("b.jpg: elegida, número 1, principal");
+    expect(thumb("c.jpg")).toHaveAccessibleName("c.jpg: elegida, número 2");
+    expect(finalOrder()).toEqual(["1Principalb.jpg", "2c.jpg"]);
+
+    // Clicked again, it goes to the end.
+    await user.click(thumb("a.jpg"));
+    expect(finalOrder()).toEqual(["1Principalb.jpg", "2c.jpg", "3a.jpg"]);
+
+    await user.click(screen.getByRole("button", { name: "Desmarcar todas" }));
+    expect(screen.queryByRole("list", { name: "Orden final" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Subir/ })).toBeNull();
+  });
+
+  it("rejects invalid files and repeated ones before any network call, keeping the valid ones", async () => {
+    const { fetchMock } = stubBackend();
+    renderEditor();
+    chooseFiles([
+      jpg("ok.jpg"),
+      new File(["x"], "doc.pdf", { type: "application/pdf" }),
+      jpg("huge.jpg", 9 * 1024 * 1024),
+    ]);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /«doc.pdf»: .*formato de imagen no admitido/i,
     );
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes("/images/sign-upload"))).toBe(true);
-    expect(urls.some((url) => url.startsWith("https://api.cloudinary.com/"))).toBe(true);
-    const register = fetchMock.mock.calls.find(
-      (call) => String(call[0]).endsWith("/images") && call[1]?.method === "POST",
+    expect(thumb("ok.jpg")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^huge.jpg:/ })).toBeNull();
+
+    chooseFiles([jpg("ok.jpg"), jpg("otra.jpg")]);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Una foto ya estaba en la lista: no se repite.",
     );
-    expect(JSON.parse(register![1].body as string)).toEqual({
-      cloudinaryPublicId: "soluciones-opticas/test/products/product-1/variant-1/uuid",
-      alt: "Foto frontal",
+    expect(screen.getAllByRole("button", { name: /^ok.jpg:/ })).toHaveLength(1);
+    expect(thumb("otra.jpg")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("saves exactly the clicked sequence even when the uploads finish in another order", async () => {
+    const user = userEvent.setup();
+    // The first photo is the slowest to reach Cloudinary, the last the fastest.
+    const { backend } = stubBackend({ slow: { "c.jpg": 60, "a.jpg": 30, "e.jpg": 0 } });
+    renderEditor();
+    chooseFiles(["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"].map((name) => jpg(name)));
+    for (const name of ["c.jpg", "a.jpg", "e.jpg", "b.jpg", "d.jpg"]) await user.click(thumb(name));
+
+    await user.click(screen.getByRole("button", { name: "Subir 5 fotos en este orden" }));
+
+    expect(await screen.findByText("Se subieron 5 fotos en el orden elegido.")).toBeInTheDocument();
+    expect(backend.cloudinary[0]).not.toBe("c.jpg"); // it really did finish later
+    expect(backend.maxParallelUploads).toBeLessThanOrEqual(3);
+    expect(backend.registered).toEqual([
+      { cloudinaryPublicId: "pub/c.jpg", alt: "Modelo QA — Negro — foto 1", isPrimary: true },
+      { cloudinaryPublicId: "pub/a.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
+      { cloudinaryPublicId: "pub/e.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
+      { cloudinaryPublicId: "pub/b.jpg", alt: "Modelo QA — Negro — foto 4", isPrimary: false },
+      { cloudinaryPublicId: "pub/d.jpg", alt: "Modelo QA — Negro — foto 5", isPrimary: false },
+    ]);
+    expect(backend.reorders).toEqual([]); // nothing to fix
+    // The grid is emptied for the next batch.
+    expect(screen.queryByRole("list", { name: "Fotos para elegir" })).toBeNull();
+  });
+
+  it("only uploads the numbered photos", async () => {
+    const user = userEvent.setup();
+    const { backend } = stubBackend();
+    renderEditor();
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg")]);
+    await user.click(thumb("b.jpg"));
+    await user.click(screen.getByRole("button", { name: "Subir 1 foto" }));
+    await screen.findByText("Se subió 1 foto.");
+    expect(backend.cloudinary).toEqual(["b.jpg"]);
+    // The unchosen ones are cleared with the batch.
+    expect(screen.queryByRole("list", { name: "Fotos para elegir" })).toBeNull();
+  });
+
+  it("on a variant that already has photos: appends after them and never replaces the primary", async () => {
+    const user = userEvent.setup();
+    const { backend } = stubBackend({ existing: [EXISTING_IMAGE] });
+    renderEditor({ ...VARIANT, images: [EXISTING_IMAGE] });
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg")]);
+
+    expect(
+      screen.getByText(/Se agregan después de la foto actual; la principal no cambia/),
+    ).toBeInTheDocument();
+    await user.click(thumb("b.jpg"));
+    await user.click(thumb("a.jpg"));
+    expect(thumb("b.jpg")).toHaveAccessibleName("b.jpg: elegida, número 1");
+    expect(within(thumb("b.jpg")).queryByText("Principal")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Subir 2 fotos en este orden" }));
+    await screen.findByText("Se subieron 2 fotos en el orden elegido.");
+    expect(backend.registered).toEqual([
+      { cloudinaryPublicId: "pub/b.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
+      { cloudinaryPublicId: "pub/a.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
+    ]);
+  });
+
+  it("a failed photo: the others are saved in order, and the retry puts it back in its number", async () => {
+    const user = userEvent.setup();
+    const { backend } = stubBackend({ existing: [EXISTING_IMAGE], failOnce: ["b.jpg"] });
+    renderEditor({ ...VARIANT, images: [EXISTING_IMAGE] });
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg")]);
+    for (const name of ["a.jpg", "b.jpg", "c.jpg"]) await user.click(thumb(name));
+    await user.click(screen.getByRole("button", { name: "Subir 3 fotos en este orden" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "No se pudo subir una foto (las demás quedaron guardadas en orden)",
+    );
+    expect(alert).toHaveTextContent("Foto 2 · b.jpg: no se pudo subir");
+    expect(alert).not.toHaveTextContent(/invalid image file/i);
+    expect(thumb("a.jpg")).toHaveAccessibleName("a.jpg: elegida, número 1, subida");
+    expect(thumb("b.jpg")).toHaveAccessibleName("b.jpg: elegida, número 2, falló");
+    // The sequence is fixed now: clicking does nothing.
+    expect(thumb("a.jpg")).toBeDisabled();
+    expect(backend.registered.map((r) => r.cloudinaryPublicId)).toEqual(["pub/a.jpg", "pub/c.jpg"]);
+
+    await user.click(within(alert).getByRole("button", { name: "Reintentar la que falló" }));
+
+    expect(await screen.findByText("Se subieron 3 fotos en el orden elegido.")).toBeInTheDocument();
+    expect(backend.registered.at(-1)).toEqual({
+      cloudinaryPublicId: "pub/b.jpg",
+      alt: "Modelo QA — Negro — foto 3",
+      isPrimary: false,
+    });
+    // b was appended after c; the order is put back, the existing primary first.
+    expect(backend.reorders).toEqual([["image-0", "img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
+  });
+
+  it("the first photo of an empty variant fails: the retry still makes it the primary", async () => {
+    const user = userEvent.setup();
+    const { backend } = stubBackend({ failOnce: ["a.jpg"] });
+    renderEditor();
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(thumb("b.jpg"));
+    await user.click(screen.getByRole("button", { name: "Subir 2 fotos en este orden" }));
+    await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+
+    await screen.findByText("Se subieron 2 fotos en el orden elegido.");
+    expect(backend.registered.at(-1)).toMatchObject({
+      cloudinaryPublicId: "pub/a.jpg",
       isPrimary: true,
     });
-    expect(screen.queryByText("frame.jpg")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Descripción de la foto")).not.toBeInTheDocument();
-    expect(fileInput()).toHaveValue("");
+    // Registered as primary it is already first: no reorder needed.
+    expect(backend.reorders).toEqual([]);
   });
 
-  it("does not mark later images as primary", async () => {
+  it("'No subirlas' keeps what was saved and clears the list", async () => {
     const user = userEvent.setup();
-    const fetchMock = mockThreeStepUploadFetch();
-    vi.stubGlobal("fetch", fetchMock);
-    stubObjectUrls();
-    renderEditor({ ...VARIANT, images: [EXISTING_IMAGE] });
-
-    attachFile(fileInput(), makeFile("lateral.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Vista lateral");
-    await user.click(screen.getByRole("button", { name: "Subir imagen" }));
-
-    await screen.findByText("Imagen subida correctamente.");
-    const register = fetchMock.mock.calls.find(
-      (call) => String(call[0]).endsWith("/images") && call[1]?.method === "POST",
-    );
-    expect(JSON.parse(register![1].body as string).isPrimary).toBe(false);
-  });
-
-  it("needs a photo description before uploading", async () => {
-    stubObjectUrls();
+    const { backend } = stubBackend({ failOnce: ["b.jpg"] });
     renderEditor();
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(thumb("b.jpg"));
+    await user.click(screen.getByRole("button", { name: "Subir 2 fotos en este orden" }));
+    await user.click(await screen.findByRole("button", { name: "No subirlas" }));
 
-    const submit = await screen.findByRole("button", { name: "Subir imagen" });
-    expect(submit).toBeDisabled();
-    await userEvent.type(screen.getByLabelText("Descripción de la foto"), "   ");
-    expect(submit).toBeDisabled();
-  });
-
-  it("shows a Spanish error (never Cloudinary's own text) and a retry that keeps the form", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", mockThreeStepUploadFetch({ cloudinaryOk: false }));
-    stubObjectUrls();
-    renderEditor();
-
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Foto frontal");
-    await user.click(screen.getByRole("button", { name: "Subir imagen" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No pudimos subir la imagen. Probá de nuevo o elegí otra foto (JPEG, PNG o WebP).",
-    );
-    expect(screen.queryByText(/invalid image file/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reintentar" })).toBeEnabled();
-    expect(screen.getByLabelText("Descripción de la foto")).toHaveValue("Foto frontal");
-    expect(screen.getByText("frame.jpg")).toBeInTheDocument();
-  });
-
-  it("never shows a 5xx body when registering the image fails", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", mockThreeStepUploadFetch({ confirmOk: false }));
-    stubObjectUrls();
-    renderEditor();
-
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Foto frontal");
-    await user.click(screen.getByRole("button", { name: "Subir imagen" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/No pudimos subir la imagen/);
+    expect(screen.getByText("Quedaron 1 foto en el orden elegido.")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Fotos para elegir" })).toBeNull();
+    expect(backend.registered).toHaveLength(1);
   });
 
   it("explains a connection problem", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", mockThreeStepUploadFetch({ networkDown: true }));
-    stubObjectUrls();
+    stubBackend({ networkDown: true });
     renderEditor();
-
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Foto frontal");
-    await user.click(screen.getByRole("button", { name: "Subir imagen" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No pudimos conectarnos para subir la imagen. Revisá tu conexión e intentá de nuevo.",
-    );
+    chooseFiles([jpg("a.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(screen.getByRole("button", { name: "Subir 1 foto" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Foto 1 · a.jpg: sin conexión");
   });
 
-  it("shows a loading state and starts a single upload on a double submit", async () => {
+  it("a double click uploads the batch once", async () => {
     const user = userEvent.setup();
-    let releaseSign: () => void = () => {};
-    const base = mockThreeStepUploadFetch();
-    const fetchMock = vi.fn((url: string | URL, init?: RequestInit) =>
-      String(url).includes("sign-upload")
-        ? new Promise((resolve) => {
-            releaseSign = () => resolve(base(url, init));
-          })
-        : base(url, init),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    stubObjectUrls();
+    const { fetchMock } = stubBackend({ slow: { "a.jpg": 20 } });
     renderEditor();
+    chooseFiles([jpg("a.jpg"), jpg("b.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(thumb("b.jpg"));
+    await user.dblClick(screen.getByRole("button", { name: "Subir 2 fotos en este orden" }));
 
-    attachFile(fileInput(), makeFile("frame.jpg", "image/jpeg", 1000));
-    await user.type(await screen.findByLabelText("Descripción de la foto"), "Foto frontal");
-    await user.dblClick(screen.getByRole("button", { name: "Subir imagen" }));
-    fireEvent.submit(screen.getByRole("button", { name: "Subiendo…" }).closest("form")!);
-
-    expect(screen.getByRole("button", { name: "Subiendo…" })).toBeDisabled();
-    expect(screen.getByRole("status", { name: "Estado de la carga" })).toHaveTextContent(
-      "Subiendo imagen…",
-    );
-    expect(screen.getByLabelText("Cambiar imagen")).toBeDisabled();
+    await screen.findByText("Se subieron 2 fotos en el orden elegido.");
     expect(
       fetchMock.mock.calls.filter((call) => String(call[0]).includes("sign-upload")),
-    ).toHaveLength(1);
-
-    releaseSign();
-    expect(await screen.findByText("Imagen subida correctamente.")).toBeInTheDocument();
+    ).toHaveLength(2);
   });
 
-  it("accepts a dropped image", async () => {
-    stubObjectUrls();
+  it("shows progress and locks the grid while uploading", async () => {
+    const user = userEvent.setup();
+    stubBackend({ slow: { "a.jpg": 30 } });
     renderEditor();
-    const zone = screen.getByText("Agregá fotos de este producto").closest("label")!;
+    chooseFiles([jpg("a.jpg")]);
+    await user.click(thumb("a.jpg"));
+    await user.click(screen.getByRole("button", { name: "Subir 1 foto" }));
 
-    fireEvent.drop(zone, {
-      dataTransfer: { files: [makeFile("arrastrada.png", "image/png", 2000)] },
-    });
+    expect(screen.getByRole("status", { name: "Estado de la carga" })).toHaveTextContent(
+      "Subiendo 0 de 1…",
+    );
+    expect(thumb("a.jpg")).toBeDisabled();
+    expect(screen.getByLabelText("Agregar más fotos")).toBeDisabled();
+    await waitFor(() => expect(screen.getByText("Se subió 1 foto.")).toBeInTheDocument());
+  });
 
-    expect(await screen.findByText("arrastrada.png")).toBeInTheDocument();
+  it("accepts several dropped photos", () => {
+    renderEditor();
+    const zone = screen.getByText("Elegir fotos").closest("label")!;
+    fireEvent.drop(zone, { dataTransfer: { files: [jpg("x.jpg"), jpg("y.png")] } });
+    expect(thumb("x.jpg")).toBeInTheDocument();
+    expect(thumb("y.png")).toBeInTheDocument();
   });
 });

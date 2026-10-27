@@ -39,8 +39,13 @@ function stubBackend(
   const fetchMock = vi.fn(async (raw: string | URL, init?: RequestInit) => {
     const url = new URL(raw);
     const method = init?.method ?? "GET";
+    // For Cloudinary, the uploaded file's name: proves which photo went first.
     const body =
-      typeof init?.body === "string" ? JSON.parse(init.body) : init?.body ? "form-data" : null;
+      typeof init?.body === "string"
+        ? JSON.parse(init.body)
+        : init?.body instanceof FormData
+          ? (init.body.get("file") as File).name
+          : null;
     calls.push({ method, path: url.pathname, body });
     if (url.pathname === "/api/auth/me" || url.pathname === "/api/auth/refresh") {
       return json(401, { error: { code: "UNAUTHENTICATED", message: "No autenticado." } });
@@ -124,7 +129,15 @@ const panel = () => screen.getByRole("tabpanel");
 
 async function fillProduct(
   user: ReturnType<typeof userEvent.setup>,
-  data: { name: string; price: string; color?: string; sku?: string; photos?: File[] },
+  data: {
+    name: string;
+    price: string;
+    color?: string;
+    sku?: string;
+    photos?: File[];
+    /** Order the thumbnails are clicked in (default: as chosen). */
+    clickOrder?: string[];
+  },
 ) {
   const p = within(panel());
   await user.type(p.getByLabelText("Nombre"), data.name);
@@ -134,7 +147,12 @@ async function fillProduct(
   await user.type(p.getByLabelText("Precio base (ARS)"), data.price);
   if (data.color) await user.type(p.getByLabelText("Color"), data.color);
   if (data.sku) await user.type(p.getByLabelText("SKU"), data.sku);
-  if (data.photos) await user.upload(p.getByLabelText("Fotos (JPEG, PNG o WebP)"), data.photos);
+  if (data.photos) {
+    await user.upload(p.getByLabelText("Elegir fotos"), data.photos);
+    for (const name of data.clickOrder ?? data.photos.map((file) => file.name)) {
+      await user.click(p.getByRole("button", { name: new RegExp(`^${name}:`) }));
+    }
+  }
 }
 
 beforeEach(() => {
@@ -191,13 +209,13 @@ describe("AdminNewProductPage — several products at once", () => {
     await user.click(tabs[1]!);
     expect(within(panel()).getByLabelText("Precio base (ARS)")).toHaveValue(2000);
     expect(
-      within(panel())
+      within(within(panel()).getByRole("list", { name: "Orden final" }))
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual([expect.stringContaining("dos-a.jpg"), expect.stringContaining("dos-b.jpg")]);
   });
 
-  it("saves the second product first: its color and photos go to its own product, the others stay", async () => {
+  it("saves the second product first: its color and photos (in click order) go to its own product, the others stay", async () => {
     const user = userEvent.setup();
     const calls = stubBackend();
     renderPage();
@@ -215,6 +233,8 @@ describe("AdminNewProductPage — several products at once", () => {
       color: "Rojo",
       sku: "DOS-1",
       photos: [photo("dos-a.jpg"), photo("dos-b.jpg")],
+      // Clicked second-file-first: that is the order that must be saved.
+      clickOrder: ["dos-b.jpg", "dos-a.jpg"],
     });
 
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
@@ -231,7 +251,15 @@ describe("AdminNewProductPage — several products at once", () => {
     ]);
     expect(writes[0]!.body).toMatchObject({ name: "Dos QA", basePrice: 2000 });
     expect(writes[1]!.body).toEqual({ color: "Rojo", sku: "DOS-1", stock: 0 });
-    expect(writes[3]!.body).toMatchObject({ cloudinaryPublicId: "test/upload-1", isPrimary: true });
+    expect(calls.filter((call) => call.path.startsWith("/v1_1")).map((call) => call.body)).toEqual([
+      "dos-b.jpg",
+      "dos-a.jpg",
+    ]);
+    expect(writes[3]!.body).toMatchObject({
+      cloudinaryPublicId: "test/upload-1",
+      alt: "Dos QA — Rojo — foto 1",
+      isPrimary: true,
+    });
     expect(writes[5]!.body).toMatchObject({
       cloudinaryPublicId: "test/upload-2",
       isPrimary: false,
