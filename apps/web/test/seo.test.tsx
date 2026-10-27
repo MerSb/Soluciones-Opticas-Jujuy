@@ -317,12 +317,20 @@ describe("Vercel routing (real 404s instead of a catch-all)", () => {
     for (const path of appPaths()) {
       const rewrite = rewriteFor(path);
       if (!rewrite) continue;
-      expect(rewrite.destination, path).toBe(
-        PRIVATE.test(path) ? "/spa-private.html" : "/spa.html",
-      );
+      expect(rewrite.destination, path).toBe(PRIVATE.test(path) ? "/spa-private" : "/spa");
     }
     // index.html carries the home page's canonical: never serve it for another URL.
     expect(vercel.rewrites.some((r) => r.destination === "/index.html")).toBe(false);
+  });
+
+  it("rewrites point at clean URLs: with cleanUrls, a «.html» destination is a 404", () => {
+    // Production 2026-10-27: /spa answered 200, /spa.html a 308, and every
+    // route rewritten to /spa.html (product pages, login, admin) answered
+    // HTTP 404 with the 404.html shell — the app still rendered, so only
+    // the status (and crawlers) showed it.
+    const local = vercel.rewrites.filter((r) => r.destination.startsWith("/"));
+    expect(local.length).toBeGreaterThan(0);
+    for (const rewrite of local) expect(rewrite.destination, rewrite.source).not.toMatch(/\.html$/);
   });
 
   it("private routes also send X-Robots-Tag: noindex", () => {

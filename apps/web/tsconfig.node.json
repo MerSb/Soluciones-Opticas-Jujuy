@@ -11,6 +11,8 @@
   },
   "include": [
     "vite.config.ts",
+    "middleware.ts",
+    "test/middleware.test.ts",
     "scripts/**/*.ts",
     "src/lib/seo-routes.ts",
     "src/lib/seo-head-html.ts",

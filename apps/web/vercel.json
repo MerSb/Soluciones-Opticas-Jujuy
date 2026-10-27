@@ -9,35 +9,35 @@
     },
     {
       "source": "/products/:slug",
-      "destination": "/spa.html"
+      "destination": "/spa"
     },
     {
       "source": "/accesorios/:slug",
-      "destination": "/spa.html"
+      "destination": "/spa"
     },
     {
       "source": "/login",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     },
     {
       "source": "/register",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     },
     {
       "source": "/account",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     },
     {
       "source": "/account/:path*",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     },
     {
       "source": "/admin",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     },
     {
       "source": "/admin/:path*",
-      "destination": "/spa-private.html"
+      "destination": "/spa-private"
     }
   ],
   "headers": [

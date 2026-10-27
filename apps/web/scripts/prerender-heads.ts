@@ -16,7 +16,11 @@ import { fileForPath, headFor } from "../src/lib/seo-head-html";
 // known at build time): spa.html for product pages — no canonical or
 // og:url, the app sets the real ones (index.html's would point every
 // product at the home page) — and spa-private.html, the same plus
-// noindex, for login, registration, account and admin.
+// noindex, for login, registration, account and admin. With cleanUrls
+// Vercel serves them at /spa and /spa-private, so that is what the
+// rewrites must name: a «.html» destination resolves to nothing and the
+// route answers 404. middleware.ts turns unknown product slugs into a
+// real 404.
 // Unpublished routes (unapproved legal pages) get no file, so their URL
 // is a 404 too — and the build fails if draft text (a `[[PENDIENTE`
 // marker) ever reaches the output.

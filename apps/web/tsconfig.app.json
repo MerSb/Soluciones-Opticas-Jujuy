@@ -10,5 +10,7 @@
     "types": ["vite/client"],
     "noEmit": true
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  // Runs on Vercel (Node), not in the browser: type-checked by tsconfig.node.json.
+  "exclude": ["test/middleware.test.ts"]
 }
