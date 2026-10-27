@@ -132,11 +132,11 @@ En total, **9 activos y 1 eliminado.** Ninguno se aplica sin aprobación explíc
     - le suma los sinónimos de forma: «ojo de gato», «gatito», «aviator»…
   - **`GET /api/admin/products/similar`:** posibles duplicados por nombre o por SKU sin distinguir
     mayúsculas. Solo avisa, nunca bloquea.
-- **Normalización:** `apps/api/scripts/catalog-shapes.ts`, en tres pasos:
+- **Normalización:** `apps/api/scripts/catalog-shapes.ts`, en dos pasos:
   1. `preview`: genera la vista previa (HTML + CSV) desde una base o desde la auditoría de lectura.
-  2. `plan`: genera, desde las decisiones aprobadas, un SQL transaccional con guardas. Solo cambia
-     `shape` si sigue teniendo el valor esperado, así que es idempotente.
-  3. `revert`: genera el SQL inverso desde el registro.
+  2. `plan`: genera, desde las decisiones aprobadas, `aplicar.sql` (transaccional, con guardas: solo
+     cambia `shape` si sigue teniendo el valor esperado, así que es idempotente), `revertir.sql` (el
+     inverso, con la misma guarda) y `registro.json`.
 
   El SQL se lee antes de ejecutarlo. En la copia aislada se ejecuta con `psql`; en producción, solo
   con autorización.
@@ -175,6 +175,14 @@ elegida.
 - **Ensayo** sobre una copia restaurada del respaldo más reciente, comparando antes y después
   (productos, variantes, SKU, precios, stock, fotos, usuarios): solo cambia `shape` en las filas
   aprobadas.
+- **Resultado del ensayo (27/10/2026, copia del respaldo `20261027T000029Z`):**
+  - `aplicar.sql` cambió 10 filas (las de confianza alta); repetirlo cambió 0.
+  - De 3217 filas comparadas por huella, solo difieren esas 10 de `products`, y únicamente en
+    `shape`.
+  - El buscador, el filtro y `/api/products/shapes` de la rama respondieron bien sobre la copia. En
+    el navegador (escritorio, tablet y celular) no hubo desborde horizontal, errores ni escrituras.
+  - `revertir.sql` devolvió las 10 filas; las 3217 huellas quedaron idénticas a las originales.
+    Repetirlo cambió 0.
 - **Despliegue** (con autorización):
   1. Respaldo verificado.
   2. Push del código (sin migraciones).
