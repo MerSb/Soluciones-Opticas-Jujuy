@@ -12,5 +12,5 @@
   },
   "include": ["src", "test"],
   // Runs on Vercel (Node), not in the browser: type-checked by tsconfig.node.json.
-  "exclude": ["test/middleware.test.ts"]
+  "exclude": ["test/middleware.test.ts", "test/preview-api.test.ts"]
 }

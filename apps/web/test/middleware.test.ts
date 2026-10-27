@@ -68,12 +68,13 @@ describe("product page middleware", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("runs only on the public product pages — exactly vercel.json's /spa rewrites", () => {
+  it("runs on the public product pages — exactly vercel.json's /spa rewrites — and /api/*", () => {
     const vercel = JSON.parse(readFileSync(resolve(__dirname, "../vercel.json"), "utf8")) as {
       rewrites: { source: string; destination: string }[];
     };
     const spa = vercel.rewrites.filter((r) => r.destination === "/spa").map((r) => r.source);
-    expect([...config.matcher].sort()).toEqual(spa.sort());
+    // /api/* is the preview-only read proxy (test/preview-api.test.ts).
+    expect([...config.matcher].sort()).toEqual([...spa, "/api/:path*"].sort());
     expect(config.runtime).toBe("nodejs");
   });
 });
