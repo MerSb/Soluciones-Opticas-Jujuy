@@ -11,6 +11,7 @@ import {
 } from "../../services/queries/admin";
 import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 import { AccessoryColorPicker } from "./AccessoryColorPicker";
+import { VariantSkuEditor } from "./VariantSkuEditor";
 
 const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 // An empty stock field must never be saved as 0 by accident (Number("")
@@ -277,7 +278,7 @@ function VariantCard({
           <p className="font-medium text-text">
             {variant.color ?? "Sin color"} · {variant.material ?? "Sin material"}
           </p>
-          <p className="text-sm text-text-muted">SKU: {variant.sku}</p>
+          <VariantSkuEditor productId={productId} variant={variant} />
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -388,7 +389,7 @@ function AccessoryVariantCard({
               </span>
             )}
           </p>
-          <p className="text-sm text-text-muted">SKU: {variant.sku}</p>
+          <VariantSkuEditor productId={productId} variant={variant} />
         </div>
         <button
           type="button"

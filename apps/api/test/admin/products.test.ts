@@ -238,6 +238,76 @@ describe("admin products", () => {
         .send({ stock: 9 });
       expect(response.status).toBe(404);
     });
+
+    it("corrects a mistyped SKU in place, keeping the variant, its stock and its photos", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sku Fix`,
+        brandId,
+        categoryId,
+        basePrice: 15000,
+      });
+      const productId = product.body.id;
+      const base = `/api/admin/products/${productId}/variants`;
+      const variant = await adminAgent.post(base).send({
+        color: "Carey",
+        material: "Acetato",
+        sku: `TEST-SKU-TYPO-${RUN_ID}`,
+        stock: 7,
+        priceOverride: 18000,
+      });
+      const other = await adminAgent.post(base).send({ sku: `TEST-SKU-OTHER-${RUN_ID}` });
+      const image = await adminAgent
+        .post(`${base}/${variant.body.id}/images`)
+        .send({ cloudinaryPublicId: "test/sku-fix", alt: "Foto de prueba", isPrimary: true });
+      expect(image.status).toBe(201);
+      const path = `${base}/${variant.body.id}`;
+      const before = await prisma.productVariant.findUniqueOrThrow({
+        where: { id: variant.body.id },
+        include: { images: true },
+      });
+
+      const fixed = await adminAgent.patch(path).send({ sku: `  TEST-SKU-FIXED-${RUN_ID}  ` });
+      expect(fixed.status).toBe(200);
+      expect(fixed.body.id).toBe(variant.body.id);
+      expect(fixed.body.sku).toBe(`TEST-SKU-FIXED-${RUN_ID}`);
+      const after = await prisma.productVariant.findUniqueOrThrow({
+        where: { id: variant.body.id },
+        include: { images: true },
+      });
+      expect(after).toEqual({
+        ...before,
+        sku: `TEST-SKU-FIXED-${RUN_ID}`,
+        updatedAt: after.updatedAt,
+      });
+
+      // Another variant's SKU, blank, or over 100 characters: refused, nothing changes.
+      const taken = await adminAgent.patch(path).send({ sku: other.body.sku });
+      expect(taken.status).toBe(409);
+      expect(taken.body.error.message).toBe(`El SKU "${other.body.sku}" ya está en uso.`);
+      expect((await adminAgent.patch(path).send({ sku: "   " })).status).toBe(400);
+      expect((await adminAgent.patch(path).send({ sku: "A".repeat(101) })).status).toBe(400);
+      const unchanged = await adminAgent.patch(path).send({ sku: `TEST-SKU-FIXED-${RUN_ID}` });
+      expect(unchanged.status).toBe(200);
+      expect(
+        (await prisma.productVariant.findUniqueOrThrow({ where: { id: variant.body.id } })).sku,
+      ).toBe(`TEST-SKU-FIXED-${RUN_ID}`);
+    });
+
+    // Documents current behavior, not a rule: the unique index compares
+    // exact text, so a SKU differing only in letter case is accepted.
+    // Flip this when the case-insensitive index lands (docs/DATABASE_DESIGN.md).
+    it("currently accepts a SKU that differs from another only in letter case", async () => {
+      const product = await adminAgent.post("/api/admin/products").send({
+        name: `Test Product ${RUN_ID} Sku Case`,
+        brandId,
+        categoryId,
+        basePrice: 1000,
+      });
+      const base = `/api/admin/products/${product.body.id}/variants`;
+      await adminAgent.post(base).send({ sku: `TEST-SKU-CASE-${RUN_ID}` });
+      const lower = await adminAgent.post(base).send({ sku: `test-sku-case-${RUN_ID}` });
+      expect(lower.status).toBe(201);
+    });
   });
 
   describe("images — only one primary per variant", () => {

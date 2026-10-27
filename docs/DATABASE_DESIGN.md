@@ -110,6 +110,18 @@ partial/filtered unique index could do this, but it's real added complexity for 
 (currently nonexistent) admin write layer can enforce more simply when it's built. Flagged here
 rather than silently skipped.
 
+**SKU: editable, compared as exact text.** The admin can correct a variant's SKU in place
+(`PATCH …/variants/:variantId` with only `sku`). Nothing references a variant by its SKU — images,
+favorites and lens compatibility use ids, and there are no orders yet — so the change only moves
+what search and the product's structured data show. When orders exist, each order line must keep a
+copy of the SKU it was sold with. The unique index `product_variants_sku_key` compares exact text,
+so `AND-AVI-NEG` and `and-avi-neg` can coexist, while the duplicate warning and the accessory batch
+already treat them as the same. Read-only check (2026-10-27): no case-only clashes and no
+leading/trailing spaces in the local dev and QA databases; production not yet checked.
+Proposed, as its own change: run that check on a fresh production backup, then replace the index
+with a unique index on `lower(sku)` (raw SQL migration, like the `stock` CHECK) and map its `P2002`
+to the same `409`.
+
 ## Index strategy
 
 Every index below is tied to a concrete query, not spec­ulative:
