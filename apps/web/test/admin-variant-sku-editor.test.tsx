@@ -44,11 +44,12 @@ const ACCESSORY_VARIANT: AdminVariantDto = {
   priceOverride: 2500,
 };
 
-type PatchReply = "ok" | "conflict" | "network";
+type PatchReply = "ok" | "conflict" | "network" | "bad-request";
 
 // Records every PATCH body; the reply is the variant with the new SKU,
 // exactly as the API answers it.
-function stubPatch(reply: PatchReply = "ok") {
+// `hold` keeps every answer waiting until it is called.
+function stubPatch(reply: PatchReply = "ok", hold?: Promise<void>) {
   const bodies: unknown[] = [];
   vi.stubGlobal(
     "fetch",
@@ -58,6 +59,7 @@ function stubPatch(reply: PatchReply = "ok") {
       if (path === "/api/admin/products/p1/variants/v1" && method === "PATCH") {
         const body = JSON.parse(String(init!.body)) as { sku: string };
         bodies.push(body);
+        await hold;
         if (reply === "network") throw new TypeError("Failed to fetch");
         if (reply === "conflict") {
           return {
@@ -65,6 +67,15 @@ function stubPatch(reply: PatchReply = "ok") {
             status: 409,
             json: async () => ({
               error: { code: "CONFLICT", message: `El SKU "${body.sku}" ya está en uso.` },
+            }),
+          };
+        }
+        if (reply === "bad-request") {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              error: { code: "VALIDATION_ERROR", message: "El SKU no es válido." },
             }),
           };
         }
@@ -107,6 +118,10 @@ describe("Editar SKU — anteojos", () => {
     );
     expect(await screen.findByText("SKU actualizado a «SKU-1-OK».")).toBeInTheDocument();
     expect(screen.queryByLabelText("Nuevo SKU")).not.toBeInTheDocument();
+    // The new SKU shows at once, though the product (the prop) hasn't reloaded.
+    expect(screen.getByText("SKU: SKU-1-OK")).toBeInTheDocument();
+    expect(screen.queryByText("SKU: SKU-1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editar SKU SKU-1-OK" })).toHaveFocus();
     // Stock is untouched: the field keeps its value and nothing else was sent.
     expect(screen.getByLabelText("Stock de SKU-1")).toHaveValue(5);
   });
@@ -139,6 +154,7 @@ describe("Editar SKU — anteojos", () => {
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Nuevo SKU")).not.toBeInTheDocument();
     expect(screen.getByText("SKU: SKU-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editar SKU SKU-1" })).toHaveFocus();
     // Reopening starts again from the saved SKU, not the discarded draft.
     expect(await openEditor()).toHaveValue("SKU-1");
   });
@@ -217,6 +233,59 @@ describe("Editar SKU — anteojos", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Revisá la conexión");
     expect(screen.getByLabelText("Nuevo SKU")).toHaveValue("SKU-2");
     expect(screen.queryByText(/SKU actualizado/)).not.toBeInTheDocument();
+  });
+  it("a 400 shows the API's reason and keeps the draft", async () => {
+    stubPatch("bad-request");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderFrame();
+
+    const input = await openEditor();
+    await userEvent.clear(input);
+    await userEvent.type(input, "SKU-2");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar SKU" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos guardar el SKU: El SKU no es válido.",
+    );
+    expect(screen.getByLabelText("Nuevo SKU")).toHaveValue("SKU-2");
+    expect(screen.getByRole("button", { name: "Guardar SKU" })).toBeEnabled();
+  });
+
+  it("sends a change once, however many times it is submitted", async () => {
+    let release!: () => void;
+    const bodies = stubPatch("ok", new Promise<void>((resolve) => (release = resolve)));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderFrame();
+
+    const input = await openEditor();
+    await userEvent.clear(input);
+    await userEvent.type(input, "SKU-2");
+    const form = input.closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await userEvent.type(input, "{Enter}");
+
+    expect(await screen.findByRole("button", { name: "Guardando…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeDisabled();
+    release();
+    expect(await screen.findByText("SKU actualizado a «SKU-2».")).toBeInTheDocument();
+    expect(bodies).toEqual([{ sku: "SKU-2" }]);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("the form is labelled and its errors are tied to the field", async () => {
+    stubPatch();
+    renderFrame();
+
+    const input = await openEditor();
+    expect(input).toHaveFocus();
+    expect(input).toBeRequired();
+    expect(screen.getByRole("form", { name: "Editar SKU SKU-1" })).toContainElement(input);
+    expect(input).toHaveAccessibleDescription("Actual: SKU-1");
+
+    await userEvent.clear(input);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription(expect.stringContaining("Ingresá el SKU."));
   });
 });
 

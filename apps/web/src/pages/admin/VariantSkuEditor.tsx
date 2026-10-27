@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { AdminVariantDto } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
@@ -21,6 +21,10 @@ function confirmSkuChange(previous: string, next: string): boolean {
   );
 }
 
+// FormField's input height (46px: py-2.5, text-base, border), so field and
+// buttons line up; also over the 44px minimum touch target.
+const BUTTON = "inline-flex min-h-[2.875rem] items-center rounded-md px-3 text-sm font-medium";
+
 /**
  * Fixes a mistyped SKU in place: the variant (its id, stock, price and
  * photos) stays the same, so correcting a code never means deleting and
@@ -37,37 +41,63 @@ export function VariantSkuEditor({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(variant.sku);
   const [touched, setTouched] = useState(false);
-  const [savedSku, setSavedSku] = useState<string | null>(null);
+  // The saved answer, shown at once instead of the old SKU while the
+  // product reloads; dropped as soon as the variant says anything else.
+  const [saved, setSaved] = useState<{ from: string; to: string } | null>(null);
+  const sending = useRef(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const focusEditButton = useRef(false);
 
+  const fresh = saved && (variant.sku === saved.from || variant.sku === saved.to) ? saved : null;
+  const currentSku = fresh?.to ?? variant.sku;
   const next = draft.trim();
   const problem = skuProblem(next);
-  const unchanged = next === variant.sku;
+  const unchanged = next === currentSku;
+
+  useEffect(() => {
+    if (!editing && focusEditButton.current) {
+      focusEditButton.current = false;
+      editButton.current?.focus();
+    }
+  }, [editing]);
 
   function startEditing() {
     updateSku.reset();
-    setDraft(variant.sku);
+    setDraft(currentSku);
     setTouched(false);
-    setSavedSku(null);
+    setSaved(null);
     setEditing(true);
+  }
+
+  function close() {
+    focusEditButton.current = true;
+    setEditing(false);
   }
 
   function cancel() {
     updateSku.reset();
-    setDraft(variant.sku);
-    setEditing(false);
+    setDraft(currentSku);
+    close();
   }
 
   function save(event: FormEvent) {
     event.preventDefault();
     setTouched(true);
-    if (problem || unchanged || updateSku.isPending) return;
-    if (!confirmSkuChange(variant.sku, next)) return;
+    // The ref, not isPending, so a second Enter before the next render
+    // can't send the same change twice.
+    if (problem || unchanged || sending.current) return;
+    if (!confirmSkuChange(currentSku, next)) return;
+    sending.current = true;
+    const from = currentSku;
     updateSku.mutate(
       { variantId: variant.id, body: { sku: next } },
       {
-        onSuccess: (saved) => {
-          setSavedSku(saved.sku);
-          setEditing(false);
+        onSuccess: (variantSaved) => {
+          setSaved({ from, to: variantSaved.sku });
+          close();
+        },
+        onSettled: () => {
+          sending.current = false;
         },
       },
     );
@@ -77,27 +107,28 @@ export function VariantSkuEditor({
     ? undefined
     : updateSku.error instanceof ApiClientError
       ? updateSku.error.status === 409
-        ? `${updateSku.error.message} Elegí otro código: el SKU sigue siendo «${variant.sku}».`
+        ? `${updateSku.error.message} Elegí otro código: el SKU sigue siendo «${currentSku}».`
         : `No pudimos guardar el SKU: ${updateSku.error.message}`
       : "No pudimos guardar el SKU. Revisá la conexión e intentá de nuevo.";
 
   if (!editing) {
     return (
       <div>
-        <p className="flex flex-wrap items-center gap-2 text-sm text-text-muted">
-          SKU: {variant.sku}
+        <p className="flex flex-wrap items-center gap-x-1 text-sm text-text-muted">
+          SKU: {currentSku}
           <button
+            ref={editButton}
             type="button"
             onClick={startEditing}
-            aria-label={`Editar SKU ${variant.sku}`}
-            className="text-sm font-medium text-primary hover:underline"
+            aria-label={`Editar SKU ${currentSku}`}
+            className={`${BUTTON} -my-2 min-w-11 justify-center px-2 text-primary hover:underline`}
           >
             Editar SKU
           </button>
         </p>
-        {savedSku && (
-          <p role="status" className="mt-1 text-xs text-success">
-            SKU actualizado a «{savedSku}».
+        {fresh && (
+          <p role="status" className="text-xs text-success">
+            SKU actualizado a «{fresh.to}».
           </p>
         )}
       </div>
@@ -105,7 +136,12 @@ export function VariantSkuEditor({
   }
 
   return (
-    <form onSubmit={save} className="mt-1 flex flex-wrap items-end gap-2" noValidate>
+    <form
+      onSubmit={save}
+      aria-label={`Editar SKU ${currentSku}`}
+      className="mt-1 flex w-full flex-wrap items-start gap-2"
+      noValidate
+    >
       <FormField
         label="Nuevo SKU"
         value={draft}
@@ -114,26 +150,30 @@ export function VariantSkuEditor({
           setTouched(true);
         }}
         maxLength={SKU_MAX_LENGTH}
+        required
         error={touched ? problem : undefined}
-        hint={`Actual: ${variant.sku}`}
-        className="w-56"
+        hint={`Actual: ${currentSku}`}
+        className="w-full sm:w-56"
         autoFocus
       />
-      <button
-        type="submit"
-        disabled={updateSku.isPending || Boolean(problem) || unchanged}
-        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-muted disabled:opacity-60"
-      >
-        {updateSku.isPending ? "Guardando…" : "Guardar SKU"}
-      </button>
-      <button
-        type="button"
-        onClick={cancel}
-        disabled={updateSku.isPending}
-        className="px-2 py-1.5 text-sm font-medium text-text-muted hover:underline disabled:opacity-60"
-      >
-        Cancelar
-      </button>
+      {/* Past the field's label (20px line + 6px gap), level with the input. */}
+      <div className="flex gap-2 sm:mt-[1.625rem]">
+        <button
+          type="submit"
+          disabled={updateSku.isPending || Boolean(problem) || unchanged}
+          className={`${BUTTON} border border-border text-text hover:bg-surface-muted disabled:opacity-60`}
+        >
+          {updateSku.isPending ? "Guardando…" : "Guardar SKU"}
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={updateSku.isPending}
+          className={`${BUTTON} text-text-muted hover:underline disabled:opacity-60`}
+        >
+          Cancelar
+        </button>
+      </div>
       {saveError && (
         <p role="alert" className="w-full text-sm text-danger">
           {saveError}
