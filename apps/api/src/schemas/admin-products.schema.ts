@@ -161,3 +161,10 @@ export const imageIdParamSchema = z.object({
   variantId: z.string().uuid(),
   imageId: z.string().uuid(),
 });
+
+export const similarProductsQuerySchema = z.object({
+  name: z.string().trim().max(200).optional(),
+  sku: z.string().trim().max(100).optional(),
+  excludeId: z.string().uuid().optional(),
+});
+export type SimilarProductsQuery = z.infer<typeof similarProductsQuerySchema>;

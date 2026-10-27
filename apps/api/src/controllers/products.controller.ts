@@ -73,3 +73,9 @@ export const getQuote = asyncHandler(async (_req: Request, res: Response) => {
     totalWithAccessories: new Prisma.Decimal(quote.total).plus(surcharge).toNumber(),
   });
 });
+
+// Official shapes with public products (docs/CATALOGO_NORMALIZACION.md),
+// for the catalog's shape filter.
+export const listShapes = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await productsService.listPublicShapes());
+});

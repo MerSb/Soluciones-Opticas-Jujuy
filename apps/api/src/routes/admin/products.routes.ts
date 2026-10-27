@@ -9,6 +9,7 @@ import {
   deleteVariant,
   getProduct,
   listProducts,
+  similarProducts,
   reorderImages,
   restoreProduct,
   setProductLensTypes,
@@ -31,12 +32,16 @@ import {
   updateProductBodySchema,
   updateVariantBodySchema,
   variantIdParamSchema,
+  similarProductsQuerySchema,
 } from "../../schemas/admin-products.schema.js";
 import { setProductLensTypesBodySchema } from "../../schemas/admin-lens.schema.js";
 
 export const adminProductsRouter = Router();
 
 adminProductsRouter.get("/", validateQuery(adminProductsListQuerySchema), listProducts);
+// Possible duplicates while loading (docs/CATALOGO_NORMALIZACION.md) —
+// before "/:id" so "similar" is never read as an id.
+adminProductsRouter.get("/similar", validateQuery(similarProductsQuerySchema), similarProducts);
 adminProductsRouter.post("/", validateBody(createProductBodySchema), createProduct);
 adminProductsRouter.get("/:id", validateParams(productIdParamSchema), getProduct);
 adminProductsRouter.patch(

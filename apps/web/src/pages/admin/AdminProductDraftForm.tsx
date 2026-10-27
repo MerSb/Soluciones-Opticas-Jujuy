@@ -11,8 +11,8 @@ import type {
   ProductKind,
 } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
+import { ShapeSelect } from "../../components/admin/ShapeSelect";
 import { ApiClientError, apiPost } from "../../services/api-client";
-import { FRAME_SHAPE_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
 import { validateImageFile } from "../../lib/image-validation";
 import {
@@ -21,7 +21,11 @@ import {
   type DraftProgress,
   type ProductDraftFields,
 } from "../../lib/product-drafts";
-import { invalidateProduct, uploadProductImage } from "../../services/queries/admin";
+import {
+  invalidateProduct,
+  uploadProductImage,
+  useSimilarProductsQuery,
+} from "../../services/queries/admin";
 
 // One tab of the multi-tab new-product page: the same basic fields as the
 // single form, plus an optional first color with its photos (photos belong
@@ -332,6 +336,7 @@ export function AdminProductDraftForm({
 
       <FormField
         label="Nombre"
+        hint="Nombre comercial que ve el cliente: lo que distingue al modelo (forma, color, material, línea). La marca va aparte. Ej.: «Gatito Rosa Metálico Paris»."
         value={fields.name}
         disabled={locked}
         onChange={(e) => set("name", e.target.value)}
@@ -382,6 +387,10 @@ export function AdminProductDraftForm({
             </option>
           ))}
         </select>
+        <p className="mt-1.5 text-xs text-text-muted">
+          Clip-on, polarizado o 2 en 1 son características, no formas: elegí la categoría que
+          corresponda (por ejemplo «Anteojos Con Clip On») y mencionalo en el nombre.
+        </p>
       </div>
 
       {isAccessory ? (
@@ -428,24 +437,12 @@ export function AdminProductDraftForm({
           </label>
         </>
       ) : (
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-text" htmlFor={`${id}-shape`}>
-            Forma (opcional)
-          </label>
-          <input
-            id={`${id}-shape`}
-            list={`${id}-shapes`}
-            value={fields.shape}
-            disabled={locked}
-            onChange={(event) => set("shape", event.target.value)}
-            className={selectClass}
-          />
-          <datalist id={`${id}-shapes`}>
-            {FRAME_SHAPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.label} />
-            ))}
-          </datalist>
-        </div>
+        <ShapeSelect
+          value={fields.shape}
+          disabled={locked}
+          onChange={(value) => set("shape", value)}
+          selectClassName={selectClass}
+        />
       )}
 
       <FormField
@@ -473,10 +470,16 @@ export function AdminProductDraftForm({
         <div className="grid gap-3 sm:grid-cols-3">
           <FormField
             label="Color"
+            hint="Color principal primero: «Negro mate», «Rosa transparente»."
             value={fields.color}
             onChange={(e) => set("color", e.target.value)}
           />
-          <FormField label="SKU" value={fields.sku} onChange={(e) => set("sku", e.target.value)} />
+          <FormField
+            label="SKU"
+            hint="Código único de este color. No reutilices uno existente."
+            value={fields.sku}
+            onChange={(e) => set("sku", e.target.value)}
+          />
           <FormField
             label="Stock"
             type="number"
@@ -537,6 +540,8 @@ export function AdminProductDraftForm({
         )}
       </div>
 
+      {!productCreated && <SimilarProductsWarning name={fields.name} sku={fields.sku} />}
+
       {missing.length > 0 && (dirty || productCreated) && (
         <p className="text-sm text-text-muted">Falta {missing.join(", ")}.</p>
       )}
@@ -560,5 +565,44 @@ export function AdminProductDraftForm({
               : "Crear producto"}
       </button>
     </form>
+  );
+}
+
+/** Possible duplicates of what is being loaded: a warning with links,
+ * never a block (the same model in another color is legitimate). */
+function SimilarProductsWarning({ name, sku }: { name: string; sku: string }) {
+  const similar = useSimilarProductsQuery(name, sku);
+  const found = similar.data ?? [];
+  if (found.length === 0) return null;
+  return (
+    <div
+      role="status"
+      className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-text"
+    >
+      <p className="font-semibold">Posibles productos ya cargados:</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {found.map((product) => (
+          <li key={`${product.id}-${product.reason}`}>
+            <a
+              href={`/admin/products/${product.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              {product.name}
+            </a>{" "}
+            <span className="text-text-muted">
+              ({product.brandName}
+              {product.reason === "SAME_SKU" ? ` · mismo SKU ${product.sku}` : " · mismo nombre"}
+              {product.deletedAt ? " · en la papelera" : ""})
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs text-text-muted">
+        Si es el mismo modelo en otro color, conviene agregar el color en su ficha. Si es otro
+        producto, podés guardarlo igual.
+      </p>
+    </div>
   );
 }

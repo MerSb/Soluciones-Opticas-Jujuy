@@ -6,7 +6,8 @@ import { SeoHead } from "../../components/ui/SeoHead";
 import { StatusMessage } from "../../components/ui/StatusMessage";
 import { FormField } from "../../components/forms/FormField";
 import { PreferenceChipGroup } from "../../components/optical-profile/PreferenceChipGroup";
-import { FRAME_SHAPE_OPTIONS, STYLE_PREFERENCE_OPTIONS } from "../../lib/optical-profile-taxonomy";
+import { STYLE_PREFERENCE_OPTIONS } from "../../lib/optical-profile-taxonomy";
+import { ShapeSelect } from "../../components/admin/ShapeSelect";
 import { ApiClientError } from "../../services/api-client";
 import {
   ACCESSORY_ROLE_OPTIONS,
@@ -299,23 +300,7 @@ export function AdminProductDetailPage() {
               </p>
             </div>
           ) : (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="shape-input">
-                Forma
-              </label>
-              <input
-                id="shape-input"
-                list="shape-options"
-                value={shape}
-                onChange={(event) => setShape(event.target.value)}
-                className="w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text"
-              />
-              <datalist id="shape-options">
-                {FRAME_SHAPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.label} />
-                ))}
-              </datalist>
-            </div>
+            <ShapeSelect value={shape} onChange={setShape} />
           )}
         </div>
 

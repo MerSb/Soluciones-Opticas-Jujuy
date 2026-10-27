@@ -3,6 +3,7 @@ import {
   getProduct,
   getQuote,
   getRelatedProducts,
+  listShapes,
   listProducts,
 } from "../controllers/products.controller.js";
 import { validateParams, validateQuery } from "../middleware/validate.js";
@@ -13,6 +14,7 @@ import { eyewearQuoteQuerySchema } from "../schemas/lens-configuration.schema.js
 export const productsRouter = Router();
 
 productsRouter.get("/", validateQuery(productsListQuerySchema), listProducts);
+productsRouter.get("/shapes", listShapes);
 productsRouter.get("/:slug", validateParams(slugParamSchema), getProduct);
 productsRouter.get("/:slug/related", validateParams(slugParamSchema), getRelatedProducts);
 productsRouter.get(

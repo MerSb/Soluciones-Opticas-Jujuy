@@ -1,5 +1,6 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type {
+  PublicShapeOptionDto,
   IncludedAccessoriesDto,
   IncludedAccessoriesSelection,
   EyewearConfigurationInput,
@@ -129,5 +130,14 @@ export function useIncludedAccessoriesQuery(enabled = true) {
     enabled,
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/** Official frame shapes with public products (catalog shape filter). */
+export function useShapesQuery() {
+  return useQuery({
+    queryKey: ["products", "shapes"],
+    queryFn: () => apiGet<PublicShapeOptionDto[]>("/api/products/shapes"),
+    staleTime: 5 * 60_000,
   });
 }

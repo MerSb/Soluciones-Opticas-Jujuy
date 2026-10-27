@@ -1,4 +1,10 @@
-import type { ColorFamily, FrameMaterial, FrameShape } from "@soluciones-opticas/shared";
+import type {
+  ColorFamily,
+  FrameMaterial,
+  FrameShape,
+  OfficialFrameShape,
+} from "@soluciones-opticas/shared";
+import { canonicalShape } from "../../lib/frame-shapes.js";
 
 // Pure normalization layer — the highest-priority piece of this phase
 // (§10 of the brief). The catalog's `Product.shape`/`ProductVariant.
@@ -51,9 +57,26 @@ const SHAPE_SYNONYMS: Record<string, FrameShape> = {
   "wrap around": "WRAP",
 };
 
+// Official catalog shapes (lib/frame-shapes.ts) that have a customer
+// preference counterpart. Mariposa, Hexagonal and Geométrico have none.
+const OFFICIAL_TO_PREFERENCE: Partial<Record<OfficialFrameShape, FrameShape>> = {
+  "Cat-eye": "CAT_EYE",
+  Aviador: "AVIATOR",
+  Ovalado: "OVAL",
+  Redondo: "ROUND",
+  Cuadrado: "SQUARE",
+  Rectangular: "RECTANGULAR",
+  Envolvente: "WRAP",
+};
+
 export function normalizeShape(raw: string | null | undefined): FrameShape | null {
   if (!raw) return null;
-  return SHAPE_SYNONYMS[normalizeText(raw)] ?? null;
+  const official = canonicalShape(raw);
+  return (
+    SHAPE_SYNONYMS[normalizeText(raw)] ??
+    (official ? OFFICIAL_TO_PREFERENCE[official] : null) ??
+    null
+  );
 }
 
 const MATERIAL_SYNONYMS: Record<string, FrameMaterial> = {

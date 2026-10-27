@@ -3,6 +3,7 @@ import type { CatalogFilters, FilterUpdate } from "../../lib/catalog-url-state";
 import { isValidPriceRange } from "../../lib/catalog-url-state";
 import { useBrandsQuery } from "../../services/queries/brands";
 import { useCategoriesQuery } from "../../services/queries/categories";
+import { useShapesQuery } from "../../services/queries/products";
 
 interface FilterFieldsProps {
   filters: CatalogFilters;
@@ -20,11 +21,12 @@ const labelClassName = "text-sm font-medium text-text";
 // Shared by the desktop sidebar and the mobile drawer — one set of
 // fields, two layout contexts. Brand/category are real dropdowns backed
 // by GET /api/brands and GET /api/categories (a handful of rows each,
-// cheap to load in full). Shape/material/color are plain text inputs,
-// not dropdowns — see the architectural note below.
+// cheap to load in full), and so is shape (official shapes only).
+// Material/color are plain text inputs — see the note below.
 export function FilterFields({ filters, onChange, idPrefix }: FilterFieldsProps) {
   const { data: brands } = useBrandsQuery();
   const { data: categories } = useCategoriesQuery();
+  const { data: shapes } = useShapesQuery();
 
   const id = (field: string) => `${idPrefix}-${field}`;
 
@@ -71,30 +73,33 @@ export function FilterFields({ filters, onChange, idPrefix }: FilterFieldsProps)
       </div>
 
       {/*
-        Shape/material/color are free-text, not dropdowns backed by a
-        facet list — GET /api/products accepts these as arbitrary
-        strings, but there is no endpoint exposing the *distinct*
-        values that actually exist in the catalog (unlike brand/
-        category, which have real summary endpoints). Building a
-        checkbox/dropdown list here would mean either fetching the
-        entire product catalog client-side just to derive unique
-        values — exactly what §11 says not to do — or hardcoding a
-        guessed list that could disagree with the database. A text
-        input needs neither. See docs/API.md "Known limitations" for
-        the minimal facets-endpoint addition this would unlock later.
+        Shape: the official shapes with public products, from GET
+        /api/products/shapes (docs/CATALOGO_NORMALIZACION.md) — one option
+        per shape, never a synonym. The URL keeps ?shape=<value>; an old
+        link with a synonym (?shape=gatito) still works, the API resolves it.
+        Material/color are still free-text: there is no facet endpoint for
+        them yet (see docs/API.md "Known limitations").
       */}
       <div>
         <label htmlFor={id("shape")} className={labelClassName}>
           Forma
         </label>
-        <input
+        <select
           id={id("shape")}
-          type="text"
           value={filters.shape ?? ""}
           onChange={(event) => onChange({ shape: event.target.value || undefined })}
-          placeholder="Ej: aviador"
           className={inputClassName}
-        />
+        >
+          <option value="">Todas las formas</option>
+          {filters.shape && !shapes?.some((option) => option.shape === filters.shape) && (
+            <option value={filters.shape}>{filters.shape}</option>
+          )}
+          {shapes?.map((option) => (
+            <option key={option.shape} value={option.shape}>
+              {option.shape} ({option.count})
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>

@@ -6,7 +6,14 @@ import { COMPLETE_PRODUCT_WHERE } from "../lib/product-completeness.js";
 import { FRAME_WHERE, PUBLIC_KIND_WHERE, catalogKindWhere } from "../lib/product-kind.js";
 import { listingPrice } from "../lib/listing-price.js";
 import { normalizeShape } from "./recommendation/normalize.js";
+import {
+  OFFICIAL_FRAME_SHAPES,
+  canonicalShape,
+  extractShapePhrases,
+  shapeKeys,
+} from "../lib/frame-shapes.js";
 import { PRODUCT_LENS_TYPES_ARGS, toPublicLensTypeDto } from "./lens-configuration.service.js";
+import type { PublicShapeOptionDto } from "@soluciones-opticas/shared";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
 import type {
   BrandRef,
@@ -179,11 +186,12 @@ async function filterProducts(
   // once and would silently drop one of the two conditions anyway (an
   // object spread collision, since both would set the same `variants`
   // key).
+  const shapeValues = query.shape ? await storedShapeValues(query.shape) : null;
   const where: Prisma.ProductWhereInput = {
     deletedAt: null,
     ...(query.brand ? { brand: { slug: query.brand } } : {}),
     ...(query.category ? { category: { slug: query.category } } : {}),
-    ...(query.shape ? { shape: query.shape } : {}),
+    ...(shapeValues ? { shape: { in: shapeValues } } : {}),
     AND: [
       COMPLETE_PRODUCT_WHERE,
       catalogKindWhere(query.kind),
@@ -294,27 +302,46 @@ function searchTokens(q: string): string[] {
   return normalizeSearchText(q).split(" ").filter(Boolean).slice(0, 8);
 }
 
+function textMatchCondition(token: string): Prisma.Sql {
+  const pattern = `%${escapeLike(token)}%`;
+  // Typo tolerance only for real words — a 1–2 letter token has no
+  // meaningful trigrams.
+  const fuzzy =
+    token.length >= 3 && !token.includes(" ")
+      ? Prisma.sql`OR ${token} <% ${normalizedSql(Prisma.sql`p.name`)}`
+      : Prisma.empty;
+  return Prisma.sql`(
+    ${normalizedSql(Prisma.sql`p.name`)} LIKE ${pattern}
+    OR ${normalizedSql(Prisma.sql`b.name`)} LIKE ${pattern}
+    OR EXISTS (
+      SELECT 1 FROM product_variants sv
+      WHERE sv.product_id = p.id
+        AND (${normalizedSql(Prisma.sql`sv.sku`)} LIKE ${pattern}
+             OR ${normalizedSql(Prisma.sql`coalesce(sv.color, '')`)} LIKE ${pattern})
+    )
+    ${fuzzy}
+  )`;
+}
+
+// A product's shape, normalized like the dictionary keys (lib/frame-shapes.ts).
+const SHAPE_SQL = Prisma.sql`trim(regexp_replace(regexp_replace(
+  ${normalizedSql(Prisma.sql`coalesce(p.shape, '')`)}, '[-_]', ' ', 'g'), '\\s+', ' ', 'g'))`;
+
+// Catalog normalization (docs/CATALOGO_NORMALIZACION.md): a synonym of an
+// official shape ("gatito", "ojo de gato", "aviator"…) finds products of
+// that shape — whatever spelling is stored — and still matches the text
+// of names, brands, SKUs and colors like any other word.
 function searchMatchCondition(q: string): Prisma.Sql {
-  const tokenConditions = searchTokens(q).map((token) => {
-    const pattern = `%${escapeLike(token)}%`;
-    // Typo tolerance only for real words — a 1–2 letter token has no
-    // meaningful trigrams.
-    const fuzzy =
-      token.length >= 3
-        ? Prisma.sql`OR ${token} <% ${normalizedSql(Prisma.sql`p.name`)}`
-        : Prisma.empty;
-    return Prisma.sql`(
-      ${normalizedSql(Prisma.sql`p.name`)} LIKE ${pattern}
-      OR ${normalizedSql(Prisma.sql`b.name`)} LIKE ${pattern}
-      OR EXISTS (
-        SELECT 1 FROM product_variants sv
-        WHERE sv.product_id = p.id
-          AND (${normalizedSql(Prisma.sql`sv.sku`)} LIKE ${pattern}
-               OR ${normalizedSql(Prisma.sql`coalesce(sv.color, '')`)} LIKE ${pattern})
-      )
-      ${fuzzy}
-    )`;
-  });
+  const normalized = normalizeSearchText(q);
+  const { matches, rest } = extractShapePhrases(
+    normalized.replace(/[-_]/g, " ").replace(/\s+/g, " "),
+  );
+  const words = matches.length > 0 ? rest.split(" ").filter(Boolean) : searchTokens(q);
+  const shapeConditions = matches.map(
+    ({ phrase, shape }) =>
+      Prisma.sql`(${SHAPE_SQL} IN (${Prisma.join(shapeKeys(shape))}) OR ${textMatchCondition(phrase)})`,
+  );
+  const tokenConditions = [...shapeConditions, ...words.slice(0, 8).map(textMatchCondition)];
   return tokenConditions.length > 0
     ? Prisma.sql`(${Prisma.join(tokenConditions, " AND ")})`
     : Prisma.sql`FALSE`;
@@ -367,7 +394,12 @@ async function searchProducts(
 
   if (query.brand) conditions.push(Prisma.sql`b.slug = ${query.brand}`);
   if (query.category) conditions.push(Prisma.sql`c.slug = ${query.category}`);
-  if (query.shape) conditions.push(Prisma.sql`p.shape = ${query.shape}`);
+  if (query.shape) {
+    const values = await storedShapeValues(query.shape);
+    conditions.push(
+      values.length > 0 ? Prisma.sql`p.shape IN (${Prisma.join(values)})` : Prisma.sql`FALSE`,
+    );
+  }
   if (query.color) {
     conditions.push(
       Prisma.sql`EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.color = ${query.color})`,
@@ -728,4 +760,39 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
     .slice(0, MAX_RELATED_PRODUCTS);
 
   return ranked.map(({ row }) => relatedCandidateToListItem(row));
+}
+
+// ─── Official shapes (docs/CATALOGO_NORMALIZACION.md) ───────────────────
+
+/** Stored `shape` values that stand for the requested shape: the official
+ * name plus any old spelling still in the catalog ("Gatito", "exagonal"…),
+ * so filters keep working before and after the normalization. An unknown
+ * value is matched as typed, exactly as before. */
+async function storedShapeValues(requested: string): Promise<string[]> {
+  const shape = canonicalShape(requested);
+  if (!shape) return [requested];
+  const rows = await prisma.product.findMany({
+    where: { shape: { not: null } },
+    distinct: ["shape"],
+    select: { shape: true },
+  });
+  return rows.map((row) => row.shape!).filter((value) => canonicalShape(value) === shape);
+}
+
+/** Official shapes with at least one public frame, in dictionary order. */
+export async function listPublicShapes(): Promise<PublicShapeOptionDto[]> {
+  const groups = await prisma.product.groupBy({
+    by: ["shape"],
+    where: { deletedAt: null, AND: [COMPLETE_PRODUCT_WHERE, FRAME_WHERE] },
+    _count: { _all: true },
+  });
+  const counts = new Map<string, number>();
+  for (const group of groups) {
+    const shape = canonicalShape(group.shape);
+    if (shape) counts.set(shape, (counts.get(shape) ?? 0) + group._count._all);
+  }
+  return OFFICIAL_FRAME_SHAPES.filter((shape) => counts.has(shape)).map((shape) => ({
+    shape,
+    count: counts.get(shape)!,
+  }));
 }

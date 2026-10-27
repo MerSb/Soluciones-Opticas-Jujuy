@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import type { SimilarProductDto } from "@soluciones-opticas/shared";
 import type {
   AccessoryRole,
   AdminImageDto,
@@ -11,6 +12,7 @@ import type {
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
+import { canonicalShape } from "../lib/frame-shapes.js";
 import { ApiError } from "../lib/api-error.js";
 import { generateUniqueSlug } from "../lib/slug.js";
 import { MAX_IMAGE_BYTES } from "../lib/image-validation.js";
@@ -361,7 +363,7 @@ export async function createProduct(body: CreateProductBody): Promise<AdminProdu
       kind,
       accessoryRole: kind === "ACCESSORY" ? body.accessoryRole : null,
       soldIndividually: kind === "ACCESSORY" ? (body.soldIndividually ?? true) : true,
-      shape: body.shape ?? null,
+      shape: resolveShapeInput(body.shape ?? null, null),
       styles: body.styles ?? [],
       basePrice: body.basePrice,
       lensWidth: body.lensWidth ?? null,
@@ -382,7 +384,7 @@ export async function updateProduct(
   await getAdminProduct(id);
   const current = await prisma.product.findUniqueOrThrow({
     where: { id },
-    select: { brandId: true, categoryId: true, kind: true },
+    select: { brandId: true, categoryId: true, kind: true, shape: true },
   });
   if (body.kind !== undefined && body.kind !== current.kind) {
     throw kindError("kind", "El tipo de producto no se puede cambiar. Creá un producto nuevo.");
@@ -404,7 +406,7 @@ export async function updateProduct(
       ...(body.categoryId !== undefined ? { categoryId: body.categoryId } : {}),
       ...(body.accessoryRole !== undefined ? { accessoryRole: body.accessoryRole } : {}),
       ...(body.soldIndividually !== undefined ? { soldIndividually: body.soldIndividually } : {}),
-      ...(body.shape !== undefined ? { shape: body.shape } : {}),
+      ...(body.shape !== undefined ? { shape: resolveShapeInput(body.shape, current.shape) } : {}),
       ...(body.styles !== undefined ? { styles: body.styles } : {}),
       ...(body.basePrice !== undefined ? { basePrice: body.basePrice } : {}),
       ...(body.lensWidth !== undefined ? { lensWidth: body.lensWidth } : {}),
@@ -968,4 +970,69 @@ export async function deleteImage(
     );
     throw error;
   }
+}
+
+/** Official shapes only (docs/CATALOGO_NORMALIZACION.md): a synonym is
+ * stored as its official name ("gatito" → "Cat-eye"); null means "Sin
+ * clasificar / Requiere revisión". An old non-official value is kept only
+ * when it is sent back unchanged — editing other fields of an old product
+ * never forces a shape on it. */
+export function resolveShapeInput(value: string | null, current: string | null): string | null {
+  if (value === null || value.trim() === "") return null;
+  const shape = canonicalShape(value);
+  if (shape) return shape;
+  if (current !== null && value === current) return current;
+  throw ApiError.validation(
+    `«${value}» no es una forma de la lista. Elegí una forma oficial o «Sin clasificar».`,
+    { field: "shape" },
+  );
+}
+
+/** Possible duplicates of a product being loaded: same name once case,
+ * accents and spaces are ignored, or the same SKU ignoring case. Only a
+ * warning for the admin — legitimate repeats (same model, another color)
+ * are common, so nothing is ever blocked here. Deleted ones are included:
+ * restoring may be better than loading again. */
+export async function findSimilarProducts(query: {
+  name?: string;
+  sku?: string;
+  excludeId?: string;
+}): Promise<SimilarProductDto[]> {
+  const name = query.name?.trim() ?? "";
+  const sku = query.sku?.trim() ?? "";
+  if (name.length < 3 && sku.length < 2) return [];
+  const normalize = (column: Prisma.Sql) =>
+    Prisma.sql`regexp_replace(translate(lower(trim(${column})), 'áàäâéèëêíìïîóòöôúùüûñ', 'aaaaeeeeiiiioooouuuun'), '\\s+', ' ', 'g')`;
+  const exclude = query.excludeId ? Prisma.sql`AND p.id <> ${query.excludeId}::uuid` : Prisma.empty;
+  const rows = await prisma.$queryRaw<
+    {
+      id: string;
+      name: string;
+      brandName: string;
+      deletedAt: Date | null;
+      reason: string;
+      sku: string | null;
+    }[]
+  >`
+    SELECT * FROM (
+      SELECT p.id::text AS id, p.name, b.name AS "brandName", p.deleted_at AS "deletedAt",
+             'SAME_NAME' AS reason, NULL::text AS sku
+      FROM products p JOIN brands b ON b.id = p.brand_id
+      WHERE ${name.length >= 3 ? Prisma.sql`${normalize(Prisma.sql`p.name`)} = ${normalize(Prisma.sql`${name}`)}` : Prisma.sql`FALSE`} ${exclude}
+      UNION ALL
+      SELECT p.id::text, p.name, b.name, p.deleted_at, 'SAME_SKU', v.sku
+      FROM product_variants v JOIN products p ON p.id = v.product_id JOIN brands b ON b.id = p.brand_id
+      WHERE ${sku.length >= 2 ? Prisma.sql`lower(v.sku) = lower(${sku})` : Prisma.sql`FALSE`} ${exclude}
+    ) found
+    ORDER BY reason DESC, "deletedAt" NULLS FIRST, name
+    LIMIT 10
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    brandName: row.brandName,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+    reason: row.reason as SimilarProductDto["reason"],
+    sku: row.sku,
+  }));
 }

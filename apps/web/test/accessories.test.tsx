@@ -233,7 +233,7 @@ describe("admin — new product", () => {
     ]);
 
     expect(await screen.findByRole("radio", { name: "Anteojo" })).toBeChecked();
-    expect(screen.getByLabelText("Forma (opcional)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Forma")).toBeInTheDocument();
     expect(screen.queryByLabelText("Tipo de accesorio")).toBeNull();
   });
 
@@ -247,7 +247,7 @@ describe("admin — new product", () => {
 
     expect(await screen.findByRole("radio", { name: "Accesorio" })).toBeChecked();
     expect(screen.getByRole("heading", { name: "Nuevo accesorio" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Forma (opcional)")).toBeNull();
+    expect(screen.queryByLabelText("Forma")).toBeNull();
     expect(screen.getByRole("checkbox", { name: /Se vende por separado/ })).toBeChecked();
 
     await userEvent.type(screen.getByLabelText("Nombre"), "Estuche QA");

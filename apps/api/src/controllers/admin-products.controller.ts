@@ -11,6 +11,7 @@ import type {
   UpdateImageBody,
   UpdateProductBody,
   UpdateVariantBody,
+  SimilarProductsQuery,
 } from "../schemas/admin-products.schema.js";
 import type { SetProductLensTypesBody } from "../schemas/admin-lens.schema.js";
 
@@ -110,4 +111,10 @@ export const deleteImage = asyncHandler(async (_req: Request, res: Response) => 
   };
   await adminProductsService.deleteImage(id, variantId, imageId);
   res.status(204).send();
+});
+
+export const similarProducts = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(
+    await adminProductsService.findSimilarProducts(res.locals.query as SimilarProductsQuery),
+  );
 });

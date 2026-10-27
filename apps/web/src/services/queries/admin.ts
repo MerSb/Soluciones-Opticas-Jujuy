@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  SimilarProductDto,
   AdminBrandDto,
   AdminCategoryDto,
   AdminImageDto,
@@ -354,5 +356,26 @@ export function useDeleteImageMutation(productId: string, variantId: string) {
     mutationFn: (imageId: string) =>
       apiDelete<void>(`/api/admin/products/${productId}/variants/${variantId}/images/${imageId}`),
     onSuccess: () => invalidateProduct(queryClient, productId),
+  });
+}
+
+/** Possible duplicates while loading a product (docs/CATALOGO_NORMALIZACION.md):
+ * same name ignoring case/accents/spaces, or same SKU ignoring case. A
+ * warning only — never blocks saving. */
+export function useSimilarProductsQuery(name: string, sku: string) {
+  const [debounced, setDebounced] = useState({ name, sku });
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced({ name: name.trim(), sku: sku.trim() }), 400);
+    return () => clearTimeout(timer);
+  }, [name, sku]);
+  return useQuery({
+    queryKey: ["admin", "products", "similar", debounced.name, debounced.sku],
+    queryFn: () =>
+      apiGet<SimilarProductDto[]>("/api/admin/products/similar", {
+        name: debounced.name || undefined,
+        sku: debounced.sku || undefined,
+      }),
+    enabled: debounced.name.length >= 3 || debounced.sku.length >= 2,
+    staleTime: 30_000,
   });
 }

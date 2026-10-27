@@ -144,7 +144,8 @@ describe("admin — creating and editing accessories", () => {
       kind: "FRAME",
       accessoryRole: null,
       soldIndividually: true,
-      shape: "round",
+      // A synonym is stored as its official shape (docs/CATALOGO_NORMALIZACION.md).
+      shape: "Redondo",
     });
   });
 
