@@ -77,4 +77,12 @@ describe("product page middleware", () => {
     expect([...config.matcher].sort()).toEqual([...spa, "/api/:path*"].sort());
     expect(config.runtime).toBe("nodejs");
   });
+
+  it("relative imports in the deployed function files carry «.js» (Node ESM, no bundler)", () => {
+    for (const file of ["../middleware.ts", "../preview-api.ts"]) {
+      const source = readFileSync(resolve(__dirname, file), "utf8");
+      const relative = [...source.matchAll(/from "(\.{1,2}\/[^"]+)"/g)].map((m) => m[1]);
+      for (const specifier of relative) expect(specifier).toMatch(/\.js$/);
+    }
+  });
 });

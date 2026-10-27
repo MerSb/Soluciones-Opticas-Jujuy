@@ -1,5 +1,7 @@
 import { next, rewrite } from "@vercel/functions/middleware";
-import { isPreviewApiPath, previewApiProxy } from "./preview-api";
+// ".js" is required: Vercel transpiles each file without bundling, and
+// Node ESM won't resolve an extensionless relative import at runtime.
+import { isPreviewApiPath, previewApiProxy } from "./preview-api.js";
 
 // Vercel Routing Middleware (file convention: next to package.json; the
 // Vercel project's root directory is apps/web). Product pages run it
