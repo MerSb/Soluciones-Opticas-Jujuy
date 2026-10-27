@@ -359,4 +359,73 @@ describe("AdminVariantImagesEditor", () => {
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.getByLabelText("Elegir fotos")).toHaveAttribute("type", "file");
   });
+  describe("Editar descripción", () => {
+    it("is optional and discreet: one link per photo, no field until it is used", () => {
+      renderEditor([A, B]);
+      expect(
+        screen.getByRole("button", { name: "Editar la descripción de la foto 1" }),
+      ).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "Editar la descripción de la foto 2" }),
+      ).toBeEnabled();
+      expect(screen.queryByLabelText(/Descripción de la foto/)).toBeNull();
+    });
+
+    it("saves only that photo's description through the existing API and confirms it", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockResolvedValue(json(200, { ...B, alt: "Perfil izquierdo" }));
+      vi.stubGlobal("fetch", fetchMock);
+      renderEditor([A, B, C]);
+
+      await user.click(screen.getByRole("button", { name: "Editar la descripción de la foto 2" }));
+      const field = screen.getByLabelText("Descripción de la foto 2");
+      expect(field).toHaveValue("Perfil");
+      expect(field).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Guardar descripción" })).toBeDisabled(); // unchanged
+      await user.clear(field);
+      expect(screen.getByRole("button", { name: "Guardar descripción" })).toBeDisabled(); // empty
+      await user.type(field, "Perfil izquierdo");
+      await user.click(screen.getByRole("button", { name: "Guardar descripción" }));
+
+      expect(await screen.findByText("Descripción guardada.")).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+      expect(String(url)).toContain(`${BASE}/b`);
+      expect(init.method).toBe("PATCH");
+      expect(JSON.parse(init.body as string)).toEqual({ alt: "Perfil izquierdo" });
+      expect(screen.queryByLabelText("Descripción de la foto 2")).toBeNull();
+    });
+
+    it("Cancelar leaves it untouched and sends nothing", async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      renderEditor([A, B]);
+      await user.click(screen.getByRole("button", { name: "Editar la descripción de la foto 1" }));
+      await user.type(screen.getByLabelText("Descripción de la foto 1"), " cambiado");
+      await user.click(screen.getByRole("button", { name: "Cancelar" }));
+      expect(screen.getByText("Frente")).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("shows the API's reason when it is rejected and keeps the text", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          json(400, {
+            error: { code: "VALIDATION_ERROR", message: "La descripción es demasiado larga." },
+          }),
+        ),
+      );
+      renderEditor([A]);
+      await user.click(screen.getByRole("button", { name: "Editar la descripción de la foto 1" }));
+      await user.type(screen.getByLabelText("Descripción de la foto 1"), " nueva");
+      await user.click(screen.getByRole("button", { name: "Guardar descripción" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "La descripción es demasiado larga.",
+      );
+      expect(screen.getByLabelText("Descripción de la foto 1")).toHaveValue("Frente nueva");
+    });
+  });
 });

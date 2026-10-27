@@ -26,6 +26,7 @@ import {
   type ProductDraftFields,
 } from "../../lib/product-drafts";
 import {
+  findRegisteredImages,
   invalidateProduct,
   uploadProductImage,
   useSimilarProductsQuery,
@@ -100,6 +101,11 @@ export function AdminProductDraftForm({
   const progressRef = useRef(progress);
   const photosRef = useRef(photos);
   photosRef.current = photos;
+  // The photo whose upload failed after being signed, with every public_id
+  // it was signed with: it may be saved after all (only the answer lost),
+  // so the retry asks the API first, and it can't be unselected meanwhile.
+  const unsureRef = useRef<{ key: string; publicIds: string[] } | null>(null);
+  const [unsureKey, setUnsureKey] = useState<string | null>(null);
 
   const isAccessory = fields.kind === "ACCESSORY";
   const productCreated = progress.productId !== null;
@@ -186,15 +192,29 @@ export function AdminProductDraftForm({
       const list = photosRef.current;
       for (let index = uploadedPhotos; index < list.length; index += 1) {
         step = `photo:${index + 1}`;
-        const alt = [fields.name.trim(), fields.color.trim(), `foto ${index + 1}`]
-          .filter(Boolean)
-          .join(" — ");
-        await uploadProductImage(productId, variantId!, {
-          file: list[index]!.file,
-          alt,
-          // The first photo of the color is the primary one.
-          isPrimary: index === 0 && previouslyUploadedPhotos === 0,
-        });
+        const key = list[index]!.key;
+        const unsure = unsureRef.current?.key === key ? unsureRef.current.publicIds : [];
+        const alreadySaved =
+          unsure.length > 0 && (await findRegisteredImages(productId, variantId!, unsure)).size > 0;
+        if (!alreadySaved) {
+          const alt = [fields.name.trim(), fields.color.trim(), `foto ${index + 1}`]
+            .filter(Boolean)
+            .join(" — ");
+          await uploadProductImage(
+            productId,
+            variantId!,
+            {
+              file: list[index]!.file,
+              alt,
+              // The first photo of the color is the primary one.
+              isPrimary: index === 0 && previouslyUploadedPhotos === 0,
+            },
+            (publicId) => {
+              unsureRef.current = { key, publicIds: [...unsure, publicId] };
+            },
+          );
+        }
+        unsureRef.current = null;
         uploadedPhotos = index + 1;
         updateProgress({ productId, variantId, uploadedPhotos });
       }
@@ -212,17 +232,23 @@ export function AdminProductDraftForm({
             : `El producto y su color se crearon, pero falló la ${step.replace("photo:", "foto ")}: ${describe(error, "no pudimos subir la foto.")}`,
       );
     } finally {
+      setUnsureKey(unsureRef.current?.key ?? null);
       savingRef.current = false;
       setSaving(false);
     }
   }
 
   // Already uploaded photos keep their number; the one being saved shows it.
-  const uploadedKeys = new Set(photos.slice(0, progress.uploadedPhotos).map((p) => p.key));
+  // A failed photo that may be saved after all is locked too.
+  const uploadedKeys = photos.slice(0, progress.uploadedPhotos).map((p) => p.key);
+  const lockedKeys = new Set(unsureKey ? [...uploadedKeys, unsureKey] : uploadedKeys);
+  const current = photos[progress.uploadedPhotos]?.key;
   const photoStatuses: Record<string, PhotoUploadStatus> = Object.fromEntries([
-    ...[...uploadedKeys].map((key) => [key, "saved" as const]),
-    ...(saving && photos[progress.uploadedPhotos]
-      ? [[photos[progress.uploadedPhotos]!.key, "uploading" as const]]
+    ...uploadedKeys.map((key) => [key, "saved" as const]),
+    ...(current && saving ? [[current, "uploading" as const]] : []),
+    // Only a photo step can fail once the color exists.
+    ...(current && !saving && saveError && progress.variantId
+      ? [[current, "failed" as const]]
       : []),
   ]);
 
@@ -482,7 +508,7 @@ export function AdminProductDraftForm({
           firstIsPrimary={previouslyUploadedPhotos === 0}
           existingCount={previouslyUploadedPhotos}
           disabled={saving}
-          locked={uploadedKeys}
+          locked={lockedKeys}
           statuses={photoStatuses}
         />
       </div>

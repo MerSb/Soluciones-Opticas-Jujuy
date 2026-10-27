@@ -26,6 +26,8 @@ interface Call {
 function stubBackend(
   options: {
     failCloudinaryOnce?: boolean;
+    /** The API saves the first photo but its answer never arrives. */
+    loseRegisterAnswerOnce?: boolean;
     failProductCreate?: boolean;
     /** Holds the product creation until this promise resolves. */
     holdProductCreate?: Promise<void>;
@@ -34,8 +36,11 @@ function stubBackend(
   const calls: Call[] = [];
   let products = 0;
   let variants = 0;
-  let uploads = 0;
+  let signatures = 0;
   let cloudinaryFailures = options.failCloudinaryOnce ? 1 : 0;
+  let lostAnswers = options.loseRegisterAnswerOnce ? 1 : 0;
+  // Saved photos per variant, as the admin product read returns them.
+  const saved = new Map<string, { id: string; cloudinaryPublicId: string }[]>();
   const fetchMock = vi.fn(async (raw: string | URL, init?: RequestInit) => {
     const url = new URL(raw);
     const method = init?.method ?? "GET";
@@ -55,8 +60,8 @@ function stubBackend(
         cloudinaryFailures -= 1;
         throw new TypeError("Failed to fetch");
       }
-      uploads += 1;
-      return json(200, { public_id: `test/upload-${uploads}` });
+      // Like Cloudinary: stored under the public_id our API signed.
+      return json(200, { public_id: (init!.body as FormData).get("public_id") });
     }
     if (method === "GET" && url.pathname === "/api/admin/brands") return json(200, BRANDS);
     if (method === "GET" && url.pathname === "/api/admin/categories") return json(200, CATEGORIES);
@@ -84,12 +89,30 @@ function stubBackend(
         apiKey: "test",
         timestamp: 1,
         signature: "sig",
-        publicId: "test/x",
+        publicId: `test/upload-${(signatures += 1)}`,
         allowedFormats: "jpg,png,webp",
       });
     }
     if (method === "POST" && url.pathname.endsWith("/images")) {
-      return json(201, { id: `img-${calls.length}` });
+      const variantId = url.pathname.split("/")[6]!;
+      const image = {
+        id: `img-${calls.length}`,
+        cloudinaryPublicId: (body as { cloudinaryPublicId: string }).cloudinaryPublicId,
+      };
+      saved.set(variantId, [...(saved.get(variantId) ?? []), image]);
+      if (lostAnswers > 0) {
+        lostAnswers -= 1;
+        throw new TypeError("Failed to fetch");
+      }
+      return json(201, image);
+    }
+    const detail = url.pathname.match(/^\/api\/admin\/products\/(p\d+)$/);
+    if (method === "GET" && detail) {
+      const variants = [...saved].filter(([id]) => id.startsWith(`${detail[1]}-`));
+      return json(200, {
+        id: detail[1],
+        variants: variants.map(([id, images]) => ({ id, images })),
+      });
     }
     throw new Error(`Unhandled request: ${method} ${url.pathname}`);
   });
@@ -335,6 +358,37 @@ describe("AdminNewProductPage — several products at once", () => {
     expect(
       calls.filter((call) => call.method === "POST" && call.path.endsWith("/images")),
     ).toHaveLength(1);
+  });
+
+  it("the API saved a photo but its answer was lost: the retry finds it and never saves it twice", async () => {
+    const user = userEvent.setup();
+    const calls = stubBackend({ loseRegisterAnswerOnce: true });
+    renderPage();
+    await fillProduct(user, {
+      name: "Uno QA",
+      price: "1000",
+      color: "Negro",
+      sku: "UNO-1",
+      photos: [photo("uno.jpg"), photo("dos.jpg")],
+    });
+    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+    expect(await within(panel()).findByRole("alert")).toHaveTextContent("falló la foto 1");
+    // It may be saved: it can't be unselected meanwhile.
+    expect(within(panel()).getByRole("button", { name: /^uno.jpg:/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
+    await within(panel()).findByText("✓ «Uno QA» guardado.");
+    const registrations = calls.filter(
+      (call) => call.method === "POST" && call.path.endsWith("/images"),
+    );
+    expect(registrations.map((call) => (call.body as { alt: string }).alt)).toEqual([
+      "Uno QA — Negro — foto 1",
+      "Uno QA — Negro — foto 2",
+    ]);
+    expect(calls.filter((call) => call.path.endsWith("/sign-upload"))).toHaveLength(2);
   });
 
   it("asks before closing a tab with unsaved changes", async () => {

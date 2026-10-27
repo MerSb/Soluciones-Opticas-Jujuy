@@ -37,30 +37,51 @@ const jpg = (name: string, sizeBytes = 1000) =>
   new File([new Uint8Array(sizeBytes)], name, { type: "image/jpeg", lastModified: 1 });
 
 interface Backend {
-  /** File names in the order Cloudinary received them. */
+  /** File names in the order Cloudinary stored them. */
   cloudinary: string[];
-  /** Bodies of every image registration, in order. */
-  registered: { cloudinaryPublicId: string; alt: string; isPrimary: boolean }[];
+  /** Every registration the API saved, in order (with the file it points to). */
+  registered: { file: string; alt: string; isPrimary: boolean }[];
   /** Bodies of every PUT …/images/order. */
   reorders: string[][];
+  /** Files stored in Cloudinary that no saved photo points to. */
+  orphans: string[];
+  signatures: number;
   maxParallelUploads: number;
 }
 
 /**
- * Sign → Cloudinary → register, like the real API: a registered photo goes
- * last. `slow` delays a file's Cloudinary upload (ms) so uploads finish out
- * of order; `failOnce` makes a file's first Cloudinary upload fail.
+ * Sign → Cloudinary → register, like the real API: the signature fixes the
+ * public_id, Cloudinary stores the file under it, and a registered photo
+ * goes last. `slow` delays a file's Cloudinary upload (ms) so uploads
+ * finish out of order. Fault injection, each once per file:
+ * `failOnce` — Cloudinary rejects the file; `loseCloudinaryAnswer` — the
+ * file is stored but the browser never gets the answer; `loseRegisterAnswer`
+ * — the API saves the photo but the browser never gets the answer.
+ * `failCheck` makes the product read used before a retry fail.
  */
 function stubBackend({
   existing = [] as AdminImageDto[],
   slow = {} as Record<string, number>,
   failOnce = [] as string[],
+  loseCloudinaryAnswer = [] as string[],
+  loseRegisterAnswer = [] as string[],
+  failCheck = false,
   networkDown = false,
 } = {}) {
-  const backend: Backend = { cloudinary: [], registered: [], reorders: [], maxParallelUploads: 0 };
+  const backend: Backend = {
+    cloudinary: [],
+    registered: [],
+    reorders: [],
+    orphans: [],
+    signatures: 0,
+    maxParallelUploads: 0,
+  };
   let images = [...existing];
   let inFlight = 0;
+  const stored = new Map<string, string>(); // public_id → file name
   const failing = new Set(failOnce);
+  const losingCloudinary = new Set(loseCloudinaryAnswer);
+  const losingRegister = new Set(loseRegisterAnswer);
   const json = (status: number, body: unknown) =>
     Promise.resolve({ ok: status < 400, status, json: async () => body });
 
@@ -68,18 +89,21 @@ function stubBackend({
     const url = String(raw);
     const method = init?.method ?? "GET";
     if (url.includes("/images/sign-upload")) {
+      backend.signatures += 1;
       return json(200, {
         cloudName: "demo",
         apiKey: "key",
         timestamp: 1,
         signature: "sig",
-        publicId: "ignored",
+        publicId: `pub/s${backend.signatures}`,
         allowedFormats: "jpg,jpeg,png,webp",
         maxFileSizeBytes: 8 * 1024 * 1024,
       });
     }
     if (url.startsWith("https://api.cloudinary.com/")) {
-      const file = (init!.body as FormData).get("file") as File;
+      const form = init!.body as FormData;
+      const file = form.get("file") as File;
+      const publicId = form.get("public_id") as string;
       inFlight += 1;
       backend.maxParallelUploads = Math.max(backend.maxParallelUploads, inFlight);
       await new Promise((resolve) => setTimeout(resolve, slow[file.name] ?? 0));
@@ -88,14 +112,17 @@ function stubBackend({
       if (failing.delete(file.name)) {
         return json(400, { error: { message: "Invalid image file" } });
       }
+      stored.set(publicId, file.name);
       backend.cloudinary.push(file.name);
-      return json(200, { public_id: `pub/${file.name}` });
+      if (losingCloudinary.delete(file.name)) throw new TypeError("Failed to fetch");
+      return json(200, { public_id: publicId });
     }
     if (url.endsWith(`/variants/${VARIANT.id}/images`) && method === "POST") {
       const body = JSON.parse(init!.body as string);
-      backend.registered.push(body);
+      const file = stored.get(body.cloudinaryPublicId)!;
+      backend.registered.push({ file, alt: body.alt, isPrimary: body.isPrimary });
       const image: AdminImageDto = {
-        id: `img-${body.cloudinaryPublicId.slice(4)}`,
+        id: `img-${file}`,
         variantId: VARIANT.id,
         cloudinaryPublicId: body.cloudinaryPublicId,
         alt: body.alt,
@@ -106,9 +133,11 @@ function stubBackend({
       images = image.isPrimary
         ? [image, ...images.map((i) => ({ ...i, isPrimary: false }))]
         : [...images, image];
+      if (losingRegister.delete(file)) throw new TypeError("Failed to fetch");
       return json(201, image);
     }
     if (url.endsWith(`/api/admin/products/${PRODUCT_ID}`) && method === "GET") {
+      if (failCheck) throw new TypeError("Failed to fetch");
       return json(200, { id: PRODUCT_ID, variants: [{ ...VARIANT, images }] });
     }
     if (url.endsWith("/images/order") && method === "PUT") {
@@ -120,7 +149,9 @@ function stubBackend({
     return Promise.reject(new Error(`Unhandled request: ${method} ${url}`));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { backend, fetchMock };
+  const saved = () => new Set(images.map((image) => image.cloudinaryPublicId));
+  const orphans = () => [...stored].filter(([id]) => !saved().has(id)).map(([, file]) => file);
+  return { backend, fetchMock, orphans, images: () => images };
 }
 
 function renderEditor(variant: AdminVariantDto = VARIANT) {
@@ -259,11 +290,11 @@ describe("Admin photo upload — choose the order by clicking", () => {
     expect(backend.cloudinary[0]).not.toBe("c.jpg"); // it really did finish later
     expect(backend.maxParallelUploads).toBeLessThanOrEqual(3);
     expect(backend.registered).toEqual([
-      { cloudinaryPublicId: "pub/c.jpg", alt: "Modelo QA — Negro — foto 1", isPrimary: true },
-      { cloudinaryPublicId: "pub/a.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
-      { cloudinaryPublicId: "pub/e.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
-      { cloudinaryPublicId: "pub/b.jpg", alt: "Modelo QA — Negro — foto 4", isPrimary: false },
-      { cloudinaryPublicId: "pub/d.jpg", alt: "Modelo QA — Negro — foto 5", isPrimary: false },
+      { file: "c.jpg", alt: "Modelo QA — Negro — foto 1", isPrimary: true },
+      { file: "a.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
+      { file: "e.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
+      { file: "b.jpg", alt: "Modelo QA — Negro — foto 4", isPrimary: false },
+      { file: "d.jpg", alt: "Modelo QA — Negro — foto 5", isPrimary: false },
     ]);
     expect(backend.reorders).toEqual([]); // nothing to fix
     // The grid is emptied for the next batch.
@@ -300,8 +331,8 @@ describe("Admin photo upload — choose the order by clicking", () => {
     await user.click(screen.getByRole("button", { name: "Subir 2 fotos en este orden" }));
     await screen.findByText("Se subieron 2 fotos en el orden elegido.");
     expect(backend.registered).toEqual([
-      { cloudinaryPublicId: "pub/b.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
-      { cloudinaryPublicId: "pub/a.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
+      { file: "b.jpg", alt: "Modelo QA — Negro — foto 2", isPrimary: false },
+      { file: "a.jpg", alt: "Modelo QA — Negro — foto 3", isPrimary: false },
     ]);
   });
 
@@ -323,13 +354,13 @@ describe("Admin photo upload — choose the order by clicking", () => {
     expect(thumb("b.jpg")).toHaveAccessibleName("b.jpg: elegida, número 2, falló");
     // The sequence is fixed now: clicking does nothing.
     expect(thumb("a.jpg")).toBeDisabled();
-    expect(backend.registered.map((r) => r.cloudinaryPublicId)).toEqual(["pub/a.jpg", "pub/c.jpg"]);
+    expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg"]);
 
     await user.click(within(alert).getByRole("button", { name: "Reintentar la que falló" }));
 
     expect(await screen.findByText("Se subieron 3 fotos en el orden elegido.")).toBeInTheDocument();
     expect(backend.registered.at(-1)).toEqual({
-      cloudinaryPublicId: "pub/b.jpg",
+      file: "b.jpg",
       alt: "Modelo QA — Negro — foto 3",
       isPrimary: false,
     });
@@ -349,7 +380,7 @@ describe("Admin photo upload — choose the order by clicking", () => {
 
     await screen.findByText("Se subieron 2 fotos en el orden elegido.");
     expect(backend.registered.at(-1)).toMatchObject({
-      cloudinaryPublicId: "pub/a.jpg",
+      file: "a.jpg",
       isPrimary: true,
     });
     // Registered as primary it is already first: no reorder needed.
@@ -418,5 +449,80 @@ describe("Admin photo upload — choose the order by clicking", () => {
     fireEvent.drop(zone, { dataTransfer: { files: [jpg("x.jpg"), jpg("y.png")] } });
     expect(thumb("x.jpg")).toBeInTheDocument();
     expect(thumb("y.png")).toBeInTheDocument();
+  });
+  describe("retrying never duplicates a photo that was in fact saved", () => {
+    async function uploadThree(user: ReturnType<typeof userEvent.setup>) {
+      chooseFiles([jpg("a.jpg"), jpg("b.jpg"), jpg("c.jpg")]);
+      for (const name of ["a.jpg", "b.jpg", "c.jpg"]) await user.click(thumb(name));
+      await user.click(screen.getByRole("button", { name: "Subir 3 fotos en este orden" }));
+    }
+
+    it("the API saved it but its answer was lost: the retry finds it and uploads nothing", async () => {
+      const user = userEvent.setup();
+      const { backend, orphans } = stubBackend({ loseRegisterAnswer: ["b.jpg"] });
+      renderEditor();
+      await uploadThree(user);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Foto 2 · b.jpg: sin conexión");
+      await user.click(screen.getByRole("button", { name: "Reintentar la que falló" }));
+
+      expect(
+        await screen.findByText("Se subieron 3 fotos en el orden elegido."),
+      ).toBeInTheDocument();
+      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+      expect(backend.signatures).toBe(3); // nothing signed or uploaded again
+      expect(backend.reorders).toEqual([]); // b was saved in its place
+      expect(orphans()).toEqual([]);
+    });
+
+    it("Cloudinary stored it but its answer was lost: uploaded again, saved once (the first file is left unused)", async () => {
+      const user = userEvent.setup();
+      const { backend, orphans } = stubBackend({ loseCloudinaryAnswer: ["b.jpg"] });
+      renderEditor();
+      await uploadThree(user);
+
+      await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+
+      expect(
+        await screen.findByText("Se subieron 3 fotos en el orden elegido."),
+      ).toBeInTheDocument();
+      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
+      expect(backend.reorders).toEqual([["img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
+      // Not a duplicate photo, but a file nobody points to (documented limit).
+      expect(orphans()).toEqual(["b.jpg"]);
+    });
+
+    it("if the check itself fails, nothing is uploaded again", async () => {
+      const user = userEvent.setup();
+      const { backend } = stubBackend({ loseRegisterAnswer: ["b.jpg"], failCheck: true });
+      renderEditor();
+      await uploadThree(user);
+
+      await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+
+      expect(
+        await screen.findByText(/No pudimos comprobar qué fotos ya quedaron guardadas/),
+      ).toBeInTheDocument();
+      expect(backend.signatures).toBe(3);
+      expect(backend.registered).toHaveLength(3);
+      expect(screen.getByRole("button", { name: "Reintentar la que falló" })).toBeEnabled();
+    });
+
+    it("Cloudinary rejected it: the API is checked first, then it is uploaded again", async () => {
+      const user = userEvent.setup();
+      const { backend, fetchMock } = stubBackend({ failOnce: ["b.jpg"] });
+      renderEditor();
+      await uploadThree(user);
+      await user.click(await screen.findByRole("button", { name: "Reintentar la que falló" }));
+      await screen.findByText("Se subieron 3 fotos en el orden elegido.");
+      expect(backend.registered.map((r) => r.file)).toEqual(["a.jpg", "c.jpg", "b.jpg"]);
+      expect(backend.signatures).toBe(4);
+      // One read to check before uploading, one to put b back in its place.
+      const reads = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).endsWith(`/products/${PRODUCT_ID}`) && init?.method !== "POST",
+      );
+      expect(reads).toHaveLength(2);
+      expect(backend.reorders).toEqual([["img-a.jpg", "img-b.jpg", "img-c.jpg"]]);
+    });
   });
 });

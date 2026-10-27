@@ -98,6 +98,8 @@ export function AdminVariantImagesEditor({
   const [hint, setHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null);
+  // One description edited at a time; the others stay as they are.
+  const [editing, setEditing] = useState<{ id: string; alt: string } | null>(null);
 
   const busy = updateImage.isPending || deleteImage.isPending || reorder.isPending;
   const total = images.length;
@@ -180,6 +182,22 @@ export function AdminVariantImagesEditor({
     );
   }
 
+  function saveDescription(image: AdminImageDto) {
+    const alt = editing?.alt.trim() ?? "";
+    if (busy || !alt || alt === image.alt) return;
+    startAction();
+    updateImage.mutate(
+      { imageId: image.id, body: { alt } },
+      {
+        onSuccess: () => {
+          setEditing(null);
+          setNotice("Descripción guardada.");
+        },
+        onError: (err) => setError(describeError(err)),
+      },
+    );
+  }
+
   function remove(image: AdminImageDto, index: number) {
     const next = image.isPrimary ? images[index + 1] : undefined;
     if (busy || !window.confirm(deleteConfirmation(image, next))) return;
@@ -252,27 +270,81 @@ export function AdminVariantImagesEditor({
                   <p className="text-xs text-text-muted">
                     Foto {index + 1} de {total}
                   </p>
-                  <p className="truncate text-sm text-text" title={image.alt}>
-                    {image.alt}
-                  </p>
-                  {image.isPrimary ? (
-                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        Principal
-                      </span>
-                      <span className="text-xs text-text-muted">Siempre se muestra primera</span>
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => markPrimary(image)}
-                      disabled={busy}
-                      aria-label={`Marcar «${image.alt}» como foto principal`}
-                      className="mt-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                  {editing?.id === image.id ? (
+                    <form
+                      className="mt-1 flex flex-wrap items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        saveDescription(image);
+                      }}
                     >
-                      Marcar como principal
-                    </button>
+                      <label className="sr-only" htmlFor={`alt-${image.id}`}>
+                        Descripción de la foto {index + 1}
+                      </label>
+                      <input
+                        id={`alt-${image.id}`}
+                        value={editing.alt}
+                        onChange={(event) => setEditing({ id: image.id, alt: event.target.value })}
+                        maxLength={300}
+                        disabled={busy}
+                        autoFocus
+                        className="min-w-0 flex-1 basis-48 rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text"
+                      />
+                      <button
+                        type="submit"
+                        disabled={busy || !editing.alt.trim() || editing.alt.trim() === image.alt}
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-surface disabled:opacity-60"
+                      >
+                        {updateImage.isPending ? "Guardando…" : "Guardar descripción"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(null)}
+                        disabled={busy}
+                        className="text-xs font-medium text-text-muted hover:underline"
+                      >
+                        Cancelar
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="truncate text-sm text-text" title={image.alt}>
+                      {image.alt}
+                    </p>
                   )}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {image.isPrimary ? (
+                      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          Principal
+                        </span>
+                        <span className="text-xs text-text-muted">Siempre se muestra primera</span>
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => markPrimary(image)}
+                        disabled={busy}
+                        aria-label={`Marcar «${image.alt}» como foto principal`}
+                        className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                      >
+                        Marcar como principal
+                      </button>
+                    )}
+                    {editing?.id !== image.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startAction();
+                          setEditing({ id: image.id, alt: image.alt });
+                        }}
+                        disabled={busy}
+                        aria-label={`Editar la descripción de la foto ${index + 1}`}
+                        className="text-xs font-medium text-text-muted hover:text-primary hover:underline disabled:opacity-60"
+                      >
+                        Editar descripción
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex w-full items-center justify-end gap-1 sm:w-auto">
                   {arrow("up")}
@@ -295,7 +367,13 @@ export function AdminVariantImagesEditor({
 
       <div role="status" aria-label="Estado de las fotos" className="mt-2 text-sm">
         {reorder.isPending && <p className="text-text-muted">Guardando el orden…</p>}
-        {updateImage.isPending && <p className="text-text-muted">Guardando la foto principal…</p>}
+        {updateImage.isPending && (
+          <p className="text-text-muted">
+            {updateImage.variables?.body.alt !== undefined
+              ? "Guardando la descripción…"
+              : "Guardando la foto principal…"}
+          </p>
+        )}
         {hint && !busy && <p className="text-text">{hint}</p>}
         {notice && !busy && <p className="text-success">{notice}</p>}
       </div>

@@ -38,6 +38,41 @@ lock), so the stored order is the clicked one. A failed photo doesn't stop the r
 appended, then `restorePhotoSequence` sends one `PUT …/images/order` that puts it back in its
 number (photos that were already on the variant keep their place). No API change.
 
+### Retrying without duplicates (frontend safeguard, not a guarantee)
+
+Our API picks each photo's `public_id` when it signs the upload, so the browser knows it before the
+file goes out. When a photo fails after being signed, its `public_id` is remembered; before a
+retry, the variant is read once (`findRegisteredImages`) and a photo whose `public_id` is already
+saved is counted as uploaded — not uploaded again, and kept in its number. If that read fails, the
+retry is refused rather than risk a duplicate. Same rule in the new-product tabs, where such a
+photo can't be unselected until it is resolved.
+
+| What was lost                                | Result                                                                                                         |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Our API's answer after it saved the photo    | Retry finds it: no duplicate, nothing uploaded again                                                           |
+| Cloudinary's answer after it stored the file | Retry uploads again under a new `public_id`: one photo, but the first file stays in Cloudinary unused (orphan) |
+| Any answer before signing                    | Plain retry                                                                                                    |
+
+Windows the frontend **cannot** close (they need the backend change below):
+
+1. The registration is still being processed when the retry reads the variant (answer lost but the
+   request lands later): the read misses it and the photo can be saved twice.
+2. The tab is closed or reloaded after a lost answer: the remembered `public_id`s are gone.
+3. The orphan file of row 2 of the table.
+
+Proposed backend change (not implemented): a unique index on `product_images.cloudinary_public_id`
+(migration; check production has no repeats first) and `createImage` answering with the existing
+row when that `public_id` is already saved — **without** its orphan cleanup, which today would
+delete the asset of the saved row. The client would then retry by registering the same
+`public_id` again instead of uploading. Closing (3) also needs the API to confirm the asset exists
+in Cloudinary before registering it.
+
+### Editing a description
+
+Each saved photo has a discreet "Editar descripción" link: it opens an inline field, saves only
+that photo's `alt` with the existing `PATCH …/images/:id` and confirms "Descripción guardada.".
+Uploading never asks for it; the generated description stays the default.
+
 Safety rules: on a variant that already has photos, new ones go after them and are never sent as
 primary (the primary only changes with "Marcar como principal"); the same file chosen twice is
 listed once; a double click uploads once. The arrows and "Marcar como principal" remain for
@@ -153,4 +188,5 @@ unit tests (`test/lib/cloudinary.test.ts`, `test/services/image-provider.service
 - No image editing/cropping in the Admin UI — the uploaded file is used as-is.
 - No drag-and-drop reordering of saved photos: the order is chosen by clicking before uploading,
   and adjusted afterwards with the arrows / "Marcar como principal" (`PUT …/images/order`).
-- Photo descriptions are generated (`Product — Color — foto N`), not typed per photo.
+- Photo descriptions are generated (`Product — Color — foto N`); each can be edited afterwards.
+- Retries avoid duplicates only on a best-effort basis (see "Retrying without duplicates").
