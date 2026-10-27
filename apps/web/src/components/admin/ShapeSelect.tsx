@@ -1,5 +1,10 @@
 import { useId, useState } from "react";
-import { FRAME_SHAPE_HELP, isOfficialShape, shapeHelp } from "../../lib/frame-shapes";
+import {
+  FRAME_SHAPE_HELP,
+  isOfficialShape,
+  officialShapeFor,
+  shapeHelp,
+} from "../../lib/frame-shapes";
 
 // Frame shape for the admin forms (docs/CATALOGO_NORMALIZACION.md): only
 // the official shapes, or "Sin clasificar / Requiere revisión" (empty) —
@@ -21,6 +26,7 @@ export function ShapeSelect({
   const [showGuide, setShowGuide] = useState(false);
   const legacy = value !== "" && !isOfficialShape(value);
   const help = shapeHelp(value);
+  const equivalent = legacy ? officialShapeFor(value) : null;
 
   return (
     <div>
@@ -49,9 +55,11 @@ export function ShapeSelect({
       <p id={`${id}-help`} className="mt-1.5 text-xs text-text-muted">
         {help
           ? `${help.description} También se dice: ${help.alsoCalled.join(", ")}.`
-          : legacy
-            ? "Este valor no está en la lista oficial. Elegí la forma que corresponda, o dejalo para revisión."
-            : "Si no estás seguro de la forma, dejalo así: queda marcado para revisar."}{" "}
+          : equivalent
+            ? `«${value}» es otro nombre de ${equivalent}. Si elegís ${equivalent} queda en la lista oficial; si no tocás nada, se guarda como estaba.`
+            : legacy
+              ? "Este valor no está en la lista oficial. Elegí la forma que corresponda; si no tocás nada, se guarda como estaba."
+              : "Si no estás seguro de la forma, dejalo así: queda marcado para revisar."}{" "}
         <button
           type="button"
           onClick={() => setShowGuide((open) => !open)}

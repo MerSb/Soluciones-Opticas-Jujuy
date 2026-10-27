@@ -3,7 +3,9 @@
 //   preview  → HTML (to read) + CSV (to decide) of every frame whose shape
 //              is not official: current, proposed, reason, confidence and
 //              status. Every row starts "pendiente"; approval is explicit
-//              (edit the CSV, or --aprobar-alta-confianza).
+//              (edit the CSV, or --aprobar-alta-confianza). Also a review
+//              sheet in plain words, with photos (revision-roberto.html),
+//              that downloads the reviewer's choices as decisiones.csv.
 //   plan     → from the approved rows only: aplicar.sql (one transaction;
 //              each UPDATE only touches `shape`, and only while it still
 //              holds the value seen in the preview — idempotent, a re-run
@@ -14,7 +16,7 @@
 // database. Product names are never changed; a shape is never inferred
 // from the name (the name only flags rows for review).
 //
-//   npx tsx scripts/catalog-shapes.ts preview (--auditoria <archivo> | --base) --salida <dir> [--aprobar-alta-confianza]
+//   npx tsx scripts/catalog-shapes.ts preview (--auditoria <archivo> | --base) --salida <dir> [--aprobar-alta-confianza] [--nube <cloud name>]
 //   npx tsx scripts/catalog-shapes.ts plan --decisiones <decisiones.csv> --salida <dir>
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -32,6 +34,8 @@ export interface CatalogFrame {
   category: string;
   deleted: boolean;
   shape: string | null;
+  /** Cloudinary public_id of a photo, for the review sheet only. */
+  photo?: string | null;
 }
 
 export type Confidence = "alta" | "revisión";
@@ -130,27 +134,24 @@ const CSV_HEADER = [
 
 const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
+const csvCells = (row: PreviewRow) => [
+  row.id,
+  row.name,
+  row.brand,
+  row.category,
+  row.deleted ? "eliminado" : "activo",
+  row.shape ?? "",
+  row.proposed ?? "",
+  row.reason,
+  row.confidence,
+  row.nameSuggests.join(" / "),
+  row.status,
+];
+
 export function toCsv(rows: PreviewRow[]): string {
-  return [
-    CSV_HEADER.join(";"),
-    ...rows.map((row) =>
-      [
-        row.id,
-        row.name,
-        row.brand,
-        row.category,
-        row.deleted ? "eliminado" : "activo",
-        row.shape ?? "",
-        row.proposed ?? "",
-        row.reason,
-        row.confidence,
-        row.nameSuggests.join(" / "),
-        row.status,
-      ]
-        .map(csvCell)
-        .join(";"),
-    ),
-  ].join("\n");
+  return [CSV_HEADER.join(";"), ...rows.map((row) => csvCells(row).map(csvCell).join(";"))].join(
+    "\n",
+  );
 }
 
 export function parseCsv(text: string): Record<string, string>[] {
@@ -222,6 +223,151 @@ tr.alta td:nth-child(4){color:#0f6b4a}tr.revision td:nth-child(4){color:#8a5a00}
     .join("")}</div>
 <div style="overflow-x:auto"><table><thead><tr><th>Id</th><th>Producto</th><th>Forma actual</th><th>Forma propuesta</th><th>Motivo</th><th>Confianza</th><th>Estado</th></tr></thead>
 <tbody>${body}</tbody></table></div></body></html>`;
+}
+
+// ─── Review sheet (for the person who decides) ─────────────────────────
+
+// Plain-word advice for the values that need an eye on the photo. Only a
+// suggestion on the sheet: nothing is preselected or approved.
+const REVIEW_ADVICE: Record<string, string> = {
+  "aviador cuadrado":
+    "Suele ser un aviador de lente más cuadrada: Aviador si tiene forma de gota o barrita doble sobre la nariz; si no, Cuadrado.",
+  "semi aviador": "Es una variante del aviador: probablemente Aviador.",
+  caravan:
+    "«Caravan» es un modelo clásico de aviador con lente cuadrada: Aviador o Cuadrado, según la foto.",
+  "cuadrado redondeado": "Cuadrado con esquinas suaves: probablemente Cuadrado.",
+};
+
+export function reviewAdvice(row: PreviewRow): string {
+  if (row.confidence === "alta") {
+    return row.shape !== null && normalizeShapeText(row.shape) === "rombo"
+      ? "Un rombo es una forma de lados rectos: en la lista queda dentro de Geométrico. Si preferís otra, marcá No."
+      : `Es la misma forma con otro nombre: pasaría a llamarse ${row.proposed}.`;
+  }
+  if (row.shape === null || row.shape.trim() === "")
+    return "No tiene forma cargada: elegila mirando la foto, o dejala sin clasificar.";
+  if (isOfficialShape(row.shape))
+    return `El nombre dice ${row.nameSuggests.join(" / ")}, pero la forma cargada es ${row.shape}: elegí la correcta.`;
+  const advice = REVIEW_ADVICE[normalizeShapeText(row.shape)];
+  if (advice) return advice;
+  return /[,/+]| y /.test(row.shape)
+    ? "Tiene dos formas cargadas: elegí la que más se ve en la foto."
+    : "Esta forma no está en la lista: elegí la más parecida mirando la foto.";
+}
+
+const SECTIONS: { title: string; intro: string; test: (row: PreviewRow) => boolean }[] = [
+  {
+    title: "Mismo nombre, escrito distinto",
+    intro: "Se propone usar el nombre de la lista. Marcá Sí o No en cada uno.",
+    test: (row) => row.confidence === "alta",
+  },
+  {
+    title: "Formas que no están en la lista",
+    intro: "Elegí una forma de la lista para cada producto.",
+    test: (row) =>
+      row.confidence === "revisión" &&
+      row.shape !== null &&
+      row.shape.trim() !== "" &&
+      !isOfficialShape(row.shape),
+  },
+  {
+    title: "El nombre no coincide con la forma",
+    intro: "Confirmá la forma que corresponde.",
+    test: (row) => row.shape !== null && isOfficialShape(row.shape),
+  },
+  {
+    title: "Sin forma cargada",
+    intro: "Elegí una forma, o dejalos sin clasificar.",
+    test: (row) => row.shape === null || row.shape.trim() === "",
+  },
+];
+
+/** A sheet in plain words for the person who decides: one card per row,
+ * with a photo when there is one. Choices are made on screen (nothing is
+ * preselected) and downloaded as decisiones.csv for `plan`; an untouched
+ * row stays "pendiente". */
+export function toReviewHtml(rows: PreviewRow[], cloudName: string | null): string {
+  const photo = (row: PreviewRow) =>
+    row.photo && cloudName
+      ? `<img src="https://res.cloudinary.com/${html(cloudName)}/image/upload/c_fit,w_600,h_400/${html(row.photo)}" alt="" loading="lazy">`
+      : `<div class="sinfoto">Sin foto</div>`;
+  const options = (row: PreviewRow, index: number) =>
+    row.confidence === "alta"
+      ? `<label><input type="radio" name="r${index}" value="si"> Sí, cambiar a ${html(row.proposed!)}</label><label><input type="radio" name="r${index}" value="no"> No, dejar «${html(row.shape!)}»</label>`
+      : [...FRAME_SHAPES.map((definition) => definition.shape), ""]
+          .map(
+            (shape) =>
+              `<label><input type="radio" name="r${index}" value="${html(shape)}"> ${shape ? html(shape) : row.shape && isOfficialShape(row.shape) ? "Dejar como está" : "Sin clasificar"}</label>`,
+          )
+          .join("");
+  let number = 0;
+  const sections = SECTIONS.map((section) => {
+    const cards = rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => section.test(row))
+      .map(({ row, index }) => {
+        number += 1;
+        return `<article class="ficha"><div class="foto">${photo(row)}</div><div>
+<p class="nro">#${number}${row.deleted ? " · eliminado" : ""}</p><h3>${html(row.name)}</h3>
+<p class="marca">${html(row.brand)} · ${html(row.category)}</p>
+<p>Hoy dice: <strong>${html(row.shape ?? "sin forma")}</strong></p>
+<p class="consejo">${html(reviewAdvice(row))}</p>
+<fieldset><legend>Decisión</legend>${options(row, index)}</fieldset></div></article>`;
+      });
+    return cards.length === 0
+      ? ""
+      : `<section><h2>${html(section.title)} (${cards.length})</h2><p>${html(section.intro)}</p>${cards.join("\n")}</section>`;
+  }).join("\n");
+  const data = JSON.stringify(
+    rows.map((row) => ({
+      cells: csvCells(row),
+      alta: row.confidence === "alta",
+      current: row.shape,
+      proposed: row.proposed,
+    })),
+  ).replace(/</g, "\\u003c");
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revisión de formas</title><style>
+:root{--texto:#1b2a33;--suave:#5b6b73;--borde:#d9e1e5;--fondo:#f5f8f9;--marca:#0f5c73}
+body{font-family:system-ui,sans-serif;margin:0 auto;padding:16px;max-width:980px;color:var(--texto);background:#fff;line-height:1.45}
+h1{font-size:1.5rem}h2{margin-top:2rem;border-bottom:2px solid var(--marca);padding-bottom:4px}h3{margin:0 0 2px;font-size:1.05rem}
+.ficha{display:grid;grid-template-columns:240px 1fr;gap:16px;border:1px solid var(--borde);border-radius:8px;padding:12px;margin:12px 0;break-inside:avoid}
+.foto img{width:100%;border-radius:6px;background:var(--fondo)}.sinfoto{height:120px;display:grid;place-items:center;background:var(--fondo);color:var(--suave);border-radius:6px}
+.nro,.marca{margin:0;color:var(--suave);font-size:.85rem}.consejo{background:var(--fondo);padding:6px 10px;border-radius:6px}
+fieldset{border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px 14px}legend{font-weight:600;margin-bottom:4px}
+label{white-space:nowrap}.barra{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--borde);padding:10px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+button{background:var(--marca);color:#fff;border:0;border-radius:6px;padding:10px 16px;font-size:1rem;cursor:pointer}
+@media (max-width:640px){.ficha{grid-template-columns:1fr}}@media print{.barra{display:none}}
+</style></head><body>
+<h1>Revisión de formas de los armazones</h1>
+<p>Cada armazón debe tener una forma de la lista oficial: ${FRAME_SHAPES.map((definition) => html(definition.shape)).join(", ")}. Mirá la foto y marcá una opción. Lo que no marques queda pendiente: no se cambia nada.</p>
+<p>No se modifican nombres, precios, stock ni fotos: solo la forma. Al terminar, tocá <strong>Descargar decisiones</strong> y enviá el archivo.</p>
+${sections}
+<div class="barra"><button type="button" id="descargar">Descargar decisiones</button><span id="cuenta"></span></div>
+<script>
+const filas=${data};
+const cell=(v)=>'"'+String(v).replace(/"/g,'""')+'"';
+const elegido=(i)=>{const r=document.querySelector('input[name="r'+i+'"]:checked');return r?r.value:null};
+function contar(){const n=filas.filter((_,i)=>elegido(i)!==null).length;document.getElementById("cuenta").textContent=n+" de "+filas.length+" decididos";}
+document.addEventListener("change",contar);contar();
+document.getElementById("descargar").addEventListener("click",()=>{
+  const lineas=[${JSON.stringify(CSV_HEADER.join(";"))}];
+  filas.forEach((f,i)=>{
+    const celdas=f.cells.slice();
+    const v=elegido(i);let propuesta=f.proposed??"",decision="pendiente";
+    if(v!==null){
+      if(f.alta){decision=v==="si"?"aprobado":"rechazado";}
+      else if(v===""||v===f.current){decision="rechazado";propuesta="";}
+      else{decision="aprobado";propuesta=v;}
+    }
+    celdas[6]=propuesta;celdas[10]=decision;
+    lineas.push(celdas.map(cell).join(";"));
+  });
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([lineas.join("\\n")],{type:"text/csv;charset=utf-8"}));
+  a.download="decisiones.csv";a.click();
+});
+</script></body></html>`;
 }
 
 // ─── Plan (SQL) ─────────────────────────────────────────────────────────
@@ -335,6 +481,15 @@ async function framesFromDatabase(): Promise<CatalogFrame[]> {
       deletedAt: true,
       brand: { select: { name: true } },
       category: { select: { name: true } },
+      variants: {
+        select: {
+          images: {
+            select: { cloudinaryPublicId: true },
+            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+            take: 1,
+          },
+        },
+      },
     },
     orderBy: { name: "asc" },
   });
@@ -346,6 +501,9 @@ async function framesFromDatabase(): Promise<CatalogFrame[]> {
     deleted: row.deletedAt !== null,
     brand: row.brand.name,
     category: row.category.name,
+    photo:
+      row.variants.find((variant) => variant.images.length > 0)?.images[0]?.cloudinaryPublicId ??
+      null,
   }));
 }
 
@@ -400,9 +558,12 @@ async function main(args: string[]) {
     const source = auditPath ? path.basename(auditPath) : "base indicada en DATABASE_URL";
     writeFileSync(path.join(out, "vista-previa.html"), toHtml(rows, summary, source));
     writeFileSync(path.join(out, "decisiones.csv"), toCsv(rows));
+    const cloudName = argument(args, "--nube") ?? process.env.CLOUDINARY_CLOUD_NAME ?? null;
+    writeFileSync(path.join(out, "revision-roberto.html"), toReviewHtml(rows, cloudName));
     console.log(JSON.stringify(summary));
     console.log(`Vista previa: ${path.join(out, "vista-previa.html")}`);
     console.log(`Decisiones:   ${path.join(out, "decisiones.csv")}`);
+    console.log(`Revisión:     ${path.join(out, "revision-roberto.html")}`);
     return;
   }
   if (command === "plan") {

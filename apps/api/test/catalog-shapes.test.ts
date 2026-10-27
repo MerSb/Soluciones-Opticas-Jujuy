@@ -170,6 +170,17 @@ describe("admin: official shapes and duplicate warnings", () => {
     await prisma.product.update({ where: { id }, data: { shape: "Redondo , Gatito" } });
   });
 
+  it("an old synonym sent back unchanged is not reclassified behind the review", async () => {
+    const id = fx.ids.legacyCat!;
+    const untouched = await admin
+      .patch(`/api/admin/products/${id}`)
+      .send({ shape: "Gatito", basePrice: 1000 });
+    expect(untouched.body.shape).toBe("Gatito");
+    const chosen = await admin.patch(`/api/admin/products/${id}`).send({ shape: "gatito" });
+    expect(chosen.body.shape).toBe("Cat-eye");
+    await prisma.product.update({ where: { id }, data: { shape: "Gatito" } });
+  });
+
   it("warns about the same name (case, accents, spaces) or the same SKU in another case — without blocking", async () => {
     const byName = await admin
       .get("/api/admin/products/similar")

@@ -122,8 +122,9 @@ En total, **9 activos y 1 eliminado.** Ninguno se aplica sin aprobación explíc
   - el tipo compartido `OfficialFrameShape` (ADR-0015) asegura que las dos coincidan.
   - Normaliza el texto: minúsculas, sin tildes, guiones y espacios unificados.
 - **API (sin migración):**
-  - **Alta y edición:** aceptan solo formas oficiales o vacío. Un valor viejo no oficial se conserva
-    si no se toca.
+  - **Alta y edición:** aceptan solo formas oficiales o vacío. Un valor viejo que no se toca se
+    guarda tal cual, aunque sea un sinónimo («Gatito»). Solo la normalización aprobada o una
+    elección explícita lo cambian.
   - **Filtro `?shape=`:** reconoce sinónimos (`gatito` → Cat-eye) y encuentra también los valores
     aún no normalizados. La URL no cambia.
   - **`GET /api/products/shapes`:** formas oficiales con su cantidad de productos públicos.
@@ -166,6 +167,19 @@ Una tabla (HTML para leer, CSV para decidir) con estas columnas:
 Todo empieza en `pendiente`. Se aprueba editando el CSV o con la opción explícita
 `--aprobar-alta-confianza`. Las filas de revisión pueden aprobarse indicando la forma oficial
 elegida.
+
+**Hoja de revisión (`revision-roberto.html`):** la genera también `preview`, para quien decide.
+
+- **Contenido:** una ficha por producto, con foto (`--nube <cloud name>`), lo que dice hoy y un
+  consejo en palabras simples. Los casos especiales (Rombo, Caravan, Semi-aviador, Aviador cuadrado,
+  Cuadrado redondeado, dos formas) tienen su propio consejo.
+- **Secciones:**
+  - mismo nombre escrito distinto (Sí / No);
+  - formas que no están en la lista;
+  - el nombre no coincide con la forma;
+  - sin forma cargada.
+- **Decisiones:** nada viene marcado. Cada producto se decide por separado; lo que no se marca queda
+  `pendiente`. «Descargar decisiones» genera el `decisiones.csv` que lee `plan`.
 
 ## 8. Plan de pruebas y despliegue
 

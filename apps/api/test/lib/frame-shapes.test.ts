@@ -12,7 +12,9 @@ import {
   parseCsv,
   planChanges,
   revertSql,
+  reviewAdvice,
   toCsv,
+  toReviewHtml,
   type CatalogFrame,
 } from "../../scripts/catalog-shapes.js";
 
@@ -228,5 +230,38 @@ describe("decisions, plan and reversal", () => {
     expect(revert).toContain(
       "SET shape = NULL WHERE id = '00000000-0000-4000-8000-00000000000b' AND shape = 'Redondo'",
     );
+  });
+});
+
+describe("review sheet for the person who decides", () => {
+  const rows = buildPreview(
+    [
+      frame({ id: "00000000-0000-4000-8000-000000000011", shape: "Rombo", photo: "p/rombo" }),
+      frame({ id: "00000000-0000-4000-8000-000000000012", shape: "Caravan" }),
+      frame({ id: "00000000-0000-4000-8000-000000000013", shape: "Semi-Aviador" }),
+      frame({
+        id: "00000000-0000-4000-8000-000000000014",
+        name: "Gatito <b>&",
+        shape: "Redondo , Gatito",
+      }),
+      frame({ id: "00000000-0000-4000-8000-000000000015", shape: null }),
+    ],
+    false,
+  ).rows;
+
+  it("explains each special case in plain words, without preselecting anything", () => {
+    const advice = Object.fromEntries(rows.map((row) => [row.shape, reviewAdvice(row)]));
+    expect(advice.Rombo).toMatch(/dentro de Geométrico/);
+    expect(advice.Caravan).toMatch(/Aviador o Cuadrado/);
+    expect(advice["Semi-Aviador"]).toMatch(/probablemente Aviador/);
+    expect(advice["Redondo , Gatito"]).toMatch(/dos formas/);
+    const sheet = toReviewHtml(rows, "nube");
+    expect(sheet).not.toMatch(/<input[^>]*checked/);
+    expect(sheet.match(/<article/g)).toHaveLength(5);
+    expect(sheet).toContain(
+      "https://res.cloudinary.com/nube/image/upload/c_fit,w_600,h_400/p/rombo",
+    );
+    expect(sheet).toContain("Gatito &lt;b&gt;&amp;");
+    expect(sheet).toContain("Lo que no marques queda pendiente");
   });
 });

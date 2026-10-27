@@ -974,14 +974,15 @@ export async function deleteImage(
 
 /** Official shapes only (docs/CATALOGO_NORMALIZACION.md): a synonym is
  * stored as its official name ("gatito" → "Cat-eye"); null means "Sin
- * clasificar / Requiere revisión". An old non-official value is kept only
- * when it is sent back unchanged — editing other fields of an old product
- * never forces a shape on it. */
+ * clasificar / Requiere revisión". A value sent back unchanged is kept
+ * as stored, even an old synonym ("Gatito"): editing other fields of an
+ * old product never reclassifies it — only the approved normalization or
+ * an explicit choice does. */
 export function resolveShapeInput(value: string | null, current: string | null): string | null {
   if (value === null || value.trim() === "") return null;
+  if (current !== null && value === current) return current;
   const shape = canonicalShape(value);
   if (shape) return shape;
-  if (current !== null && value === current) return current;
   throw ApiError.validation(
     `«${value}» no es una forma de la lista. Elegí una forma oficial o «Sin clasificar».`,
     { field: "shape" },

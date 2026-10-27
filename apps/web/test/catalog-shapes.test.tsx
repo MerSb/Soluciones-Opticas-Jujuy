@@ -100,6 +100,13 @@ describe("ShapeSelect", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/no está en la lista oficial/)).toBeInTheDocument();
   });
+
+  it("names the official equivalent of an old synonym without changing it", () => {
+    renderWith(<ShapeHarness initial="Gatito" />);
+    expect(screen.getByLabelText("Forma")).toHaveValue("Gatito");
+    expect(screen.getByText(/«Gatito» es otro nombre de Cat-eye/)).toBeInTheDocument();
+    expect(screen.getByText(/si no tocás nada, se guarda como estaba/)).toBeInTheDocument();
+  });
 });
 
 describe("new product tabs with official shapes and duplicate warnings", () => {

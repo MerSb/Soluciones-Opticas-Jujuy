@@ -14,12 +14,13 @@ export interface FrameShapeHelp {
 export const FRAME_SHAPE_HELP = [
   {
     shape: "Cat-eye",
-    description: "Las puntas superiores se elevan hacia afuera.",
+    description: "Las puntas de arriba suben hacia los costados, como los ojos de un gato.",
     alsoCalled: ["gatito", "ojo de gato", "cat eye"],
   },
   {
     shape: "Aviador",
-    description: "Lente en forma de gota, más ancha arriba; suele tener doble puente.",
+    description:
+      "Forma de gota, más ancha arriba; muchas veces con una barrita doble sobre la nariz.",
     alsoCalled: ["aviator", "piloto"],
   },
   {
@@ -27,7 +28,11 @@ export const FRAME_SHAPE_HELP = [
     description: "Contorno curvo, más ancho que alto, sin esquinas.",
     alsoCalled: ["ovalada", "oval"],
   },
-  { shape: "Redondo", description: "Lente circular.", alsoCalled: ["redonda", "circular"] },
+  {
+    shape: "Redondo",
+    description: "Lente redonda, como un círculo.",
+    alsoCalled: ["redonda", "circular"],
+  },
   {
     shape: "Cuadrado",
     description: "Alto y ancho parecidos, con esquinas marcadas.",
@@ -43,7 +48,11 @@ export const FRAME_SHAPE_HELP = [
     description: "Parte superior ancha que se angosta hacia abajo; suele ser grande.",
     alsoCalled: ["butterfly"],
   },
-  { shape: "Hexagonal", description: "Seis lados visibles.", alsoCalled: ["exagonal", "hexágono"] },
+  {
+    shape: "Hexagonal",
+    description: "Seis lados visibles, como una celda de panal.",
+    alsoCalled: ["exagonal", "hexágono"],
+  },
   {
     shape: "Geométrico",
     description: "Otras formas con lados rectos: octogonal, rombo…",
@@ -66,4 +75,22 @@ export function isOfficialShape(value: string): value is OfficialFrameShape {
 
 export function shapeHelp(shape: string): FrameShapeHelp | null {
   return FRAME_SHAPE_HELP.find((item) => item.shape === shape) ?? null;
+}
+
+const plain = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+/** The official shape an old value is a known synonym of ("Gatito" →
+ * Cat-eye), to suggest it in the admin; null when it is not one. */
+export function officialShapeFor(value: string): OfficialFrameShape | null {
+  const target = plain(value);
+  return (
+    FRAME_SHAPE_HELP.find((item) =>
+      (item.alsoCalled as readonly string[]).some((name) => plain(name) === target),
+    )?.shape ?? null
+  );
 }
