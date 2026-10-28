@@ -256,9 +256,11 @@ describe("admin products", () => {
         priceOverride: 18000,
       });
       const other = await adminAgent.post(base).send({ sku: `TEST-SKU-OTHER-${RUN_ID}` });
-      const image = await adminAgent
-        .post(`${base}/${variant.body.id}/images`)
-        .send({ cloudinaryPublicId: "test/sku-fix", alt: "Foto de prueba", isPrimary: true });
+      const image = await adminAgent.post(`${base}/${variant.body.id}/images`).send({
+        cloudinaryPublicId: testPublicId("sku-fix", productId, variant.body.id),
+        alt: "Foto de prueba",
+        isPrimary: true,
+      });
       expect(image.status).toBe(201);
       const path = `${base}/${variant.body.id}`;
       const before = await prisma.productVariant.findUniqueOrThrow({
