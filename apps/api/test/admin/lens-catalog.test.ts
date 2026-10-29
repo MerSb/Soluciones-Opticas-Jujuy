@@ -313,6 +313,31 @@ describe("product ↔ lens type compatibility", () => {
     expect(legacyAgain.body.lensTypes).toEqual([]);
   });
 
+  it("right after creating a frame, the same list sent twice (a retry) leaves one row per type", async () => {
+    const existing = await adminAgent.get(`/api/admin/products/${productId}`);
+    const created = await adminAgent.post("/api/admin/products").send({
+      name: `${PREFIX} Alta con cristales`,
+      brandId: existing.body.brand.id,
+      categoryId: existing.body.category.id,
+      basePrice: 1000,
+    });
+    expect(created.status).toBe(201);
+    const a = await createType({ name: `${PREFIX} Alta A` });
+    const b = await createType({ name: `${PREFIX} Alta B` });
+    const path = `/api/admin/products/${created.body.id}/lens-types`;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const set = await adminAgent.put(path).send({ lensTypeIds: [a.body.id, b.body.id] });
+      expect(set.status).toBe(200);
+    }
+    expect(await prisma.productLensType.count({ where: { productId: created.body.id } })).toBe(2);
+    const detail = await adminAgent.get(`/api/admin/products/${created.body.id}`);
+    expect(detail.body.lensTypes.map((t: { id: string }) => t.id).sort()).toEqual(
+      [a.body.id, b.body.id].sort(),
+    );
+    await prisma.product.delete({ where: { id: created.body.id } });
+  });
+
   it("never newly attaches an unknown or soft-deleted lens type, but keeps one already attached", async () => {
     const path = `/api/admin/products/${productId}/lens-types`;
     const unknown = await adminAgent
