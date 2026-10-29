@@ -31,6 +31,8 @@ function stubBackend(
     failCloudinaryOnce?: boolean;
     /** The API saves the first photo but its answer never arrives. */
     loseRegisterAnswerOnce?: boolean;
+    /** The first batch of colors is refused: one SKU is already in use. */
+    refuseBatchOnce?: boolean;
     failProductCreate?: boolean;
     /** Holds the product creation until this promise resolves. */
     holdProductCreate?: Promise<void>;
@@ -40,6 +42,7 @@ function stubBackend(
   let products = 0;
   let variants = 0;
   let signatures = 0;
+  let refusedBatch = false;
   let cloudinaryFailures = options.failCloudinaryOnce ? 1 : 0;
   let lostAnswers = options.loseRegisterAnswerOnce ? 1 : 0;
   // Saved photos per variant, as the admin product read returns them.
@@ -90,6 +93,10 @@ function stubBackend(
       return json(201, { id: `${variant[1]}-v${variants}` });
     }
     const batch = url.pathname.match(/^\/api\/admin\/products\/(p\d+)\/variants\/batch$/);
+    if (method === "POST" && batch && options.refuseBatchOnce && !refusedBatch) {
+      refusedBatch = true;
+      return json(409, { error: { code: "CONFLICT", message: 'El SKU "UNO-N" ya está en uso.' } });
+    }
     if (method === "POST" && batch) {
       const rows = (body as { variants: { sku: string }[] }).variants;
       const skus = rows.map((row) => row.sku.toLowerCase());
@@ -743,5 +750,75 @@ describe("AdminNewProductPage — several products at once", () => {
       expect(r.getByLabelText("SKU")).toHaveValue("VIE-1");
       expect(r.getByLabelText("Stock")).toHaveValue(4);
     });
+  });
+
+  it("a refused color keeps everything typed: fix it and retry, never creating the product twice", async () => {
+    const user = userEvent.setup();
+    const calls = stubBackend({ refuseBatchOnce: true });
+    renderPage();
+    await fillProduct(user, {
+      name: "Uno QA",
+      price: "1000",
+      colors: [
+        { color: "Negro", sku: "UNO-N", stock: "3", photos: [photo("negro.jpg")] },
+        { color: "Rojo", sku: "UNO-R", stock: "1" },
+      ],
+    });
+    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+    expect(await within(panel()).findByRole("alert")).toHaveTextContent(
+      'El producto se creó, pero no sus colores (no se creó ninguno): El SKU "UNO-N" ya está en uso.',
+    );
+    // Nothing typed or chosen was lost, and the colors can still be edited.
+    expect(within(panel()).getByLabelText("Nombre")).toHaveValue("Uno QA");
+    expect(row("Negro").getByLabelText("SKU")).toHaveValue("UNO-N");
+    expect(row("Negro").getByLabelText("Stock")).toHaveValue(3);
+    expect(row("Rojo").getByLabelText("SKU")).toHaveValue("UNO-R");
+    expect(row("Negro").getByRole("button", { name: /^negro.jpg:/ })).toBeInTheDocument();
+
+    await user.clear(row("Negro").getByLabelText("SKU"));
+    await user.type(row("Negro").getByLabelText("SKU"), "UNO-N2");
+    await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
+    expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+    expect(
+      calls.filter((call) => call.method === "POST" && call.path === "/api/admin/products"),
+    ).toHaveLength(1);
+    const batches = calls.filter((call) => call.path.endsWith("/variants/batch"));
+    expect(batches).toHaveLength(2);
+    expect(
+      (batches[1]!.body as { variants: { sku: string }[] }).variants.map((v) => v.sku),
+    ).toEqual(["UNO-N2", "UNO-R"]);
+  });
+
+  it("a photo of the second color fails: it says which one, marks it, and the retry creates nothing twice", async () => {
+    const user = userEvent.setup();
+    const calls = stubBackend({ failCloudinaryOnce: true });
+    renderPage();
+    await fillProduct(user, {
+      name: "Uno QA",
+      price: "1000",
+      colors: [
+        { color: "Negro", sku: "UNO-N" },
+        { color: "Rojo", sku: "UNO-R", photos: [photo("rojo.jpg")] },
+      ],
+    });
+    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+    expect(await within(panel()).findByRole("alert")).toHaveTextContent(
+      "El producto y sus colores se crearon, pero falló la foto 1 de Rojo",
+    );
+    expect(row("Rojo").getByRole("button", { name: /^rojo.jpg:.*falló/ })).toBeInTheDocument();
+
+    await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
+    expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+    expect(
+      calls.filter((c) => c.method === "POST" && c.path === "/api/admin/products"),
+    ).toHaveLength(1);
+    expect(calls.filter((c) => c.path.endsWith("/variants/batch"))).toHaveLength(1);
+    const saved = calls.filter(
+      (c) =>
+        c.method === "POST" &&
+        c.path.endsWith("/images") &&
+        !(c.body as { verifyUpload?: boolean }).verifyUpload,
+    );
+    expect(saved.map((c) => c.path.split("/")[6])).toEqual(["p1-v2"]);
   });
 });
