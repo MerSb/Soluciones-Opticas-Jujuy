@@ -598,7 +598,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
     category: row.category,
     shape: row.shape,
     styles: row.styles as StylePreference[],
-    ...listingPrice(row.kind, row.basePrice, variantsByProduct.get(row.id) ?? []),
+    ...listingPrice(row.basePrice, variantsByProduct.get(row.id) ?? []),
     frameMeasurements: {
       lensWidth: row.lensWidth,
       bridgeWidth: row.bridgeWidth,
@@ -660,6 +660,7 @@ interface RelatedCandidateRow {
     color: string | null;
     colorTones: string[];
     stock: number;
+    priceOverride: number | null;
     images: { cloudinaryPublicId: string; alt: string }[];
   }[];
 }
@@ -716,12 +717,12 @@ function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
     name: row.name,
     slug: row.slug,
     kind: "FRAME", // candidates are frames only (FRAME_WHERE)
-    priceFrom: false,
+
     brand: row.brand,
     category: row.category,
     shape: row.shape,
     styles: row.styles as StylePreference[],
-    price: row.basePrice,
+    ...listingPrice(row.basePrice, row.variants),
     frameMeasurements: {
       lensWidth: row.lensWidth,
       bridgeWidth: row.bridgeWidth,
@@ -785,6 +786,7 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
           color: true,
           colorTones: true,
           stock: true,
+          priceOverride: true,
           images: {
             where: { isPrimary: true },
             take: 1,
@@ -807,6 +809,10 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
   const rows: RelatedCandidateRow[] = candidates.map((c) => ({
     ...c,
     basePrice: c.basePrice.toNumber(),
+    variants: c.variants.map((variant) => ({
+      ...variant,
+      priceOverride: variant.priceOverride?.toNumber() ?? null,
+    })),
   }));
 
   const ranked = rows

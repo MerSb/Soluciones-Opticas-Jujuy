@@ -495,7 +495,9 @@ describe("predeploy fixes", () => {
     });
   });
 
-  it("frame cards keep showing the base price (regression), even with variant overrides", async () => {
+  // Since the admin edits a frame color's own price, the card follows the
+  // same rule as accessories (lib/listing-price.ts): what the color costs.
+  it("frame cards show the color's own price, like the product page and the quote", async () => {
     const frame = await publicFrame();
     const variant = (await admin.get(`/api/admin/products/${frame.id}`)).body.variants[0];
     await admin
@@ -503,7 +505,7 @@ describe("predeploy fixes", () => {
       .send({ priceOverride: 120000 });
     const list = await request(app).get("/api/products").query({ brand: brandSlug, limit: 50 });
     expect(list.body.data.find((p: { slug: string }) => p.slug === frame.slug)).toMatchObject({
-      price: 90000,
+      price: 120000,
       priceFrom: false,
     });
   });

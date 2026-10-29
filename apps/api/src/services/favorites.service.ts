@@ -77,7 +77,6 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
         shape: favorite.product.shape,
         styles: favorite.product.styles,
         ...listingPrice(
-          favorite.product.kind,
           favorite.product.basePrice.toNumber(),
           favorite.product.variants.map((variant) => ({
             stock: variant.stock,

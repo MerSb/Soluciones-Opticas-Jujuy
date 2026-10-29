@@ -1,16 +1,14 @@
-import type { ProductKind } from "@soluciones-opticas/shared";
-
-// The price a listing card shows. Frames keep showing the product's base
-// price (unchanged behavior). An accessory's presentations can each have
-// their own price (ADR-0028), so its card shows the lowest price among the
-// variants in stock — or among all of them when none is in stock — and
-// says "Desde" when those prices differ.
+// The price a listing card shows. A variant may have its own price (an
+// accessory's presentation, ADR-0028, or a frame color the admin priced
+// apart), so the card shows the lowest price among the variants in stock —
+// or among all of them when none is in stock — and says "Desde" when those
+// prices differ. Without own prices it is the product's base price, as the
+// product page and the quote also charge (priceOverride ?? basePrice).
 export function listingPrice(
-  kind: ProductKind,
   basePrice: number,
   variants: { stock: number; priceOverride: number | null }[],
 ): { price: number; priceFrom: boolean } {
-  if (kind !== "ACCESSORY" || variants.length === 0) return { price: basePrice, priceFrom: false };
+  if (variants.length === 0) return { price: basePrice, priceFrom: false };
   const effective = variants.map((variant) => ({
     price: variant.priceOverride ?? basePrice,
     inStock: variant.stock > 0,
