@@ -1,5 +1,7 @@
 import { useSearchParams } from "react-router-dom";
+import type { ColorTone } from "@soluciones-opticas/shared";
 import { isProductSort, type ProductSort } from "./product-sort";
+import { parseTone } from "./color-tones";
 
 // The URL is the source of truth for catalog state (§6) — this module
 // is the one place that parses it into a typed shape and serializes it
@@ -16,7 +18,10 @@ export interface CatalogFilters {
   category?: string;
   shape?: string;
   material?: string;
+  /** Legacy free-text color (exact), kept for links already shared. */
   color?: string;
+  /** Palette colors, OR'ed (docs/COLORES.md): ?colors=rojo,negro */
+  colors?: ColorTone[];
   minPrice?: number;
   maxPrice?: number;
   sort?: ProductSort;
@@ -25,6 +30,16 @@ export interface CatalogFilters {
 
 function readString(searchParams: URLSearchParams, key: string): string | undefined {
   return searchParams.get(key)?.trim() || undefined;
+}
+
+// Unknown names are dropped (a hand-edited URL degrades, never breaks).
+function readTones(searchParams: URLSearchParams): ColorTone[] | undefined {
+  const tones = (searchParams.get("colors") ?? "")
+    .split(",")
+    .map(parseTone)
+    .filter((tone): tone is ColorTone => tone !== null)
+    .filter((tone, index, all) => all.indexOf(tone) === index);
+  return tones.length > 0 ? tones : undefined;
 }
 
 function readNonNegativeNumber(searchParams: URLSearchParams, key: string): number | undefined {
@@ -53,6 +68,7 @@ export function parseCatalogSearchParams(searchParams: URLSearchParams): Catalog
     shape: readString(searchParams, "shape"),
     material: readString(searchParams, "material"),
     color: readString(searchParams, "color"),
+    colors: readTones(searchParams),
     minPrice: readNonNegativeNumber(searchParams, "minPrice"),
     maxPrice: readNonNegativeNumber(searchParams, "maxPrice"),
     sort,
@@ -68,6 +84,7 @@ export function catalogFiltersToSearchParams(filters: CatalogFilters): URLSearch
   if (filters.shape) params.set("shape", filters.shape);
   if (filters.material) params.set("material", filters.material);
   if (filters.color) params.set("color", filters.color);
+  if (filters.colors?.length) params.set("colors", filters.colors.join(",").toLowerCase());
   if (filters.minPrice !== undefined) params.set("minPrice", String(filters.minPrice));
   if (filters.maxPrice !== undefined) params.set("maxPrice", String(filters.maxPrice));
   if (filters.sort) params.set("sort", filters.sort);

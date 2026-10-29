@@ -3,7 +3,10 @@ import type { CatalogFilters, FilterUpdate } from "../../lib/catalog-url-state";
 import { isValidPriceRange } from "../../lib/catalog-url-state";
 import { useBrandsQuery } from "../../services/queries/brands";
 import { useCategoriesQuery } from "../../services/queries/categories";
-import { useShapesQuery } from "../../services/queries/products";
+import { useColorOptionsQuery, useShapesQuery } from "../../services/queries/products";
+import type { ColorTone } from "@soluciones-opticas/shared";
+import { ColorToneDot } from "../products/ColorToneDot";
+import { toneLabel } from "../../lib/color-tones";
 
 interface FilterFieldsProps {
   filters: CatalogFilters;
@@ -116,22 +119,53 @@ export function FilterFields({ filters, onChange, idPrefix }: FilterFieldsProps)
         />
       </div>
 
-      <div>
-        <label htmlFor={id("color")} className={labelClassName}>
-          Color
-        </label>
-        <input
-          id={id("color")}
-          type="text"
-          value={filters.color ?? ""}
-          onChange={(event) => onChange({ color: event.target.value || undefined })}
-          placeholder="Ej: Negro"
-          className={inputClassName}
-        />
-      </div>
+      <ColorCircles filters={filters} onChange={onChange} />
 
       <PriceRangeFields filters={filters} onChange={onChange} idPrefix={idPrefix} />
     </fieldset>
+  );
+}
+
+// Palette circles (docs/COLORES.md), only the tones with public frames.
+// Several can be chosen (OR); plain colors are listed before combinations.
+// A legacy ?color= link keeps working and shows as a removable chip.
+function ColorCircles({ filters, onChange }: Pick<FilterFieldsProps, "filters" | "onChange">) {
+  const { data: options } = useColorOptionsQuery();
+  const chosen = filters.colors ?? [];
+  if (!options?.length) return null;
+
+  function toggle(tone: ColorTone) {
+    const next = chosen.includes(tone) ? chosen.filter((t) => t !== tone) : [...chosen, tone];
+    onChange({ colors: next.length > 0 ? next : undefined });
+  }
+
+  return (
+    <div>
+      <p className={labelClassName}>Color</p>
+      <div role="group" aria-label="Filtrar por color" className="mt-2 flex flex-wrap gap-2">
+        {options.map(({ tone, count }) => {
+          const selected = chosen.includes(tone);
+          return (
+            <button
+              key={tone}
+              type="button"
+              aria-pressed={selected}
+              aria-label={`${toneLabel(tone)} (${count})`}
+              title={toneLabel(tone)}
+              onClick={() => toggle(tone)}
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-2.5 text-xs ${
+                selected
+                  ? "border-primary bg-primary/10 font-semibold text-primary"
+                  : "border-border text-text hover:border-primary"
+              }`}
+            >
+              <ColorToneDot tones={[tone]} className="h-5 w-5" />
+              {toneLabel(tone)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

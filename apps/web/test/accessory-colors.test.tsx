@@ -157,8 +157,9 @@ describe("admin — multi-color accessory", () => {
       expect(posts).toEqual([
         {
           variants: [
+            // "Rosado" is not a palette name, "Gris" is: it is saved with its tone.
             { color: "Rosado", stock: 5, sku: "ESTUCHE-SOL-QA-ROSADO" },
-            { color: "Gris", stock: 3, sku: "ESTUCHE-SOL-QA-GRIS" },
+            { color: "Gris", colorTones: ["GRIS"], stock: 3, sku: "ESTUCHE-SOL-QA-GRIS" },
           ],
         },
       ]),

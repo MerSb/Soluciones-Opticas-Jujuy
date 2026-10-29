@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  AdminSkuSearchResult,
   SimilarProductDto,
   AdminBrandDto,
   AdminCategoryDto,
@@ -532,5 +533,29 @@ export function useSimilarProductsQuery(name: string, sku: string) {
       }),
     enabled: debounced.name.length >= 3 || debounced.sku.length >= 2,
     staleTime: 30_000,
+  });
+}
+
+/** The digits of a typed SKU, leading zeros kept (same rule as the API). */
+export const skuDigits = (text: string) => text.replace(/\D/g, "");
+
+/** Variants by the digits of their SKU, whatever letters or punctuation
+ * surround them. Waits for a pause in typing; never runs without digits. */
+export function useAdminSkuSearchQuery(q: string, page: number, limit: number) {
+  const [debounced, setDebounced] = useState(q);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(q.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+  return useQuery({
+    queryKey: ["admin", "products", "sku-search", debounced, page, limit],
+    queryFn: () =>
+      apiGet<AdminSkuSearchResult>("/api/admin/products/sku-search", {
+        q: debounced,
+        page,
+        limit,
+      }),
+    enabled: skuDigits(debounced) !== "",
+    placeholderData: keepPreviousData,
   });
 }

@@ -20,6 +20,7 @@ const ACTIVE_FILTER_KEYS = [
   "shape",
   "material",
   "color",
+  "colors",
   "minPrice",
   "maxPrice",
 ] as const;

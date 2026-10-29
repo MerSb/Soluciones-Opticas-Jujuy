@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { AdminVariantDto, ProductKind } from "@soluciones-opticas/shared";
+import type { AdminVariantDto, ColorTone, ProductKind } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ApiClientError } from "../../services/api-client";
 import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
@@ -12,6 +12,9 @@ import {
 import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 import { AccessoryColorPicker } from "./AccessoryColorPicker";
 import { VariantSkuEditor } from "./VariantSkuEditor";
+import { VariantTonesEditor } from "./VariantTonesEditor";
+import { ColorTonePicker } from "./ColorTonePicker";
+import { tonesName } from "../../lib/color-tones";
 
 const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 // An empty stock field must never be saved as 0 by accident (Number("")
@@ -54,13 +57,16 @@ export function AdminVariantsEditor({
   const [priceOverride, setPriceOverride] = useState("");
   const [sku, setSku] = useState("");
   const [stock, setStock] = useState("0");
+  const [tones, setTones] = useState<ColorTone[]>([]);
 
   function handleCreate(event: FormEvent) {
     event.preventDefault();
     createVariant.mutate(
       {
-        color: color.trim() === "" ? null : color,
+        // No name typed: the tones name the piece ("Rojo y negro").
+        color: color.trim() !== "" ? color : tones.length > 0 ? tonesName(tones) : null,
         material: material.trim() === "" ? null : material,
+        ...(tones.length > 0 ? { colorTones: tones } : {}),
         sku,
         stock: Number(stock),
         ...(isAccessory
@@ -75,6 +81,7 @@ export function AdminVariantsEditor({
           setPriceOverride("");
           setSku("");
           setStock("0");
+          setTones([]);
         },
       },
     );
@@ -117,24 +124,33 @@ export function AdminVariantsEditor({
         )}
       </div>
 
-      {isAccessory && (
-        <div className="mt-6">
-          <AccessoryColorPicker
-            productId={productId}
-            productSlug={productSlug}
-            variants={variants}
-          />
-          <p className="mt-6 text-sm font-medium text-text">
-            ¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:
-          </p>
-        </div>
-      )}
+      <div className="mt-6">
+        <AccessoryColorPicker
+          productId={productId}
+          productSlug={productSlug}
+          variants={variants}
+          kind={kind}
+        />
+        <p className="mt-6 text-sm font-medium text-text">
+          {isAccessory
+            ? "¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:"
+            : "¿Es una sola pieza de dos tonos, u otro material? Cargala acá:"}
+        </p>
+      </div>
 
       <form
         onSubmit={handleCreate}
         className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
         noValidate
       >
+        <div className="w-full">
+          <p className="mb-1.5 text-sm font-medium text-text">Tonos de esta pieza (opcional)</p>
+          <ColorTonePicker value={tones} onChange={setTones} label="Tonos de la variante nueva" />
+          <p className="mt-1 text-xs text-text-muted">
+            Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos, no
+            aparece en el filtro por colores.
+          </p>
+        </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="new-variant-color">
             Color
@@ -279,6 +295,7 @@ function VariantCard({
             {variant.color ?? "Sin color"} · {variant.material ?? "Sin material"}
           </p>
           <VariantSkuEditor productId={productId} variant={variant} />
+          <VariantTonesEditor productId={productId} variant={variant} />
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -390,6 +407,7 @@ function AccessoryVariantCard({
             )}
           </p>
           <VariantSkuEditor productId={productId} variant={variant} />
+          <VariantTonesEditor productId={productId} variant={variant} />
         </div>
         <button
           type="button"

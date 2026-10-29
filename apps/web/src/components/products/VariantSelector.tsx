@@ -1,5 +1,6 @@
 import type { ProductVariantDto } from "@soluciones-opticas/shared";
 import { getSwatchColor } from "../../lib/color-swatches";
+import { ColorToneDot } from "./ColorToneDot";
 
 interface VariantSelectorProps {
   variants: ProductVariantDto[];
@@ -28,6 +29,13 @@ export function VariantSelector({
   if (variants.length <= 1) return null;
   const byPresentation = variants.some((variant) => variant.label);
   const heading = byPresentation ? "Presentación" : "Color";
+  // Several variants may share a color name (the same black in two lens
+  // tints, say): they are told apart by number, never merged — each has
+  // its own SKU, stock and photos.
+  const names = variants.map(variantDisplayName);
+  const total = (name: string) => names.filter((n) => n === name).length;
+  const position = (index: number) =>
+    names.slice(0, index + 1).filter((n) => n === names[index]).length;
 
   return (
     <div>
@@ -42,14 +50,20 @@ export function VariantSelector({
         role="group"
         aria-label={`Elegir ${heading.toLowerCase()}`}
       >
-        {variants.map((variant) => {
+        {variants.map((variant, index) => {
           const isSelected = variant.id === selected.id;
-          const swatch = variant.color ? getSwatchColor(variant.color) : null;
+          const tones = variant.colorTones ?? [];
+          const swatch = tones.length === 0 && variant.color ? getSwatchColor(variant.color) : null;
+          const name = names[index]!;
+          const repeated = total(name) > 1;
           return (
             <button
               key={variant.id}
               type="button"
               aria-pressed={isSelected}
+              aria-label={
+                repeated ? `${name}, opción ${position(index)} de ${total(name)}` : undefined
+              }
               onClick={() => onSelect(variant)}
               className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
                 isSelected
@@ -57,6 +71,7 @@ export function VariantSelector({
                   : "border-border text-text hover:border-primary"
               }`}
             >
+              {tones.length > 0 && <ColorToneDot tones={tones} className="h-3 w-3" />}
               {swatch && (
                 <span
                   aria-hidden="true"
@@ -64,7 +79,12 @@ export function VariantSelector({
                   style={{ backgroundColor: swatch }}
                 />
               )}
-              {variantDisplayName(variant)}
+              {name}
+              {repeated && (
+                <span className="text-xs text-text-muted" aria-hidden="true">
+                  · {position(index)}
+                </span>
+              )}
               {showAvailability && !variant.inStock && (
                 <span className="text-xs text-text-muted">(sin stock)</span>
               )}

@@ -2,6 +2,7 @@ import type { CatalogFilters, FilterKey } from "../../lib/catalog-url-state";
 import { useBrandsQuery } from "../../services/queries/brands";
 import { useCategoriesQuery } from "../../services/queries/categories";
 import { formatPrice } from "../../lib/format-price";
+import { toneLabel } from "../../lib/color-tones";
 
 interface ActiveFilterChipsProps {
   filters: CatalogFilters;
@@ -34,6 +35,9 @@ export function ActiveFilterChips({ filters, onRemove, onClearAll }: ActiveFilte
   if (filters.shape) chips.push({ key: "shape", label: filters.shape });
   if (filters.material) chips.push({ key: "material", label: filters.material });
   if (filters.color) chips.push({ key: "color", label: filters.color });
+  if (filters.colors?.length) {
+    chips.push({ key: "colors", label: `Colores: ${filters.colors.map(toneLabel).join(", ")}` });
+  }
   if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
     const min = filters.minPrice !== undefined ? formatPrice(filters.minPrice) : "";
     const max = filters.maxPrice !== undefined ? formatPrice(filters.maxPrice) : "";

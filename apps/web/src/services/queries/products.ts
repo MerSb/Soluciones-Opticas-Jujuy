@@ -1,5 +1,6 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type {
+  PublicColorOptionDto,
   PublicShapeOptionDto,
   IncludedAccessoriesDto,
   IncludedAccessoriesSelection,
@@ -26,6 +27,7 @@ export function useProductsQuery(filters: CatalogFilters) {
         shape: filters.shape,
         material: filters.material,
         color: filters.color,
+        colors: filters.colors?.length ? filters.colors.join(",").toLowerCase() : undefined,
         minPrice: filters.minPrice,
         maxPrice: filters.maxPrice,
         sort: filters.sort,
@@ -138,6 +140,15 @@ export function useShapesQuery() {
   return useQuery({
     queryKey: ["products", "shapes"],
     queryFn: () => apiGet<PublicShapeOptionDto[]>("/api/products/shapes"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Palette tones with public frames (catalog color circles). */
+export function useColorOptionsQuery() {
+  return useQuery({
+    queryKey: ["products", "colors"],
+    queryFn: () => apiGet<PublicColorOptionDto[]>("/api/products/colors"),
     staleTime: 5 * 60_000,
   });
 }

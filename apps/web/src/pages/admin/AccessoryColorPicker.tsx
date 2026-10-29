@@ -1,15 +1,20 @@
 import { useId, useState } from "react";
-import type { AdminVariantDto } from "@soluciones-opticas/shared";
+import type { AdminVariantDto, ProductKind } from "@soluciones-opticas/shared";
 import { ApiClientError } from "../../services/api-client";
 import { useCreateVariantsBatchMutation } from "../../services/queries/admin";
 import { ACCESSORY_COLOR_PALETTE, colorKey, suggestSku } from "../../lib/accessories";
 import { getSwatchColor } from "../../lib/color-swatches";
+import { COLOR_TONE_OPTIONS, parseTone, tonesBackground } from "../../lib/color-tones";
 
 // ADR-0028 — load several colors of an accessory at once. The admin picks
 // the colors that really exist (nothing is pre-selected) and types each
 // one's stock (never assumed). Colors already loaded are shown locked:
 // they are edited or removed one by one in their own cards, so nothing
 // here can overwrite or delete an existing color.
+//
+// Frames (docs/COLORES.md) use the same picker with the color palette: each
+// chosen color becomes its own variant, saved with its tone. A frame may
+// repeat a color already loaded (another lens tint), so nothing is locked.
 
 interface PendingColor {
   color: string;
@@ -23,11 +28,14 @@ export function AccessoryColorPicker({
   productId,
   productSlug,
   variants,
+  kind = "ACCESSORY",
 }: {
   productId: string;
   productSlug: string;
   variants: AdminVariantDto[];
+  kind?: ProductKind;
 }) {
+  const isFrame = kind === "FRAME";
   const ids = useId();
   const createBatch = useCreateVariantsBatchMutation(productId);
   const [pending, setPending] = useState<PendingColor[]>([]);
@@ -39,11 +47,11 @@ export function AccessoryColorPicker({
   // Colors without a presentation label are the ones this picker manages.
   const loaded = new Map(
     variants
-      .filter((variant) => variant.color && !variant.label)
+      .filter((variant) => !isFrame && variant.color && !variant.label)
       .map((variant) => [colorKey(variant.color!), variant]),
   );
   const palette = [
-    ...ACCESSORY_COLOR_PALETTE,
+    ...(isFrame ? COLOR_TONE_OPTIONS.map((option) => option.label) : ACCESSORY_COLOR_PALETTE),
     ...extraPalette,
     ...[...loaded.values()].map((variant) => variant.color!),
   ].filter((color, index, all) => all.findIndex((c) => colorKey(c) === colorKey(color)) === index);
@@ -88,11 +96,15 @@ export function AccessoryColorPicker({
     if (invalid || pending.length === 0) return;
     createBatch.mutate(
       {
-        variants: pending.map((p) => ({
-          color: p.color,
-          stock: Number(p.stock),
-          sku: p.sku.trim(),
-        })),
+        variants: pending.map((p) => {
+          const tone = parseTone(p.color);
+          return {
+            color: p.color,
+            ...(tone ? { colorTones: [tone] } : {}),
+            stock: Number(p.stock),
+            sku: p.sku.trim(),
+          };
+        }),
       },
       {
         onSuccess: (created) => {
@@ -108,17 +120,19 @@ export function AccessoryColorPicker({
   return (
     <section aria-labelledby={`${ids}-title`} className="rounded-md border border-border p-4">
       <h4 id={`${ids}-title`} className="font-display text-base font-semibold text-text">
-        Colores disponibles
+        {isFrame ? "Cargar colores" : "Colores disponibles"}
       </h4>
       <p className="mt-1 text-sm text-text-muted">
-        Seleccioná los colores que existen de este accesorio y cargá el stock de cada uno. Los ya
-        cargados aparecen marcados; se editan en su tarjeta.
+        {isFrame
+          ? "Seleccioná todos los colores en que viene este armazón: cada uno se guarda como una variante con su SKU y su stock. Para una pieza de dos tonos usá el formulario de abajo."
+          : "Seleccioná los colores que existen de este accesorio y cargá el stock de cada uno. Los ya cargados aparecen marcados; se editan en su tarjeta."}
       </p>
 
       <div role="group" aria-label="Paleta de colores" className="mt-3 flex flex-wrap gap-2">
         {palette.map((color) => {
           const existing = loaded.get(colorKey(color));
           const selected = Boolean(existing) || isPending(color);
+          const tone = parseTone(color);
           const swatch = getSwatchColor(color);
           return (
             <button
@@ -140,9 +154,11 @@ export function AccessoryColorPicker({
                 aria-hidden="true"
                 className="h-4 w-4 rounded-full border border-border"
                 style={
-                  swatch
-                    ? { backgroundColor: swatch }
-                    : { backgroundImage: "linear-gradient(135deg,#f472b6,#38bdf8,#fbbf24)" }
+                  tone
+                    ? { background: tonesBackground([tone]) }
+                    : swatch
+                      ? { backgroundColor: swatch }
+                      : { backgroundImage: "linear-gradient(135deg,#f472b6,#38bdf8,#fbbf24)" }
                 }
               />
               {color}

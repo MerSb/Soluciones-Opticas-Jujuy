@@ -63,7 +63,7 @@ export function ProductCard({
             {formatPrice(product.price)}
           </p>
           {sizeSummary && <p className="mt-1 text-xs text-text-muted">{sizeSummary}</p>}
-          <ColorSwatchList colors={product.colors} />
+          <ColorSwatchList colors={product.colors} swatches={product.colorSwatches} />
         </div>
       </Link>
     </div>

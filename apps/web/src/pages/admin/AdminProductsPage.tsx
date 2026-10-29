@@ -5,6 +5,7 @@ import { StatusMessage } from "../../components/ui/StatusMessage";
 import type { ProductKind } from "@soluciones-opticas/shared";
 import { useAdminProductsQuery } from "../../services/queries/admin";
 import { accessoryRoleLabel } from "../../lib/accessories";
+import { AdminSkuSearchResults } from "./AdminSkuSearchResults";
 
 const PAGE_SIZE = 20;
 
@@ -13,6 +14,9 @@ export function AdminProductsPage() {
   const [q, setQ] = useState("");
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [kind, setKind] = useState<ProductKind | "">("");
+  // While a SKU is typed, its results replace the product list.
+  const [skuQ, setSkuQ] = useState("");
+  const searchingSku = skuQ.trim() !== "";
 
   const { data, isLoading, isError } = useAdminProductsQuery({
     page,
@@ -35,6 +39,16 @@ export function AdminProductsPage() {
               setPage(1);
             }}
             placeholder="Buscar por nombre…"
+            aria-label="Buscar por nombre"
+            className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
+          />
+          <input
+            type="search"
+            value={skuQ}
+            onChange={(event) => setSkuQ(event.target.value)}
+            placeholder="Buscar por números de SKU…"
+            aria-label="Buscar por números de SKU"
+            inputMode="search"
             className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
           />
           <label className="flex items-center gap-2 text-sm text-text-muted">
@@ -80,10 +94,13 @@ export function AdminProductsPage() {
         </div>
       </div>
 
-      {isLoading && <p className="mt-6 text-sm text-text-muted">Cargando…</p>}
-      {isError && <StatusMessage variant="error" message="No pudimos cargar los productos." />}
+      {searchingSku && <AdminSkuSearchResults q={skuQ} />}
+      {!searchingSku && isLoading && <p className="mt-6 text-sm text-text-muted">Cargando…</p>}
+      {!searchingSku && isError && (
+        <StatusMessage variant="error" message="No pudimos cargar los productos." />
+      )}
 
-      {data && (
+      {!searchingSku && data && (
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
