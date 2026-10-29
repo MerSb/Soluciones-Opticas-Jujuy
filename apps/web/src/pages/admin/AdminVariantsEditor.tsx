@@ -13,6 +13,7 @@ import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 import { AccessoryColorPicker } from "./AccessoryColorPicker";
 import { VariantSkuEditor } from "./VariantSkuEditor";
 import { VariantTonesEditor } from "./VariantTonesEditor";
+import { VariantDetailsEditor } from "./VariantDetailsEditor";
 import { ColorTonePicker } from "./ColorTonePicker";
 import { tonesName } from "../../lib/color-tones";
 
@@ -40,8 +41,11 @@ export function AdminVariantsEditor({
   productName = "",
   variants,
   kind = "FRAME",
+  basePrice = 0,
 }: {
   productId: string;
+  /** The product's price: what a variant without its own price costs. */
+  basePrice?: number;
   /** For the description of new photos ("Product — Color — foto N"). */
   productName?: string;
   /** For suggested SKUs of new accessory colors. */
@@ -106,6 +110,7 @@ export function AdminVariantsEditor({
           isAccessory ? (
             <AccessoryVariantCard
               key={variant.id}
+              basePrice={basePrice}
               productId={productId}
               productName={productName}
               variant={variant}
@@ -113,6 +118,7 @@ export function AdminVariantsEditor({
           ) : (
             <VariantCard
               key={variant.id}
+              basePrice={basePrice}
               productId={productId}
               productName={productName}
               variant={variant}
@@ -273,7 +279,9 @@ function VariantCard({
   productId,
   productName,
   variant,
+  basePrice,
 }: {
+  basePrice: number;
   productId: string;
   productName: string;
   variant: AdminVariantDto;
@@ -296,6 +304,12 @@ function VariantCard({
           </p>
           <VariantSkuEditor productId={productId} variant={variant} />
           <VariantTonesEditor productId={productId} variant={variant} />
+          <VariantDetailsEditor
+            productId={productId}
+            variant={variant}
+            basePrice={basePrice}
+            withPrice
+          />
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -363,7 +377,9 @@ function AccessoryVariantCard({
   productId,
   productName,
   variant,
+  basePrice,
 }: {
+  basePrice: number;
   productId: string;
   productName: string;
   variant: AdminVariantDto;
@@ -408,6 +424,12 @@ function AccessoryVariantCard({
           </p>
           <VariantSkuEditor productId={productId} variant={variant} />
           <VariantTonesEditor productId={productId} variant={variant} />
+          <VariantDetailsEditor
+            productId={productId}
+            variant={variant}
+            basePrice={basePrice}
+            withPrice={false}
+          />
         </div>
         <button
           type="button"

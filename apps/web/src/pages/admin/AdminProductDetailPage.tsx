@@ -113,9 +113,30 @@ export function AdminProductDetailPage() {
     });
   }, [product]);
 
+  // Price and category change what the customer sees and pays: confirmed
+  // first, saying what does NOT change. Cancelling keeps what was typed.
+  function confirmImportantChanges(): boolean {
+    if (!product) return false;
+    const lines: string[] = [];
+    if (Number(basePrice) !== product.basePrice) {
+      lines.push(
+        `Precio base: ${formatPrice(product.basePrice)} → ${formatPrice(Number(basePrice))} (también para los colores sin precio propio).`,
+      );
+    }
+    if (categoryId !== product.category.id) {
+      const next = categories?.find((c) => c.id === categoryId)?.name ?? "otra";
+      lines.push(`Categoría: ${product.category.name} → ${next}.`);
+    }
+    if (lines.length === 0) return true;
+    return window.confirm(
+      `Vas a cambiar:\n${lines.join("\n")}\n\nEl SKU, el stock y las fotos de cada color no cambian.`,
+    );
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!id || !product) return;
+    if (!id || !product || updateProduct.isPending) return;
+    if (!confirmImportantChanges()) return;
     // ADR-0028: an accessory never sends frame fields (the API rejects them).
     if (product.kind === "ACCESSORY") {
       updateProduct.mutate({
@@ -420,6 +441,7 @@ export function AdminProductDetailPage() {
           productName={product.name}
           variants={product.variants}
           kind={product.kind}
+          basePrice={product.basePrice}
         />
       </div>
 
