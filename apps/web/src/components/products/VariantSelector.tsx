@@ -1,4 +1,5 @@
 import type { ProductVariantDto } from "@soluciones-opticas/shared";
+import { buildCloudinaryUrl } from "../../lib/cloudinary";
 import { getSwatchColor } from "../../lib/color-swatches";
 import { ColorToneDot } from "./ColorToneDot";
 
@@ -30,12 +31,10 @@ export function VariantSelector({
   const byPresentation = variants.some((variant) => variant.label);
   const heading = byPresentation ? "Presentación" : "Color";
   // Several variants may share a color name (the same black in two lens
-  // tints, say): they are told apart by number, never merged — each has
-  // its own SKU, stock and photos.
+  // tints, say): never merged — each has its own SKU, stock and photos —
+  // and told apart by its own photo and its SKU instead of a bare number.
   const names = variants.map(variantDisplayName);
   const total = (name: string) => names.filter((n) => n === name).length;
-  const position = (index: number) =>
-    names.slice(0, index + 1).filter((n) => n === names[index]).length;
 
   return (
     <div>
@@ -56,14 +55,15 @@ export function VariantSelector({
           const swatch = tones.length === 0 && variant.color ? getSwatchColor(variant.color) : null;
           const name = names[index]!;
           const repeated = total(name) > 1;
+          const photo = variant.images.find((image) => image.isPrimary) ?? variant.images[0];
+          const thumb =
+            repeated && photo ? buildCloudinaryUrl(photo.publicId, { width: 64 }) : null;
           return (
             <button
               key={variant.id}
               type="button"
               aria-pressed={isSelected}
-              aria-label={
-                repeated ? `${name}, opción ${position(index)} de ${total(name)}` : undefined
-              }
+              aria-label={repeated ? `${name}, código ${variant.sku}` : undefined}
               onClick={() => onSelect(variant)}
               className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
                 isSelected
@@ -71,6 +71,14 @@ export function VariantSelector({
                   : "border-border text-text hover:border-primary"
               }`}
             >
+              {thumb && (
+                <img
+                  src={thumb}
+                  alt=""
+                  loading="lazy"
+                  className="h-7 w-7 rounded border border-border object-cover"
+                />
+              )}
               {tones.length > 0 && <ColorToneDot tones={tones} className="h-3 w-3" />}
               {swatch && (
                 <span
@@ -82,7 +90,7 @@ export function VariantSelector({
               {name}
               {repeated && (
                 <span className="text-xs text-text-muted" aria-hidden="true">
-                  · {position(index)}
+                  · {variant.sku}
                 </span>
               )}
               {showAvailability && !variant.inStock && (

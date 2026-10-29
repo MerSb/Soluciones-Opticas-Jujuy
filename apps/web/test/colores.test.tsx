@@ -183,9 +183,37 @@ describe("shop — swatches and variants", () => {
     );
     const group = screen.getByRole("group", { name: "Elegir color" });
     expect(within(group).getAllByRole("button")).toHaveLength(3);
-    expect(within(group).getByRole("button", { name: "Negro, opción 1 de 2" })).toBeInTheDocument();
-    expect(within(group).getByRole("button", { name: "Negro, opción 2 de 2" })).toBeInTheDocument();
+    // Told apart by their own SKU, each one still selectable on its own.
+    expect(within(group).getByRole("button", { name: "Negro, código a" })).toHaveTextContent(
+      "Negro· a",
+    );
+    expect(within(group).getByRole("button", { name: "Negro, código b" })).toBeInTheDocument();
     expect(within(group).getByRole("button", { name: "Rojo y negro" })).toBeInTheDocument();
+  });
+
+  it("selecting one of two same-color variants picks exactly that one", async () => {
+    const variants = [variant("a", "Negro", ["NEGRO"]), variant("b", "Negro", ["NEGRO"])];
+    const onSelect = vi.fn();
+    renderWithProviders(
+      <VariantSelector variants={variants} selected={variants[0]!} onSelect={onSelect} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Negro, código b" }));
+    expect(onSelect).toHaveBeenCalledWith(variants[1]);
+  });
+
+  it("without palette circles, never draws two identical circles side by side", () => {
+    const { container } = renderWithProviders(
+      <ColorSwatchList colors={["Beige", "Gris Gun", "Lila", "Negro", "negro", "Rosa Añejo"]} />,
+    );
+    // Every name is still announced.
+    expect(
+      screen.getByLabelText("Colores disponibles: Beige, Gris Gun, Lila, Negro, negro, Rosa Añejo"),
+    ).toBeInTheDocument();
+    // Beige (palette), negro (one, any case), one neutral circle for the rest.
+    expect(screen.getByTitle("Beige")).toBeInTheDocument();
+    expect(screen.getByTitle("Negro, negro")).toBeInTheDocument();
+    expect(screen.getByTitle("Gris Gun, Lila, Rosa Añejo")).toBeInTheDocument();
+    expect(container.querySelectorAll("[title]")).toHaveLength(3);
   });
 
   it("draws a two-tone piece as one split circle", () => {

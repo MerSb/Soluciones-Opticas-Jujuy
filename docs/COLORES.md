@@ -62,3 +62,11 @@ El SKU y el stock se escriben a mano para cada variante (nunca se generan); los 
 y no se envían. Las variantes se crean en un solo pedido atómico (`POST …/variants/batch`): si uno
 falla, no se crea ninguna. Sin colores, el producto se crea solo, como antes. Los borradores del
 formulario anterior (un color de texto, SKU y stock) vuelven como una fila.
+
+## Círculos en la tienda
+
+- Tarjeta: cuando alguna variante coloreada no está clasificada, la tarjeta dibuja un círculo por
+  nombre de color; un nombre que es exactamente un color de la paleta usa su círculo y los círculos
+  idénticos se muestran una sola vez (el título y la etiqueta accesible listan todos los nombres).
+- Ficha: variantes con el mismo nombre de color se muestran por separado, con una miniatura de su
+  foto principal y su SKU; ninguna se fusiona ni cambia.
