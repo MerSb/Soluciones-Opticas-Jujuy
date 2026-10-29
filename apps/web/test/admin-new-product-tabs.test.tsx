@@ -14,6 +14,13 @@ import { STORAGE_KEY } from "../src/lib/product-drafts";
 vi.setConfig({ testTimeout: 20_000 });
 
 const BRANDS = [{ id: "b1", name: "Marca QA", slug: "marca-qa", deletedAt: null }];
+// As GET /api/admin/lens-types returns them (one retired: never offered).
+const LENS_TYPES = [
+  { id: "l1", name: "Bifocales", deletedAt: null },
+  { id: "l2", name: "Monofocal", deletedAt: null },
+  { id: "l3", name: "Multifocales", deletedAt: null },
+  { id: "l4", name: "Retirado QA", deletedAt: "2026-01-01T00:00:00.000Z" },
+];
 const CATEGORIES = [{ id: "c1", name: "Anteojos de Sol", slug: "sol", deletedAt: null }];
 
 function json(status: number, body: unknown) {
@@ -33,6 +40,8 @@ function stubBackend(
     loseRegisterAnswerOnce?: boolean;
     /** The first batch of colors is refused: one SKU is already in use. */
     refuseBatchOnce?: boolean;
+    /** Saving the compatible lens types fails once. */
+    failLensTypesOnce?: boolean;
     failProductCreate?: boolean;
     /** Holds the product creation until this promise resolves. */
     holdProductCreate?: Promise<void>;
@@ -43,6 +52,7 @@ function stubBackend(
   let variants = 0;
   let signatures = 0;
   let refusedBatch = false;
+  let lensFailures = options.failLensTypesOnce ? 1 : 0;
   let cloudinaryFailures = options.failCloudinaryOnce ? 1 : 0;
   let lostAnswers = options.loseRegisterAnswerOnce ? 1 : 0;
   // Saved photos per variant, as the admin product read returns them.
@@ -73,6 +83,15 @@ function stubBackend(
       return json(200, { public_id: publicId });
     }
     if (method === "GET" && url.pathname === "/api/admin/brands") return json(200, BRANDS);
+    if (method === "GET" && url.pathname === "/api/admin/lens-types") return json(200, LENS_TYPES);
+    const lenses = url.pathname.match(/^\/api\/admin\/products\/(p\d+)\/lens-types$/);
+    if (method === "PUT" && lenses) {
+      if (lensFailures > 0) {
+        lensFailures -= 1;
+        throw new TypeError("Failed to fetch");
+      }
+      return json(200, { id: lenses[1] });
+    }
     if (method === "GET" && url.pathname === "/api/admin/categories") return json(200, CATEGORIES);
     if (method === "GET" && url.pathname === "/api/accessories/included") {
       return json(404, { error: { code: "NOT_FOUND", message: "No." } });
@@ -820,5 +839,108 @@ describe("AdminNewProductPage — several products at once", () => {
         !(c.body as { verifyUpload?: boolean }).verifyUpload,
     );
     expect(saved.map((c) => c.path.split("/")[6])).toEqual(["p1-v2"]);
+  });
+
+  describe("compatible lens types at creation", () => {
+    const lensBox = (name: string) =>
+      within(
+        within(panel()).getByRole("group", { name: "Cristales compatibles (opcional)" }),
+      ).getByRole("checkbox", { name });
+    const lensPuts = (calls: { method: string; path: string; body: unknown }[]) =>
+      calls.filter((call) => call.method === "PUT" && call.path.endsWith("/lens-types"));
+
+    it("lists the types from the API (never a retired one) and only for frames", async () => {
+      const user = userEvent.setup();
+      stubBackend();
+      renderPage();
+      const group = await within(panel()).findByRole("group", {
+        name: "Cristales compatibles (opcional)",
+      });
+      await within(group).findByRole("checkbox", { name: "Bifocales" });
+      expect(
+        within(group)
+          .getAllByRole("checkbox")
+          .map((box) => box.closest("label")!.textContent),
+      ).toEqual(["Bifocales", "Monofocal", "Multifocales"]);
+      await user.click(within(panel()).getByRole("radio", { name: "Accesorio" }));
+      expect(
+        within(panel()).queryByRole("group", { name: "Cristales compatibles (opcional)" }),
+      ).toBeNull();
+    });
+
+    it("none chosen: no association is sent", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(lensPuts(calls)).toHaveLength(0);
+    });
+
+    it("one type: saved with the existing endpoint right after the product", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(await waitFor(() => lensBox("Monofocal")));
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(lensPuts(calls).map((call) => [call.path, call.body])).toEqual([
+        ["/api/admin/products/p1/lens-types", { lensTypeIds: ["l2"] }],
+      ]);
+    });
+
+    it("several types, with colors and photos: everything goes to the new product, once", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [{ color: "Negro", sku: "UNO-N", stock: "2", photos: [photo("negro.jpg")] }],
+      });
+      await user.click(await waitFor(() => lensBox("Bifocales")));
+      await user.click(lensBox("Multifocales"));
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      const writes = calls.filter((c) => c.method !== "GET" && !c.path.startsWith("/v1_1"));
+      expect(writes.map((c) => `${c.method} ${c.path}`)).toEqual([
+        "POST /api/admin/products",
+        "PUT /api/admin/products/p1/lens-types",
+        "POST /api/admin/products/p1/variants/batch",
+        "POST /api/admin/products/p1/variants/p1-v1/images/sign-upload",
+        "POST /api/admin/products/p1/variants/p1-v1/images",
+      ]);
+      expect(writes[1]!.body).toEqual({ lensTypeIds: ["l1", "l3"] });
+    });
+
+    it("if saving them fails: the product exists, the choice stays, and the retry only saves the lenses", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend({ failLensTypesOnce: true });
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(await waitFor(() => lensBox("Bifocales")));
+      await user.click(lensBox("Monofocal"));
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+
+      expect(await within(panel()).findByRole("alert")).toHaveTextContent(
+        "El producto se creó, pero no sus cristales compatibles: No pudimos conectarnos",
+      );
+      expect(lensBox("Bifocales")).toBeChecked();
+      expect(lensBox("Monofocal")).toBeChecked();
+      expect(lensBox("Multifocales")).not.toBeChecked();
+
+      await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(
+        calls.filter((c) => c.method === "POST" && c.path === "/api/admin/products"),
+      ).toHaveLength(1);
+      // Same full list again: the endpoint replaces it, so nothing can repeat.
+      expect(lensPuts(calls).map((call) => call.body)).toEqual([
+        { lensTypeIds: ["l1", "l2"] },
+        { lensTypeIds: ["l1", "l2"] },
+      ]);
+    });
   });
 });

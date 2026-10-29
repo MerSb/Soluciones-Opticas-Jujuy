@@ -22,6 +22,8 @@ export interface ProductDraftFields {
    */
   variantMode: VariantMode;
   variants: DraftVariant[];
+  /** Frames only: compatible lens types (ids from GET /api/admin/lens-types). */
+  lensTypeIds: string[];
 }
 
 export type VariantMode = "colors" | "combined";
@@ -43,6 +45,8 @@ export interface DraftProgress {
   productId: string | null;
   variantIds: string[] | null;
   uploadedPhotos: number[];
+  /** The compatible lens types are saved on the product. */
+  lensTypesSaved: boolean;
 }
 
 export interface StoredDraft {
@@ -68,6 +72,7 @@ export function emptyFields(kind: ProductKind = "FRAME"): ProductDraftFields {
     soldIndividually: true,
     variantMode: "colors",
     variants: [],
+    lensTypeIds: [],
   };
 }
 
@@ -75,6 +80,7 @@ export const EMPTY_PROGRESS: DraftProgress = {
   productId: null,
   variantIds: null,
   uploadedPhotos: [],
+  lensTypesSaved: false,
 };
 
 let draftVariantCounter = 0;
@@ -96,9 +102,11 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
   return (
     photoCount > 0 ||
     fields.variants.length > 0 ||
+    fields.lensTypeIds.length > 0 ||
     (Object.keys(empty) as (keyof ProductDraftFields)[]).some(
       (key) =>
-        key !== "kind" && key !== "variants" && key !== "variantMode" && fields[key] !== empty[key],
+        !["kind", "variants", "variantMode", "lensTypeIds"].includes(key) &&
+        fields[key] !== empty[key],
     )
   );
 }
@@ -113,6 +121,7 @@ interface OldDraftShape {
 function upgradeFields(fields: ProductDraftFields & OldDraftShape): ProductDraftFields {
   const { color = "", sku = "", stock = "", ...rest } = fields;
   const base = { ...emptyFields(fields.kind), ...rest };
+  if (!Array.isArray(base.lensTypeIds)) base.lensTypeIds = [];
   if (Array.isArray(fields.variants)) return base;
   if (color.trim() === "" && sku.trim() === "" && stock === "") return base;
   const tone = parseTone(color);
@@ -125,6 +134,7 @@ function upgradeProgress(progress: Partial<DraftProgress> & { variantId?: string
   const old = progress as { variantId?: string | null; uploadedPhotos?: unknown };
   return {
     productId: progress.productId ?? null,
+    lensTypesSaved: progress.lensTypesSaved === true,
     variantIds: Array.isArray(progress.variantIds)
       ? progress.variantIds
       : old.variantId

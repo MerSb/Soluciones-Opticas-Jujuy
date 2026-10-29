@@ -10,12 +10,15 @@ import type {
   CreateProductRequest,
   CreateVariantsBatchRequest,
   ProductKind,
+  SetProductLensTypesRequest,
 } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ShapeSelect } from "../../components/admin/ShapeSelect";
 import { ColorToneDot } from "../../components/products/ColorToneDot";
 import type { PhotoCandidate, PhotoUploadStatus } from "../../components/admin/PhotoSequencePicker";
-import { ApiClientError, apiPost } from "../../services/api-client";
+import { ApiClientError, apiPost, apiPut } from "../../services/api-client";
+import { useAdminLensTypesQuery } from "../../services/queries/admin-lens";
+import { LensTypeChecklist } from "./LensTypeChecklist";
 import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
 import { COLOR_TONE_OPTIONS, toneLabel, tonesName } from "../../lib/color-tones";
 import {
@@ -119,6 +122,10 @@ export function AdminProductDraftForm({
   const [uploadingRow, setUploadingRow] = useState<number | null>(null);
 
   const isAccessory = fields.kind === "ACCESSORY";
+  // The lens types come from the API (also the ones Roberto adds later);
+  // only active ones can be chosen for a new frame.
+  const lensTypes = useAdminLensTypesQuery();
+  const lensChoices = (lensTypes.data ?? []).filter((type) => !type.deletedAt);
   const productCreated = progress.productId !== null;
   const variantsCreated = progress.variantIds !== null;
   const rows = fields.variants;
@@ -239,7 +246,7 @@ export function AdminProductDraftForm({
     let rowIndex = -1;
     let photoIndex = -1;
     try {
-      let { productId, variantIds, uploadedPhotos } = progressRef.current;
+      let { productId, variantIds, uploadedPhotos, lensTypesSaved } = progressRef.current;
       if (!productId) {
         const body: CreateProductRequest = isAccessory
           ? {
@@ -260,7 +267,17 @@ export function AdminProductDraftForm({
             };
         const product = await apiPost<AdminProductDetail>("/api/admin/products", body);
         productId = product.id;
-        updateProgress({ productId, variantIds, uploadedPhotos });
+        updateProgress({ productId, variantIds, uploadedPhotos, lensTypesSaved });
+      }
+      // Compatible lens types (frames only), with the existing endpoint: it
+      // replaces the whole list, so sending it again never duplicates one.
+      if (!isAccessory && fields.lensTypeIds.length > 0 && !lensTypesSaved) {
+        step = "lenses";
+        await apiPut<AdminProductDetail>(`/api/admin/products/${productId}/lens-types`, {
+          lensTypeIds: fields.lensTypeIds,
+        } satisfies SetProductLensTypesRequest);
+        lensTypesSaved = true;
+        updateProgress({ productId, variantIds, uploadedPhotos, lensTypesSaved });
       }
       if (rows.length > 0 && !variantIds) {
         step = "variants";
@@ -279,7 +296,7 @@ export function AdminProductDraftForm({
         );
         variantIds = created.map((variant) => variant.id);
         uploadedPhotos = rows.map(() => 0);
-        updateProgress({ productId, variantIds, uploadedPhotos });
+        updateProgress({ productId, variantIds, uploadedPhotos, lensTypesSaved });
       }
       for (const [index, row] of rows.entries()) {
         rowIndex = index;
@@ -310,7 +327,7 @@ export function AdminProductDraftForm({
           );
           unsureRef.current = null;
           uploadedPhotos = uploadedPhotos.map((n, i) => (i === index ? p + 1 : n));
-          updateProgress({ productId, variantIds, uploadedPhotos });
+          updateProgress({ productId, variantIds, uploadedPhotos, lensTypesSaved });
         }
       }
       invalidateProduct(queryClient, productId);
@@ -324,9 +341,11 @@ export function AdminProductDraftForm({
       setSaveError(
         step === "product"
           ? describe(error, "No pudimos crear el producto.")
-          : step === "variants"
-            ? `El producto se creó, pero no sus colores (no se creó ninguno): ${describe(error, "no pudimos crear los colores.")}`
-            : `El producto y sus colores se crearon, pero falló la foto ${photoIndex + 1} de ${rowName}: ${describe(error, "no pudimos subir la foto.")}`,
+          : step === "lenses"
+            ? `El producto se creó, pero no sus cristales compatibles: ${describe(error, "no pudimos guardarlos.")} Reintentá: solo se guardan los cristales, el producto no se vuelve a crear.`
+            : step === "variants"
+              ? `El producto se creó, pero no sus colores (no se creó ninguno): ${describe(error, "no pudimos crear los colores.")}`
+              : `El producto y sus colores se crearon, pero falló la foto ${photoIndex + 1} de ${rowName}: ${describe(error, "no pudimos subir la foto.")}`,
       );
     } finally {
       setUploadingRow(null);
@@ -566,6 +585,42 @@ export function AdminProductDraftForm({
         onChange={(e) => set("basePrice", e.target.value)}
         required
       />
+
+      {!isAccessory && (
+        <fieldset className="space-y-2 rounded-md border border-border p-4">
+          <legend className="px-1 text-sm font-semibold text-text">
+            Cristales compatibles (opcional)
+          </legend>
+          <p className="text-xs text-text-muted">
+            Qué tipos de cristal acepta este armazón. Sin elegir ninguno, la tienda muestra
+            «Compatibilidad por consultar». No suma precios.
+          </p>
+          {lensTypes.isLoading && <p className="text-sm text-text-muted">Cargando cristales…</p>}
+          {lensTypes.isError && (
+            <p className="text-sm text-danger">
+              No pudimos cargar los cristales. Podés crear el producto y elegirlos después en su
+              ficha.
+            </p>
+          )}
+          {lensTypes.data && lensChoices.length === 0 && (
+            <p className="text-sm text-text-muted">
+              Todavía no hay cristales cargados. Crealos en{" "}
+              <Link to="/admin/lens-types" className="text-primary hover:underline">
+                Cristales
+              </Link>
+              .
+            </p>
+          )}
+          {lensChoices.length > 0 && (
+            <LensTypeChecklist
+              choices={lensChoices}
+              selected={fields.lensTypeIds}
+              onChange={(ids) => set("lensTypeIds", ids)}
+              disabled={saving || progress.lensTypesSaved}
+            />
+          )}
+        </fieldset>
+      )}
 
       <fieldset className="space-y-3 rounded-md border border-border p-4">
         <legend className="px-1 text-sm font-semibold text-text">Colores y fotos (opcional)</legend>

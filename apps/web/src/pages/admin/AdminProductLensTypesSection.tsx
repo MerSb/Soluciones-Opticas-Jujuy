@@ -6,6 +6,7 @@ import {
   useAdminLensTypesQuery,
   useSetProductLensTypesMutation,
 } from "../../services/queries/admin-lens";
+import { LensTypeChecklist } from "./LensTypeChecklist";
 
 // "Cristales compatibles" (ADR-0023) — an explicit admin decision per
 // product, never inferred from its category. None selected = the product
@@ -51,23 +52,7 @@ export function AdminProductLensTypesSection({ product }: { product: AdminProduc
 
       {choices.length > 0 && (
         <div className="mt-3 space-y-2">
-          {choices.map((type) => (
-            <label key={type.id} className="flex items-center gap-2 text-sm text-text">
-              <input
-                type="checkbox"
-                checked={selected.includes(type.id)}
-                onChange={(e) =>
-                  setSelected((current) =>
-                    e.target.checked
-                      ? [...current, type.id]
-                      : current.filter((value) => value !== type.id),
-                  )
-                }
-              />
-              {type.name}
-              {type.deletedAt && <span className="text-text-muted">(eliminado)</span>}
-            </label>
-          ))}
+          <LensTypeChecklist choices={choices} selected={selected} onChange={setSelected} />
           <button
             type="button"
             onClick={() => setLensTypes.mutate({ lensTypeIds: selected })}
