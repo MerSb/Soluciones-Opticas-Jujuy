@@ -127,12 +127,17 @@ model ProductVariant {
   /// Nullable — a product may exist as a single, undifferentiated variant
   /// before (or unless) the client's inventory is tracked per color. See
   /// docs/DATABASE_DESIGN.md "Open question: per-color stock".
-  color    String?
-  material String?
-  sku      String  @unique
+  color      String?
+  material   String?
+  sku        String   @unique
   /// Presentation of an accessory variant without a color (e.g. a cleaner's
   /// size). Free text entered by the admin; null for frames. ADR-0028.
-  label    String?
+  label      String?
+  /// Palette tones of this physical piece (apps/api/src/lib/color-tones.ts),
+  /// main tone first: one tone = a plain color, several = one two-tone
+  /// frame (not several variants). Empty = not classified yet; `color`
+  /// stays the name the customer reads.
+  colorTones String[] @default([]) @map("color_tones")
 
   /// CHECK (stock >= 0) is added as raw SQL in the first migration —
   /// Prisma schema has no declarative CHECK constraint syntax. Plain
@@ -148,6 +153,7 @@ model ProductVariant {
   images  ProductImage[]
 
   @@index([productId])
+  @@index([colorTones], type: Gin)
   @@map("product_variants")
 }
 
