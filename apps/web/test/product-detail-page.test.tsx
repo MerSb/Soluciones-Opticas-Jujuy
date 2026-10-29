@@ -409,148 +409,36 @@ const LENS_PRODUCT = {
   ],
 };
 
-// A stand-in for the backend quote: prices by id, the way the API
-// would — the page itself never sends or computes a price.
-function fakeQuote(url: URL) {
-  const lensTypeId = url.searchParams.get("lensTypeId");
-  const lensOptionId = url.searchParams.get("lensOptionId");
-  const graduationMode = url.searchParams.get("graduationMode") ?? "NONE";
-  const type = LENS_PRODUCT.lensTypes.find((t) => t.id === lensTypeId);
-  const option = type?.options.find((o) => o.id === lensOptionId);
-  const lensPrice = option?.price ?? type?.price ?? 0;
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({
-      product: { name: "Andina Aviador", slug: "andina-aviador" },
-      frame: {
-        variantId: "v1",
-        sku: "AND-AVI-NEG",
-        color: "Negro",
-        material: "Metal",
-        inStock: true,
-      },
-      lens: type
-        ? {
-            lensTypeId: type.id,
-            lensTypeName: type.name,
-            lensOptionId: option?.id ?? null,
-            lensOptionName: option?.name ?? null,
-            treatments: [],
-          }
-        : null,
-      graduation: {
-        mode: graduationMode,
-        requiresOpticalConsultation: graduationMode === "CUSTOM",
-      },
-      framePrice: 45000,
-      lensPrice,
-      total: 45000 + lensPrice,
-    }),
-  };
-}
+// Lens types are shown as compatibility only (LensCompatibility): names,
+// never a lens price, never a quote — lenses are arranged with the shop.
+describe("ProductDetailPage — compatible lens types", () => {
+  const quoteCalls = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/quote"));
 
-describe("ProductDetailPage — lens configurator", () => {
-  it("keeps the previous experience for a product without lens types (no configurator, no quote call)", async () => {
+  it("says 'Compatibilidad por consultar' when none are set — never 'not compatible'", async () => {
     mockFetch({ ok: true, json: async () => ({ ...PRODUCT_DETAIL, lensTypes: [] }) });
     renderProductDetail("andina-aviador");
     await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
 
-    expect(screen.queryByRole("heading", { name: "Elegí tus cristales" })).not.toBeInTheDocument();
-    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
-    expect(calls.some((url) => url.includes("/quote"))).toBe(false);
+    const section = screen.getByRole("region", { name: "Cristales compatibles" });
+    expect(section).toHaveTextContent("Compatibilidad por consultar.");
+    expect(quoteCalls()).toHaveLength(0);
   });
 
-  it("offers 'Sin cristales' by default plus each compatible lens, with data-driven promo copy", async () => {
-    mockFetch({ ok: true, json: async () => LENS_PRODUCT }, { quote: fakeQuote });
+  it("lists the compatible types by name, with no lens price, choice or quote", async () => {
+    mockFetch({ ok: true, json: async () => LENS_PRODUCT });
     renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
 
-    expect(await screen.findByRole("heading", { name: "Elegí tus cristales" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Sin cristales/ })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    expect(screen.getByRole("radio", { name: /Cristal HD/ })).toBeInTheDocument();
-    expect(screen.getByText("Destacado")).toBeInTheDocument();
-    // 3 active varieties, one out of stock → only the 2 pickable ones count.
-    expect(screen.getByText("2 variedades disponibles")).toBeInTheDocument();
-
-    const breakdown = await screen.findByLabelText("Resumen de precio");
-    expect(within(breakdown).getByText("Sin cristales")).toBeInTheDocument();
-    // Frame-only: the frame line and the total are the same amount.
-    expect(within(breakdown).getAllByText("$ 45.000")).toHaveLength(2);
-  });
-
-  it("shows the backend-quoted breakdown for a lens and sends ids only", async () => {
-    mockFetch({ ok: true, json: async () => LENS_PRODUCT }, { quote: fakeQuote });
-    renderProductDetail("andina-aviador");
-    await userEvent.click(await screen.findByRole("radio", { name: /Cristal HD/ }));
-
-    const breakdown = await screen.findByLabelText("Resumen de precio");
-    expect(await within(breakdown).findByText("$ 65.000")).toBeInTheDocument();
-    expect(within(breakdown).getByText("$ 20.000")).toBeInTheDocument();
-    expect(screen.getByText("Incluye: Tratamiento X")).toBeInTheDocument();
-    // HD doesn't support custom graduation — no graduation choice offered.
-    expect(screen.queryByRole("heading", { name: "Graduación" })).not.toBeInTheDocument();
-
-    const quoteUrls = vi
-      .mocked(fetch)
-      .mock.calls.map(([url]) => new URL(String(url)))
-      .filter((url) => url.pathname.endsWith("/quote"));
-    const last = quoteUrls[quoteUrls.length - 1]!;
-    expect(last.searchParams.get("lensTypeId")).toBe("hd");
-    expect(last.searchParams.get("variantId")).toBe("v1");
-    expect([...last.searchParams.keys()].some((key) => /price|total/i.test(key))).toBe(false);
-  });
-
-  it("requires picking a variety for a lens with varieties; out-of-stock ones can't be picked", async () => {
-    mockFetch({ ok: true, json: async () => LENS_PRODUCT }, { quote: fakeQuote });
-    renderProductDetail("andina-aviador");
-    await userEvent.click(await screen.findByRole("radio", { name: /Cristal Espectral/ }));
-
-    expect(screen.getByRole("heading", { name: "Elegí una variedad" })).toBeInTheDocument();
-    expect(screen.getByText("Elegí una variedad para ver el total.")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Tono Tres/ })).toBeDisabled();
-
-    await userEvent.click(screen.getByRole("radio", { name: /Tono Dos/ }));
-    const breakdown = await screen.findByLabelText("Resumen de precio");
-    expect(await within(breakdown).findByText("$ 90.000")).toBeInTheDocument();
-    expect(within(breakdown).getByText(/Tono Dos/)).toBeInTheDocument();
-  });
-
-  it("custom graduation shows the advisory note and 'a coordinar', never a price", async () => {
-    mockFetch({ ok: true, json: async () => LENS_PRODUCT }, { quote: fakeQuote });
-    renderProductDetail("andina-aviador");
-    await userEvent.click(await screen.findByRole("radio", { name: /Cristal Foto/ }));
-    await userEvent.click(screen.getByRole("radio", { name: "Quiero graduación personalizada" }));
-
+    const section = screen.getByRole("region", { name: "Cristales compatibles" });
     expect(
-      screen.getByText(/nuestro equipo se comunicará con vos para asesorarte/),
-    ).toBeInTheDocument();
-    const breakdown = await screen.findByLabelText("Resumen de precio");
-    expect(await within(breakdown).findByText("A coordinar con la óptica")).toBeInTheDocument();
-    expect(within(breakdown).getByText("$ 75.000")).toBeInTheDocument();
-    expect(within(breakdown).queryByText("$ 0")).not.toBeInTheDocument();
-    expect(within(breakdown).queryByText(/gratis/i)).not.toBeInTheDocument();
-  });
-
-  it("surfaces a backend rejection instead of a stale total", async () => {
-    mockFetch(
-      { ok: true, json: async () => LENS_PRODUCT },
-      {
-        quote: () => ({
-          ok: false,
-          status: 409,
-          json: async () => ({
-            error: { code: "CONFLICT", message: "La variedad elegida no tiene stock disponible." },
-          }),
-        }),
-      },
-    );
-    renderProductDetail("andina-aviador");
-
-    expect(
-      await screen.findByText("La variedad elegida no tiene stock disponible."),
-    ).toBeInTheDocument();
+      within(section)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["Cristal HD", "Cristal Foto", "Cristal Espectral"]);
+    expect(section).not.toHaveTextContent("$");
+    expect(screen.queryByRole("radio", { name: /Sin cristales/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/20\.000|30\.000/)).not.toBeInTheDocument();
+    expect(quoteCalls()).toHaveLength(0);
   });
 });

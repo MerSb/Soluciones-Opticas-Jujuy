@@ -14,7 +14,7 @@ import { VariantSelector, variantDisplayName } from "../components/products/Vari
 import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
-import { LensConfigurator } from "../components/products/LensConfigurator";
+import { LensCompatibility } from "../components/products/LensCompatibility";
 import {
   FrameIncludedAccessories,
   type IncludedAccessoriesSummary,
@@ -23,11 +23,7 @@ import { EMPTY_ACCESSORY_CHOICE, type AccessoryChoice } from "../lib/included-ac
 import { useProductQuery, isNotFoundError } from "../services/queries/products";
 import { formatPrice } from "../lib/format-price";
 import { buildProductInquiryMessage } from "../lib/whatsapp";
-import {
-  FRAME_ONLY_SELECTION,
-  summarizeLensSelection,
-  type LensSelection,
-} from "../lib/lens-configuration";
+import { FRAME_ONLY_SELECTION, type LensSelection } from "../lib/lens-configuration";
 import { buildCloudinaryUrl } from "../lib/cloudinary";
 import { STYLE_PREFERENCE_OPTIONS } from "../lib/optical-profile-taxonomy";
 import { track } from "../lib/analytics";
@@ -56,7 +52,9 @@ export function ProductDetailPage() {
       });
     }
   }, [viewedSlug, viewedKind]);
-  const [lensSelection, setLensSelection] = useState<LensSelection>(FRAME_ONLY_SELECTION);
+  // Lenses are shown as compatibility only (LensCompatibility): the page
+  // quotes and asks about the frame alone.
+  const lensSelection: LensSelection = FRAME_ONLY_SELECTION;
   // ADR-0028 Phase 2 — included case/cord choice and its quoted summary.
   const [accessoryChoice, setAccessoryChoice] = useState<AccessoryChoice>(EMPTY_ACCESSORY_CHOICE);
   const [accessorySummary, setAccessorySummary] = useState<IncludedAccessoriesSummary | null>(null);
@@ -141,10 +139,8 @@ export function ProductDetailPage() {
     : undefined;
 
   // `?? []` guards a web deploy that reaches an API not yet serving the
-  // field (ADR-0023 is additive; the API is deployed first). No lens
-  // types → no configurator and the exact pre-existing page/message.
+  // field (ADR-0023 is additive; the API is deployed first).
   const lensTypes = product.lensTypes ?? [];
-  const offersLenses = lensTypes.length > 0;
   // ADR-0028: an accessory page has no optical sections (measurements,
   // personalized match, related frames). `?? "FRAME"` tolerates an API
   // that doesn't send the field yet.
@@ -157,7 +153,7 @@ export function ProductDetailPage() {
     presentation: isAccessory ? selectedVariant.label : null,
     isAccessory,
     productUrl: typeof window !== "undefined" ? window.location.href : null,
-    lens: offersLenses ? summarizeLensSelection(lensSelection, lensTypes) : null,
+    lens: null,
     includedAccessories: isAccessory ? null : accessorySummary,
   });
 
@@ -308,15 +304,9 @@ export function ProductDetailPage() {
               </div>
             )}
 
-            {offersLenses && (
+            {!isAccessory && (
               <div className="mt-8 border-t border-border pt-6">
-                <LensConfigurator
-                  slug={product.slug}
-                  lensTypes={lensTypes}
-                  variant={selectedVariant}
-                  selection={lensSelection}
-                  onChange={setLensSelection}
-                />
+                <LensCompatibility lensTypes={lensTypes} />
               </div>
             )}
 

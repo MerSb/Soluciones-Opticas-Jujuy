@@ -3,6 +3,14 @@
 Dominio de cristales (lentes) que complementan la compra de un armazón. Decisión de arquitectura:
 [ADR-0023](adr/0023-lens-catalog-domain.md). Este documento es la referencia operativa.
 
+> **Ficha pública (2026-10-29):** Roberto registra tipos de cristal **compatibles** con cada
+> armazón; no se venden cristales graduados desde la tienda. La ficha muestra «Cristales
+> compatibles» con los nombres de los tipos asociados (sin precios ni cotización) o «Compatibilidad
+> por consultar» si no hay ninguno — nunca «incompatible». El configurador (`LensConfigurator`) y
+> `GET …/quote` con cristal siguen en el código pero la ficha ya no los usa. Los precios siguen siendo
+> obligatorios en `lens_types.base_price`: hacerlos opcionales requiere la migración propuesta en el
+> informe (pendiente de autorización).
+
 ## Modelo
 
 ```

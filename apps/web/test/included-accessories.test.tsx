@@ -526,63 +526,17 @@ async function chooseFreeAccessories() {
   return section;
 }
 
-const lensRadio = (name: RegExp) =>
-  within(screen.getByRole("radiogroup", { name: "Cristales" })).getByRole("radio", { name });
-const varietyRadio = (name: RegExp) =>
-  within(screen.getByRole("radiogroup", { name: "Variedad" })).getByRole("radio", { name });
-
 describe("included accessories — predeploy corrections", () => {
-  it("a lens choice left incomplete never sends the previous total to WhatsApp (bug repro)", async () => {
-    stubFlow({ frame: LENS_FRAME, offers: [OFFER] });
+  it("a frame with compatible lens types quotes frame and accessories only, never a lens", async () => {
+    const calls = stubFlow({ frame: LENS_FRAME, offers: [OFFER] });
     renderPage();
     const section = await chooseFreeAccessories();
-    await userEvent.click(lensRadio(/Foto QA/));
-    await userEvent.click(varietyRadio(/Marrón/));
-    await waitFor(() => expect(whatsappText()).toContain("Total estimado: $\u00a0120.000."));
-    expect(within(section).getByLabelText("Resumen con accesorios")).toHaveTextContent(
-      "Total estimado$ 120.000",
-    );
-
-    // Another type that needs a variety, none picked yet: the old quote is
-    // still cached as placeholder data, but nothing may use it.
-    await userEvent.click(lensRadio(/Polar QA/));
+    await waitFor(() => expect(calls.quotes.length).toBeGreaterThan(0));
+    expect(calls.quotes.every((p) => !p.has("lensTypeId") && !p.has("lensOptionId"))).toBe(true);
     expect(
-      await within(section).findByText("Completá la elección de cristales para ver el total."),
-    ).toBeInTheDocument();
-    await waitFor(() => expect(whatsappText()).not.toContain("Total estimado"));
-    expect(whatsappText()).not.toContain("120.000");
-    expect(within(section).queryByLabelText("Resumen con accesorios")).toBeNull();
-
-    // Completing it quotes the new selection; summary and message agree.
-    await userEvent.click(varietyRadio(/Verde/));
-    await waitFor(() => expect(whatsappText()).toContain("Total estimado: $\u00a0115.000."));
-    expect(within(section).getByLabelText("Resumen con accesorios")).toHaveTextContent(
-      "Total estimado$ 115.000",
-    );
-  });
-
-  it("while a new variety is being quoted, neither the summary nor the message keep the old total", async () => {
-    const MARRON = "31111111-1111-4111-8111-111111111111";
-    stubFlow({
-      frame: LENS_FRAME,
-      offers: [OFFER],
-      quote: (p) => (p.get("lensOptionId") === MARRON ? { delay: 400 } : {}),
-    });
-    renderPage();
-    const section = await chooseFreeAccessories();
-    await userEvent.click(lensRadio(/Foto QA/));
-    await userEvent.click(varietyRadio(/Gris/));
-    await waitFor(() => expect(whatsappText()).toContain("Total estimado: $\u00a0110.000."));
-
-    await userEvent.click(varietyRadio(/Marrón/)); // slow answer
-    await waitFor(() => expect(whatsappText()).not.toContain("Total estimado"));
-    expect(within(section).getByText("Calculando el total…")).toBeInTheDocument();
-    expect(within(section).queryByText(/110\.000/)).toBeNull();
-
-    await waitFor(() => expect(whatsappText()).toContain("Total estimado: $\u00a0120.000."));
-    expect(within(section).getByLabelText("Resumen con accesorios")).toHaveTextContent(
-      "Total estimado$ 120.000",
-    );
+      within(section).queryByText("Completá la elección de cristales para ver el total."),
+    ).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Cristales" })).toBeNull();
   });
 
   it("rapid accessory changes end on the last choice's quote", async () => {
