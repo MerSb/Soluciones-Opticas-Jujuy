@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminVariantsEditor } from "../src/pages/admin/AdminVariantsEditor";
 import { renderWithProviders } from "./test-utils";
@@ -174,5 +174,113 @@ describe("AdminVariantsEditor — stock update error handling", () => {
 
     await screen.findByRole("alert");
     expect(saveButton).not.toBeDisabled();
+  });
+});
+
+describe("AdminVariantsEditor — adding a variant is folded away", () => {
+  function stubCreate(conflict = false) {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const method = init?.method ?? "GET";
+        const path = new URL(url).pathname;
+        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        calls.push({ method, path, body });
+        if (method === "POST" && path === "/api/admin/products/p1/variants") {
+          if (conflict) {
+            return {
+              ok: false,
+              status: 409,
+              json: async () => ({
+                error: { code: "CONFLICT", message: 'El SKU "SKU-1" ya está en uso.' },
+              }),
+            };
+          }
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({ ...VARIANT_NO_IMAGES, id: "v2", ...body }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      }),
+    );
+    return calls;
+  }
+  const section = () => screen.getByText("Agregar otro color o variante").closest("details")!;
+  const writes = (calls: { method: string }[]) => calls.filter((c) => c.method !== "GET");
+
+  it("with variants loaded: the cards (and 'Corregir datos') come first, the add form is closed", () => {
+    stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    expect(section()).not.toHaveAttribute("open");
+    const fix = screen.getByRole("button", { name: "Corregir datos de Negro" });
+    expect(section().contains(fix)).toBe(false);
+    expect(fix.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The palette and the single-piece form live inside it.
+    expect(
+      within(section()).getByRole("group", { name: "Tonos de la variante nueva" }),
+    ).toBeInTheDocument();
+    expect(within(section()).getByRole("button", { name: "Agregar variante" })).toBeInTheDocument();
+  });
+
+  it("with no variants yet, it starts open", () => {
+    stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[]} />);
+    expect(section()).toHaveAttribute("open");
+  });
+
+  it("opening and closing it creates or changes nothing", async () => {
+    const user = userEvent.setup();
+    const calls = stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    expect(section()).toHaveAttribute("open");
+    await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    expect(section()).not.toHaveAttribute("open");
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it("opened, it adds a new variant with its palette tones (the existing one is untouched)", async () => {
+    const user = userEvent.setup();
+    const calls = stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    const tones = within(
+      within(section()).getByRole("group", { name: "Tonos de la variante nueva" }),
+    );
+    await user.click(tones.getByRole("button", { name: /Rojo/ }));
+    await user.click(tones.getByRole("button", { name: /^Negro/ }));
+    await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
+    await user.clear(within(section()).getByLabelText("Stock"));
+    await user.type(within(section()).getByLabelText("Stock"), "3");
+    await user.click(within(section()).getByRole("button", { name: "Agregar variante" }));
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    expect(writes(calls)[0]).toEqual({
+      method: "POST",
+      path: "/api/admin/products/p1/variants",
+      body: {
+        color: "Rojo y negro",
+        material: null,
+        colorTones: ["ROJO", "NEGRO"],
+        sku: "SKU-2",
+        stock: 3,
+      },
+    });
+  });
+
+  it("keeps the validations: no SKU, no button; a repeated SKU shows the API's reason", async () => {
+    const user = userEvent.setup();
+    stubCreate(true);
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    expect(within(section()).getByRole("button", { name: "Agregar variante" })).toBeDisabled();
+    await user.type(within(section()).getByLabelText("SKU"), "SKU-1");
+    await user.click(within(section()).getByRole("button", { name: "Agregar variante" }));
+    expect(await within(section()).findByRole("alert")).toHaveTextContent(
+      'El SKU "SKU-1" ya está en uso.',
+    );
   });
 });

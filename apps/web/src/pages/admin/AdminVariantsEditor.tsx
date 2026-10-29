@@ -130,125 +130,148 @@ export function AdminVariantsEditor({
         )}
       </div>
 
-      <div className="mt-6">
-        <AccessoryColorPicker
-          productId={productId}
-          productSlug={productSlug}
-          variants={variants}
-          kind={kind}
-        />
-        <p className="mt-6 text-sm font-medium text-text">
-          {isAccessory
-            ? "¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:"
-            : "¿Es una sola pieza de dos tonos, u otro material? Cargala acá:"}
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleCreate}
-        className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
-        noValidate
-      >
-        <div className="w-full">
-          <p className="mb-1.5 text-sm font-medium text-text">Tonos de esta pieza (opcional)</p>
-          <ColorTonePicker value={tones} onChange={setTones} label="Tonos de la variante nueva" />
-          <p className="mt-1 text-xs text-text-muted">
-            Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos, no
-            aparece en el filtro por colores.
-          </p>
-        </div>
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-text" htmlFor="new-variant-color">
-            Color
-          </label>
-          <input
-            id="new-variant-color"
-            list="color-options"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-          />
-          <datalist id="color-options">
-            {COLOR_FAMILY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.label} />
-            ))}
-          </datalist>
-        </div>
-        <div>
-          <label
-            className="mb-1.5 block text-sm font-medium text-text"
-            htmlFor="new-variant-material"
+      {/* Adding is secondary to correcting what is loaded ("Corregir datos"
+          on each card): it stays folded until asked for, and folding it
+          back only hides it — nothing is created until its own button. */}
+      <details open={variants.length === 0} className="group mt-6 rounded-md border border-border">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-4 py-2 text-sm font-semibold text-primary hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
+          Agregar otro color o variante
+          <span
+            aria-hidden="true"
+            className="text-text-muted transition-transform group-open:rotate-180"
           >
-            Material
-          </label>
-          <input
-            id="new-variant-material"
-            list="material-options"
-            value={material}
-            onChange={(e) => setMaterial(e.target.value)}
-            className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-          />
-          <datalist id="material-options">
-            {FRAME_MATERIAL_OPTIONS.map((option) => (
-              <option key={option.value} value={option.label} />
-            ))}
-          </datalist>
-        </div>
-        {isAccessory && (
-          <>
-            <FormField
-              label="Presentación (opcional)"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              maxLength={100}
-              className="w-44"
+            ▾
+          </span>
+        </summary>
+        <div className="border-t border-border p-4">
+          <div>
+            <AccessoryColorPicker
+              productId={productId}
+              productSlug={productSlug}
+              variants={variants}
+              kind={kind}
             />
+            <p className="mt-6 text-sm font-medium text-text">
+              {isAccessory
+                ? "¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:"
+                : "¿Es una sola pieza de dos tonos, u otro material? Cargala acá:"}
+            </p>
+          </div>
+
+          <form
+            onSubmit={handleCreate}
+            className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
+            noValidate
+          >
+            <div className="w-full">
+              <p className="mb-1.5 text-sm font-medium text-text">Tonos de esta pieza (opcional)</p>
+              <ColorTonePicker
+                value={tones}
+                onChange={setTones}
+                label="Tonos de la variante nueva"
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos,
+                no aparece en el filtro por colores.
+              </p>
+            </div>
+            <div>
+              <label
+                className="mb-1.5 block text-sm font-medium text-text"
+                htmlFor="new-variant-color"
+              >
+                Color
+              </label>
+              <input
+                id="new-variant-color"
+                list="color-options"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
+              />
+              <datalist id="color-options">
+                {COLOR_FAMILY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.label} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label
+                className="mb-1.5 block text-sm font-medium text-text"
+                htmlFor="new-variant-material"
+              >
+                Material
+              </label>
+              <input
+                id="new-variant-material"
+                list="material-options"
+                value={material}
+                onChange={(e) => setMaterial(e.target.value)}
+                className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
+              />
+              <datalist id="material-options">
+                {FRAME_MATERIAL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.label} />
+                ))}
+              </datalist>
+            </div>
+            {isAccessory && (
+              <>
+                <FormField
+                  label="Presentación (opcional)"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={100}
+                  className="w-44"
+                />
+                <FormField
+                  label="Precio propio (opcional)"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  value={priceOverride}
+                  onChange={(e) => setPriceOverride(e.target.value)}
+                  className="w-40"
+                />
+              </>
+            )}
             <FormField
-              label="Precio propio (opcional)"
-              type="number"
-              inputMode="decimal"
-              min="0.01"
-              step="0.01"
-              value={priceOverride}
-              onChange={(e) => setPriceOverride(e.target.value)}
+              label="SKU"
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              required
               className="w-40"
             />
-          </>
-        )}
-        <FormField
-          label="SKU"
-          value={sku}
-          onChange={(e) => setSku(e.target.value)}
-          required
-          className="w-40"
-        />
-        <FormField
-          label="Stock"
-          type="number"
-          min="0"
-          step="1"
-          value={stock}
-          onChange={(e) => setStock(e.target.value)}
-          error={isBlank(stock) ? STOCK_REQUIRED : undefined}
-          className="w-28"
-        />
-        <button
-          type="submit"
-          disabled={createVariant.isPending || sku.trim() === "" || isBlank(stock)}
-          className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
-        >
-          {createVariant.isPending
-            ? "Agregando…"
-            : isAccessory
-              ? "Agregar presentación"
-              : "Agregar variante"}
-        </button>
-      </form>
-      {createError && (
-        <p role="alert" className="mt-2 text-sm text-danger">
-          {createError}
-        </p>
-      )}
+            <FormField
+              label="Stock"
+              type="number"
+              min="0"
+              step="1"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              error={isBlank(stock) ? STOCK_REQUIRED : undefined}
+              className="w-28"
+            />
+            <button
+              type="submit"
+              disabled={createVariant.isPending || sku.trim() === "" || isBlank(stock)}
+              className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
+            >
+              {createVariant.isPending
+                ? "Agregando…"
+                : isAccessory
+                  ? "Agregar presentación"
+                  : "Agregar variante"}
+            </button>
+          </form>
+          {createError && (
+            <p role="alert" className="mt-2 text-sm text-danger">
+              {createError}
+            </p>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
