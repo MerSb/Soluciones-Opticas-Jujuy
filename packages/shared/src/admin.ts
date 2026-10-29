@@ -10,7 +10,7 @@
 // surface, and vice versa.
 
 import type { StylePreference } from "./optical-profile.js";
-import type { AccessoryRole, FrameMeasurements, ProductKind } from "./catalog.js";
+import type { AccessoryRole, ColorTone, FrameMeasurements, ProductKind } from "./catalog.js";
 
 export interface AdminBrandDto {
   id: string;
@@ -96,6 +96,7 @@ export interface AdminVariantDto {
   color: string | null;
   material: string | null;
   label: string | null;
+  colorTones: ColorTone[];
   sku: string;
   stock: number;
   priceOverride: number | null;
@@ -108,6 +109,7 @@ export interface CreateVariantRequest {
   color?: string | null;
   material?: string | null;
   label?: string | null;
+  colorTones?: ColorTone[];
   sku: string;
   stock?: number;
   priceOverride?: number | null;
@@ -122,6 +124,7 @@ export interface CreateVariantsBatchRequest {
     stock: number;
     sku: string;
     label?: string | null;
+    colorTones?: ColorTone[];
     priceOverride?: number | null;
   }[];
 }
@@ -130,6 +133,7 @@ export interface UpdateVariantRequest {
   color?: string | null;
   material?: string | null;
   label?: string | null;
+  colorTones?: ColorTone[];
   sku?: string;
   stock?: number;
   priceOverride?: number | null;

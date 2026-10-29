@@ -110,6 +110,7 @@ describe("ProductCard image framing", () => {
       frameWidth: null,
     },
     colors: [],
+    colorSwatches: [],
     image: { publicId: "acc/id", alt: "Limpiador 40ml", isPrimary: true },
   };
 

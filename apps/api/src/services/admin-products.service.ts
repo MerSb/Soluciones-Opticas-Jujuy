@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { SimilarProductDto } from "@soluciones-opticas/shared";
+import type { AdminSkuSearchResult, SimilarProductDto } from "@soluciones-opticas/shared";
 import type {
   AccessoryRole,
   AdminImageDto,
@@ -26,6 +26,7 @@ import type {
   CreateProductBody,
   CreateVariantBody,
   CreateVariantsBatchBody,
+  SkuSearchQuery,
   UpdateImageBody,
   UpdateProductBody,
   UpdateVariantBody,
@@ -50,6 +51,7 @@ const VARIANT_SELECT = {
   color: true,
   material: true,
   label: true,
+  colorTones: true,
   sku: true,
   stock: true,
   priceOverride: true,
@@ -135,6 +137,7 @@ function toVariantDto(row: VariantRow): AdminVariantDto {
     color: row.color,
     material: row.material,
     label: row.label,
+    colorTones: row.colorTones as AdminVariantDto["colorTones"],
     sku: row.sku,
     stock: row.stock,
     priceOverride: row.priceOverride?.toNumber() ?? null,
@@ -514,7 +517,9 @@ async function assertNoDuplicateAccessoryVariant(
   if (clash) throw duplicateColorError(color, label);
 }
 
-/** Accessories only: several colors at once, all or nothing. */
+/** Several colors at once, all or nothing. An accessory never repeats a
+ * color; a frame may (the same color in two lens tints is legitimate), so
+ * for frames only the rows of this batch are compared. */
 export async function createVariantsBatch(
   productId: string,
   body: CreateVariantsBatchBody,
@@ -524,14 +529,19 @@ export async function createVariantsBatch(
     select: { kind: true, deletedAt: true, variants: { select: { color: true, label: true } } },
   });
   if (!product) throw ApiError.notFound("El producto no existe.");
-  if (product.kind !== "ACCESSORY") {
-    throw kindError("variants", "Solo los accesorios cargan varios colores a la vez.");
-  }
-  const seen = new Set(product.variants.map((variant) => variantKey(variant.color, variant.label)));
+  const seen = new Set(
+    product.kind === "ACCESSORY"
+      ? product.variants.map((variant) => variantKey(variant.color, variant.label))
+      : [],
+  );
   const skus = new Set<string>();
   for (const row of body.variants) {
     const key = variantKey(row.color, row.label ?? null);
-    if (seen.has(key)) throw duplicateColorError(row.color, row.label ?? null);
+    if (seen.has(key)) {
+      throw product.kind === "ACCESSORY"
+        ? duplicateColorError(row.color, row.label ?? null)
+        : ApiError.conflict(`El color «${row.color}» está repetido en la lista.`);
+    }
     seen.add(key);
     if (skus.has(row.sku.toLowerCase())) {
       throw ApiError.conflict(`El SKU "${row.sku}" está repetido en la lista.`);
@@ -549,6 +559,7 @@ export async function createVariantsBatch(
             productId,
             color: row.color,
             label: row.label ?? null,
+            colorTones: row.colorTones ?? [],
             sku: row.sku,
             stock: row.stock,
             priceOverride: row.priceOverride ?? null,
@@ -578,6 +589,7 @@ export async function createVariant(
         color: body.color ?? null,
         material: body.material ?? null,
         label: body.label ?? null,
+        colorTones: body.colorTones ?? [],
         sku: body.sku,
         stock: body.stock,
         priceOverride: body.priceOverride ?? null,
@@ -612,6 +624,7 @@ export async function updateVariant(
         ...(body.color !== undefined ? { color: body.color } : {}),
         ...(body.material !== undefined ? { material: body.material } : {}),
         ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.colorTones !== undefined ? { colorTones: body.colorTones } : {}),
         ...(body.sku !== undefined ? { sku: body.sku } : {}),
         ...(body.stock !== undefined ? { stock: body.stock } : {}),
         ...(body.priceOverride !== undefined ? { priceOverride: body.priceOverride } : {}),
@@ -1141,4 +1154,88 @@ export async function findSimilarProducts(query: {
     reason: row.reason as SimilarProductDto["reason"],
     sku: row.sku,
   }));
+}
+
+/** The digits of a SKU, in order, leading zeros kept: "ABC-00125" → "00125". */
+export function skuDigits(text: string): string {
+  return text.replace(/\D/g, "");
+}
+
+/**
+ * Variants found by the digits of their SKU, whatever letters, spaces,
+ * dashes or slashes each employee typed around them. Exact digit matches
+ * first, then SKUs that contain the digits (closest length first). The
+ * stored SKU is only read, never rewritten. Deleted products are included
+ * (flagged) so a code is never "lost". The digits travel as a bound
+ * parameter; no index needed at the catalog's size (a sequential scan of
+ * the variants).
+ */
+export async function searchVariantsBySkuDigits(
+  query: SkuSearchQuery,
+): Promise<AdminSkuSearchResult> {
+  const { page, limit } = query;
+  const digits = skuDigits(query.q);
+  if (digits === "") {
+    return { data: [], digits, pagination: { page, limit, total: 0, totalPages: 0 } };
+  }
+  const rows = await prisma.$queryRaw<
+    {
+      productId: string;
+      productName: string;
+      brandName: string;
+      kind: AdminSkuSearchResult["data"][number]["kind"];
+      productDeletedAt: Date | null;
+      variantId: string;
+      sku: string;
+      color: string | null;
+      label: string | null;
+      exact: boolean;
+      total: bigint;
+    }[]
+  >`
+    WITH found AS (
+      SELECT v.id, v.sku, v.color, v.label, v.product_id,
+             regexp_replace(v.sku, '[^0-9]', '', 'g') AS digits
+      FROM product_variants v
+    )
+    SELECT p.id::text AS "productId", p.name AS "productName", b.name AS "brandName",
+           p.kind::text AS kind, p.deleted_at AS "productDeletedAt",
+           f.id::text AS "variantId", f.sku, f.color, f.label,
+           (f.digits = ${digits}) AS exact,
+           count(*) OVER () AS total
+    FROM found f
+    JOIN products p ON p.id = f.product_id
+    JOIN brands b ON b.id = p.brand_id
+    WHERE strpos(f.digits, ${digits}) > 0
+    ORDER BY exact DESC, length(f.digits), p.deleted_at NULLS FIRST, p.name, f.sku
+    LIMIT ${limit} OFFSET ${(page - 1) * limit}
+  `;
+  const total = rows.length > 0 ? Number(rows[0]!.total) : await countSkuDigitMatches(digits, page);
+  return {
+    digits,
+    data: rows.map((row) => ({
+      productId: row.productId,
+      productName: row.productName,
+      brandName: row.brandName,
+      kind: row.kind,
+      productDeletedAt: row.productDeletedAt?.toISOString() ?? null,
+      variantId: row.variantId,
+      sku: row.sku,
+      color: row.color,
+      label: row.label,
+      match: row.exact ? "EXACT" : "PARTIAL",
+    })),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+// Only when a page past the end came back empty: the real total still
+// belongs in the pagination.
+async function countSkuDigitMatches(digits: string, page: number): Promise<number> {
+  if (page === 1) return 0;
+  const [row] = await prisma.$queryRaw<{ total: bigint }[]>`
+    SELECT count(*) AS total FROM product_variants v
+    WHERE strpos(regexp_replace(v.sku, '[^0-9]', '', 'g'), ${digits}) > 0
+  `;
+  return Number(row?.total ?? 0);
 }

@@ -23,6 +23,7 @@ const product: ProductListItem = {
     frameWidth: 138,
   },
   colors: ["Negro", "Carey", "Dorado"],
+  colorSwatches: [],
   image: { publicId: "some-id", alt: "Andina Aviador", isPrimary: true },
 };
 

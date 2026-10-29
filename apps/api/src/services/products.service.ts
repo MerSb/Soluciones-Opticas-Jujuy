@@ -13,7 +13,7 @@ import {
   shapeKeys,
 } from "../lib/frame-shapes.js";
 import { PRODUCT_LENS_TYPES_ARGS, toPublicLensTypeDto } from "./lens-configuration.service.js";
-import type { PublicShapeOptionDto } from "@soluciones-opticas/shared";
+import type { PublicColorOptionDto, PublicShapeOptionDto } from "@soluciones-opticas/shared";
 import type { ProductSort, ProductsListQuery } from "../schemas/products.schema.js";
 import type {
   BrandRef,
@@ -25,6 +25,7 @@ import type {
   ProductListItem,
   StylePreference,
 } from "@soluciones-opticas/shared";
+import { COLOR_TONES, colorSwatches, effectiveTones, legacyToneMap } from "../lib/color-tones.js";
 
 interface CoreProductRow {
   id: string;
@@ -66,9 +67,11 @@ export async function listProducts(query: ProductsListQuery): Promise<Paginated<
   const { page, limit, q } = query;
   const offset = (page - 1) * limit;
 
-  const { rows, total } = q
-    ? await searchProducts(query, q, limit, offset)
-    : await filterProducts(query, limit, offset);
+  // A palette filter ranks plain matches first: only the SQL path can.
+  const { rows, total } =
+    q || query.colors?.length
+      ? await searchProducts(query, q, limit, offset)
+      : await filterProducts(query, limit, offset);
 
   const data = await attachListingExtras(rows);
 
@@ -104,6 +107,7 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
         select: {
           id: true,
           color: true,
+          colorTones: true,
           material: true,
           label: true,
           sku: true,
@@ -145,6 +149,8 @@ export async function getProductBySlug(slug: string): Promise<ProductDetail | nu
       color: variant.color,
       material: variant.material,
       label: variant.label,
+      // Stored tones, or the explicit legacy ones of its text (display only).
+      colorTones: effectiveTones(variant),
       sku: variant.sku,
       // Effective price: the variant's override when set, else the
       // product's base price. Not the raw priceOverride column — a
@@ -366,9 +372,52 @@ function searchRelevance(q: string): Prisma.Sql {
 // Prisma.sql/Prisma.join template composition — every interpolated value
 // is parameterized by Prisma, never string-concatenated.
 
+// Palette color filter (docs/COLORES.md). A variant matches when any of its
+// tones is one of the chosen ones (OR). It is a *plain* match when, once a
+// transparente finish next to another tone is set aside, it has a single
+// tone and that tone was chosen. A product ranks in the plain group (0)
+// if any variant is a plain match, else in the combined group (1); EXISTS
+// per product, so a product is listed once however many variants match.
+// A variant not classified yet counts with the explicit legacy equivalence
+// of its whole stored text (lib/color-tones.ts legacyTones), passed in as a
+// bound JSON map; an ambiguous text matches no color and stays pending.
+type LegacyMap = Record<string, string[]>;
+
+function variantTones(legacy: LegacyMap): Prisma.Sql {
+  return Prisma.sql`(CASE WHEN cardinality(coalesce(v.color_tones, '{}')) > 0 THEN v.color_tones
+    ELSE ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(legacy)}::jsonb -> v.color)) END)`;
+}
+
+function plainTones(legacy: LegacyMap): Prisma.Sql {
+  const tones = variantTones(legacy);
+  return Prisma.sql`(CASE WHEN cardinality(array_remove(${tones}, 'TRANSPARENTE')) > 0
+    THEN array_remove(${tones}, 'TRANSPARENTE') ELSE ${tones} END)`;
+}
+
+function colorMatchCondition(tones: string[], legacy: LegacyMap): Prisma.Sql {
+  return Prisma.sql`EXISTS (SELECT 1 FROM product_variants v
+    WHERE v.product_id = p.id AND ${variantTones(legacy)} && ${tones}::text[])`;
+}
+
+function colorGroup(tones: string[], legacy: LegacyMap): Prisma.Sql {
+  const plain = plainTones(legacy);
+  return Prisma.sql`(CASE WHEN EXISTS (SELECT 1 FROM product_variants v
+    WHERE v.product_id = p.id AND cardinality(${plain}) = 1
+      AND ${plain} && ${tones}::text[]) THEN 0 ELSE 1 END)`;
+}
+
+/** The explicit legacy tones of every distinct text of an unclassified variant. */
+async function loadLegacyMap(): Promise<LegacyMap> {
+  const rows = await prisma.$queryRaw<{ color: string }[]>`
+    SELECT DISTINCT color FROM product_variants
+    WHERE color IS NOT NULL AND cardinality(coalesce(color_tones, '{}')) = 0
+  `;
+  return legacyToneMap(rows.map((row) => row.color));
+}
+
 async function searchProducts(
   query: ProductsListQuery,
-  q: string,
+  q: string | undefined,
   limit: number,
   offset: number,
 ): Promise<{ rows: CoreProductRow[]; total: number }> {
@@ -385,7 +434,7 @@ async function searchProducts(
       JOIN product_images pi ON pi.variant_id = v.id
       WHERE v.product_id = p.id
     )`,
-    searchMatchCondition(q),
+    ...(q ? [searchMatchCondition(q)] : []),
     // ADR-0028 — same rule as catalogKindWhere() (lib/product-kind.ts).
     query.kind === "ACCESSORY"
       ? Prisma.sql`p.kind = 'ACCESSORY' AND p.sold_individually = true`
@@ -410,11 +459,18 @@ async function searchProducts(
       Prisma.sql`EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.material = ${query.material})`,
     );
   }
+  const tones = query.colors ?? [];
+  const legacy = tones.length > 0 ? await loadLegacyMap() : {};
+  if (tones.length > 0) conditions.push(colorMatchCondition(tones, legacy));
   if (query.minPrice !== undefined) conditions.push(Prisma.sql`p.base_price >= ${query.minPrice}`);
   if (query.maxPrice !== undefined) conditions.push(Prisma.sql`p.base_price <= ${query.maxPrice}`);
 
   const whereClause = Prisma.join(conditions, " AND ");
-  const orderByClause = toRawOrderBy(query.sort);
+  // Within each color group, the catalog's own order (newest by default
+  // without a search, like the Prisma path).
+  const sortClause = toRawOrderBy(query.sort ?? (q ? "relevance" : "newest"));
+  const orderByClause =
+    tones.length > 0 ? Prisma.sql`${colorGroup(tones, legacy)}, ${sortClause}` : sortClause;
 
   const rows = await prisma.$queryRaw<RawSearchRow[]>`
     SELECT p.id, p.name, p.slug, p.kind, p.shape, p.styles,
@@ -426,7 +482,7 @@ async function searchProducts(
            p.frame_width::float8 AS "frameWidth",
            b.name AS "brandName", b.slug AS "brandSlug",
            c.name AS "categoryName", c.slug AS "categorySlug",
-           ${searchRelevance(q)} AS relevance
+           ${q ? searchRelevance(q) : Prisma.sql`0`} AS relevance
     FROM products p
     JOIN brands b ON b.id = p.brand_id
     JOIN categories c ON c.id = p.category_id
@@ -496,6 +552,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
     select: {
       productId: true,
       color: true,
+      colorTones: true,
       stock: true,
       priceOverride: true,
       images: {
@@ -550,6 +607,7 @@ async function attachListingExtras(rows: CoreProductRow[]): Promise<ProductListI
       frameWidth: row.frameWidth,
     },
     colors: Array.from(colorsByProduct.get(row.id) ?? []).sort(),
+    colorSwatches: colorSwatches(variants.filter((variant) => variant.productId === row.id)),
     image: imageByProduct.get(row.id) ?? null,
     inStock: computeInStock(variantsByProduct.get(row.id) ?? []),
   }));
@@ -600,6 +658,7 @@ interface RelatedCandidateRow {
   category: CategoryRef;
   variants: {
     color: string | null;
+    colorTones: string[];
     stock: number;
     images: { cloudinaryPublicId: string; alt: string }[];
   }[];
@@ -671,6 +730,7 @@ function relatedCandidateToListItem(row: RelatedCandidateRow): ProductListItem {
       frameWidth: row.frameWidth,
     },
     colors,
+    colorSwatches: colorSwatches(row.variants),
     image: primaryImage
       ? { publicId: primaryImage.cloudinaryPublicId, alt: primaryImage.alt, isPrimary: true }
       : null,
@@ -723,6 +783,7 @@ export async function getRelatedProducts(slug: string): Promise<ProductListItem[
       variants: {
         select: {
           color: true,
+          colorTones: true,
           stock: true,
           images: {
             where: { isPrimary: true },
@@ -794,5 +855,27 @@ export async function listPublicShapes(): Promise<PublicShapeOptionDto[]> {
   return OFFICIAL_FRAME_SHAPES.filter((shape) => counts.has(shape)).map((shape) => ({
     shape,
     count: counts.get(shape)!,
+  }));
+}
+
+/** Palette tones with at least one public frame, in palette order: what
+ * the catalog's color circles offer. A product counts once per tone. */
+export async function listPublicColors(): Promise<PublicColorOptionDto[]> {
+  const legacy = await loadLegacyMap();
+  const rows = await prisma.$queryRaw<{ tone: string; count: bigint }[]>`
+    SELECT t.tone, count(DISTINCT p.id) AS count
+    FROM products p
+    JOIN product_variants v ON v.product_id = p.id
+    CROSS JOIN LATERAL unnest(${variantTones(legacy)}) AS t(tone)
+    WHERE p.deleted_at IS NULL AND p.kind = 'FRAME'
+      AND EXISTS (SELECT 1 FROM product_variants iv
+                  JOIN product_images pi ON pi.variant_id = iv.id
+                  WHERE iv.product_id = p.id)
+    GROUP BY t.tone
+  `;
+  const counts = new Map(rows.map((row) => [row.tone, Number(row.count)]));
+  return COLOR_TONES.filter((tone) => counts.has(tone)).map((tone) => ({
+    tone,
+    count: counts.get(tone)!,
   }));
 }

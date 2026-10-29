@@ -2,6 +2,8 @@
 // (ADR-0015): apps/api and apps/web each declare the runtime dictionary
 // and check it against this union with `satisfies`.
 
+import type { Paginated, ProductKind } from "./catalog.js";
+
 export type OfficialFrameShape =
   | "Cat-eye"
   | "Aviador"
@@ -28,4 +30,26 @@ export interface SimilarProductDto {
   deletedAt: string | null;
   reason: "SAME_NAME" | "SAME_SKU";
   sku: string | null;
+}
+
+/** GET /api/admin/products/sku-search — variants whose SKU has the same
+ * digits as the query (letters, spaces and punctuation ignored, leading
+ * zeros kept). EXACT: the same digit sequence; PARTIAL: contains it. */
+export interface AdminSkuMatchDto {
+  productId: string;
+  productName: string;
+  brandName: string;
+  kind: ProductKind;
+  productDeletedAt: string | null;
+  variantId: string;
+  /** As stored — never normalized. */
+  sku: string;
+  color: string | null;
+  label: string | null;
+  match: "EXACT" | "PARTIAL";
+}
+
+export interface AdminSkuSearchResult extends Paginated<AdminSkuMatchDto> {
+  /** The digits actually searched; "" when the query has none. */
+  digits: string;
 }

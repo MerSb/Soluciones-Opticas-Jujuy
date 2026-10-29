@@ -15,6 +15,7 @@ const VARIANT_NO_IMAGES = {
   color: "Negro",
   material: "Metal",
   label: null,
+  colorTones: [],
   sku: "SKU-1",
   stock: 5,
   priceOverride: null,

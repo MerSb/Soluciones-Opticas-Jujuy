@@ -76,6 +76,11 @@ export const getQuote = asyncHandler(async (_req: Request, res: Response) => {
 
 // Official shapes with public products (docs/CATALOGO_NORMALIZACION.md),
 // for the catalog's shape filter.
+// Palette tones with public frames (docs/COLORES.md), for the color circles.
+export const listColors = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await productsService.listPublicColors());
+});
+
 export const listShapes = asyncHandler(async (_req: Request, res: Response) => {
   res.json(await productsService.listPublicShapes());
 });

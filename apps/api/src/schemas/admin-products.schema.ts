@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { StylePreference } from "@soluciones-opticas/shared";
 import { paginationSchema } from "./common.schema.js";
 import { ACCESSORY_ROLES, PRODUCT_KINDS } from "../lib/product-kind.js";
+import { COLOR_TONES, MAX_TONES_PER_VARIANT } from "../lib/color-tones.js";
 
 // Runtime value list, declared here rather than imported from
 // @soluciones-opticas/shared — same reasoning as
@@ -77,18 +78,30 @@ export type AdminProductsListQuery = z.infer<typeof adminProductsListQuerySchema
 const sku = z.string().trim().min(1).max(100);
 const nullableColorOrMaterial = z.string().trim().min(1).max(200).nullable();
 const nullableLabel = z.string().trim().min(1).max(100).nullable();
+// Palette tones of one piece, main first (lib/color-tones.ts). [] clears
+// the classification. Multicolor already says "several": it stands alone.
+const colorTones = z
+  .array(z.enum(COLOR_TONES))
+  .max(MAX_TONES_PER_VARIANT)
+  .refine((tones) => new Set(tones).size === tones.length, {
+    message: "Cada tono va una sola vez.",
+  })
+  .refine((tones) => !tones.includes("MULTICOLOR") || tones.length === 1, {
+    message: "Multicolor no se combina con otros tonos.",
+  });
 
 export const createVariantBodySchema = z.object({
   color: nullableColorOrMaterial.optional(),
   material: nullableColorOrMaterial.optional(),
   label: nullableLabel.optional(),
+  colorTones: colorTones.optional(),
   sku,
   stock: z.number().int().nonnegative().max(1_000_000).optional().default(0),
   priceOverride: z.number().positive().max(10_000_000).nullable().optional(),
 });
 export type CreateVariantBody = z.infer<typeof createVariantBodySchema>;
 
-// Accessories: several colors in one go. Color and stock are required per
+// Several colors in one go (accessories, and frames from the palette). Color and stock are required per
 // row — a stock is never assumed — and the whole batch is one transaction.
 export const createVariantsBatchBodySchema = z.object({
   variants: z
@@ -98,6 +111,7 @@ export const createVariantsBatchBodySchema = z.object({
         stock: z.number().int().nonnegative().max(1_000_000),
         sku,
         label: nullableLabel.optional(),
+        colorTones: colorTones.optional(),
         priceOverride: z.number().positive().max(10_000_000).nullable().optional(),
       }),
     )
@@ -110,6 +124,7 @@ export const updateVariantBodySchema = z.object({
   color: nullableColorOrMaterial.optional(),
   material: nullableColorOrMaterial.optional(),
   label: nullableLabel.optional(),
+  colorTones: colorTones.optional(),
   sku: sku.optional(),
   stock: z.number().int().nonnegative().max(1_000_000).optional(),
   priceOverride: z.number().positive().max(10_000_000).nullable().optional(),
@@ -173,3 +188,9 @@ export const similarProductsQuerySchema = z.object({
   excludeId: z.string().uuid().optional(),
 });
 export type SimilarProductsQuery = z.infer<typeof similarProductsQuerySchema>;
+
+// Free text as typed ("ABC-00125", "mod/125"); only its digits are used.
+export const skuSearchQuerySchema = paginationSchema.extend({
+  q: z.string().trim().max(100).default(""),
+});
+export type SkuSearchQuery = z.infer<typeof skuSearchQuerySchema>;

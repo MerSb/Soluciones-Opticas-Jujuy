@@ -5,6 +5,7 @@ import { ApiError } from "../lib/api-error.js";
 import { computeInStock } from "../lib/product-availability.js";
 import { PUBLIC_KIND_WHERE } from "../lib/product-kind.js";
 import { listingPrice } from "../lib/listing-price.js";
+import { colorSwatches } from "../lib/color-tones.js";
 
 export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
   const favorites = await prisma.favorite.findMany({
@@ -33,6 +34,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
           variants: {
             select: {
               color: true,
+              colorTones: true,
               stock: true,
               priceOverride: true,
               images: {
@@ -90,6 +92,7 @@ export async function listFavorites(userId: string): Promise<FavoriteDto[]> {
           frameWidth: favorite.product.frameWidth,
         },
         colors: Array.from(colors).sort(),
+        colorSwatches: colorSwatches(favorite.product.variants),
         image,
         inStock: computeInStock(favorite.product.variants),
       },

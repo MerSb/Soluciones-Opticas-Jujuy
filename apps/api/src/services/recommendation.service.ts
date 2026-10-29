@@ -19,6 +19,7 @@ import {
   type CustomerProfileInput,
   type ScoredProduct,
 } from "./recommendation/scoring.js";
+import { colorSwatches } from "../lib/color-tones.js";
 
 const EMPTY_PROFILE: CustomerProfileInput = {
   currentFrameLensWidth: null,
@@ -34,6 +35,7 @@ const EMPTY_PROFILE: CustomerProfileInput = {
 interface CandidateVariantRow {
   id: string;
   color: string | null;
+  colorTones: string[];
   material: string | null;
   stock: number;
   priceOverride: number | null;
@@ -80,6 +82,7 @@ const CANDIDATE_PRODUCT_SELECT = {
     select: {
       id: true,
       color: true,
+      colorTones: true,
       material: true,
       stock: true,
       priceOverride: true,
@@ -110,6 +113,7 @@ function toCandidateProductRow(product: {
   variants: {
     id: string;
     color: string | null;
+    colorTones: string[];
     material: string | null;
     stock: number;
     priceOverride: { toNumber(): number } | null;
@@ -209,6 +213,7 @@ function toRecommendationDto(
         frameWidth: product.frameWidth,
       },
       colors,
+      colorSwatches: colorSwatches(product.variants),
       image,
       inStock: computeInStock(product.variants),
     },

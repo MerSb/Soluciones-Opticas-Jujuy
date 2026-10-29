@@ -3,6 +3,7 @@ import {
   getProduct,
   getQuote,
   getRelatedProducts,
+  listColors,
   listShapes,
   listProducts,
 } from "../controllers/products.controller.js";
@@ -15,6 +16,7 @@ export const productsRouter = Router();
 
 productsRouter.get("/", validateQuery(productsListQuerySchema), listProducts);
 productsRouter.get("/shapes", listShapes);
+productsRouter.get("/colors", listColors);
 productsRouter.get("/:slug", validateParams(slugParamSchema), getProduct);
 productsRouter.get("/:slug/related", validateParams(slugParamSchema), getRelatedProducts);
 productsRouter.get(

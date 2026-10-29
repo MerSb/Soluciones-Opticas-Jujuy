@@ -21,6 +21,7 @@ npm run dev -w apps/api     # http://localhost:3001
 | ------ | ----------------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
 | GET    | `/api/health`                 | Liveness check                                                           | Public                               |
 | GET    | `/api/products`               | Catalog listing — search, filter, sort, paginate                         | Public                               |
+| GET    | `/api/products/colors`        | Palette tones with public frames, and how many (color circles)           | Public                               |
 | GET    | `/api/products/:slug`         | Product detail                                                           | Public                               |
 | GET    | `/api/products/:slug/related` | Up to 4 related products (deterministic weighted ranking)                | Public                               |
 | GET    | `/api/brands`                 | Brand listing with product counts                                        | Public                               |
@@ -288,6 +289,7 @@ endpoint reference.
 | POST                          | `/api/admin/brands/:id/restore`                                  |                                                                                                                                            |
 | GET/POST/PATCH/DELETE/restore | `/api/admin/categories(/:id)`                                    | Same shape as brands                                                                                                                       |
 | GET                           | `/api/admin/products`                                            | `?page&limit&q&includeDeleted` — paginated                                                                                                 |
+| GET                           | `/api/admin/products/sku-search`                                 | `?q&page&limit` — variants whose SKU has the same digits (letters/punctuation ignored, leading zeros kept); exact first                    |
 | POST                          | `/api/admin/products`                                            | See `CreateProductRequest`; `brandId`/`categoryId` must reference active rows                                                              |
 | GET                           | `/api/admin/products/:id`                                        | Soft-deleted products are still fetchable directly                                                                                         |
 | PATCH                         | `/api/admin/products/:id`                                        | No `slug` field accepted                                                                                                                   |
@@ -347,18 +349,19 @@ related products, and recommendations.
 
 ### Query parameters
 
-| Param                  | Type         | Notes                                                                          |
-| ---------------------- | ------------ | ------------------------------------------------------------------------------ |
-| `q`                    | string       | Trigram search on product name (see "Search" below)                            |
-| `brand`                | string       | Brand slug                                                                     |
-| `category`             | string       | Category slug                                                                  |
-| `shape`                | string       | Exact match on `product.shape`                                                 |
-| `material`             | string       | Matches if **any** variant has this material                                   |
-| `color`                | string       | Matches if **any** variant has this color                                      |
-| `minPrice`, `maxPrice` | number       | Filters on `product.basePrice` — see "Known simplification" below              |
-| `sort`                 | enum         | `relevance` \| `newest` (default) \| `price_asc` \| `price_desc` \| `name_asc` |
-| `page`                 | integer ≥ 1  | Default `1`                                                                    |
-| `limit`                | integer 1–50 | Default `20`. 50 is a hard ceiling — see "Pagination"                          |
+| Param                  | Type         | Notes                                                                                |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------ |
+| `q`                    | string       | Trigram search on product name (see "Search" below)                                  |
+| `brand`                | string       | Brand slug                                                                           |
+| `category`             | string       | Category slug                                                                        |
+| `shape`                | string       | Exact match on `product.shape`                                                       |
+| `material`             | string       | Matches if **any** variant has this material                                         |
+| `color`                | string       | Legacy: exact stored text in **any** variant (kept for shared links)                 |
+| `colors`               | string       | Palette tones, comma-separated (`rojo,negro`); plain matches first — docs/COLORES.md |
+| `minPrice`, `maxPrice` | number       | Filters on `product.basePrice` — see "Known simplification" below                    |
+| `sort`                 | enum         | `relevance` \| `newest` (default) \| `price_asc` \| `price_desc` \| `name_asc`       |
+| `page`                 | integer ≥ 1  | Default `1`                                                                          |
+| `limit`                | integer 1–50 | Default `20`. 50 is a hard ceiling — see "Pagination"                                |
 
 All validated with Zod; an invalid value returns `400 VALIDATION_ERROR` with per-field details.
 `sort=relevance` without `q` is a 400 — relevance is meaningless without a search term.

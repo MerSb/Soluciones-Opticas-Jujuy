@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { ZodSchema } from "zod";
+import type { ZodSchema, ZodType, ZodTypeDef } from "zod";
 import { ApiError } from "../lib/api-error.js";
 import { friendlyValidationMessage } from "../lib/validation-messages.js";
 
@@ -7,7 +7,8 @@ import { friendlyValidationMessage } from "../lib/validation-messages.js";
 // req.query/req.params — those are typed as string-only by Express,
 // and validated data includes coerced numbers/enums that no longer
 // match that shape.
-export function validateQuery<T>(schema: ZodSchema<T>) {
+// Query strings arrive as text; a schema may transform them (e.g. a list).
+export function validateQuery<T>(schema: ZodType<T, ZodTypeDef, unknown>) {
   return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.query);
     if (!result.success) {

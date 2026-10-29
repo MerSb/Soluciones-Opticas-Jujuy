@@ -198,10 +198,20 @@ describe("POST /api/admin/products/:id/variants/batch", () => {
     expect(dupSku.status).toBe(409);
   });
 
-  it("frames keep their one-variant-at-a-time flow (batch refused, duplicates still allowed)", async () => {
+  // docs/COLORES.md: frames now load several palette colors at once too,
+  // but may repeat a color already loaded (another lens tint, say).
+  it("frames load several colors at once and may still repeat a loaded color", async () => {
     const id = await newProduct("FRAME", "anteojo");
-    const refused = await batch(id, [{ color: "Negro", stock: 1, sku: sku("FR-1") }]);
-    expect(refused.status).toBe(400);
+    const loaded = await batch(id, [{ color: "Negro", stock: 1, sku: sku("FR-1") }]);
+    expect(loaded.status).toBe(201);
+    const again = await batch(id, [{ color: "Negro", stock: 1, sku: sku("FR-1B") }]);
+    expect(again.status).toBe(201);
+    const twiceInOne = await batch(id, [
+      { color: "Rojo", stock: 1, sku: sku("FR-1C") },
+      { color: "rojo", stock: 1, sku: sku("FR-1D") },
+    ]);
+    expect(twiceInOne.status).toBe(409);
+    expect(twiceInOne.body.error.message).toBe("El color «rojo» está repetido en la lista.");
     for (const suffix of ["FR-2", "FR-3"]) {
       const single = await admin
         .post(`/api/admin/products/${id}/variants`)

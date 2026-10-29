@@ -9,6 +9,25 @@ import type { PublicLensTypeDto } from "./lens.js";
 
 /** ADR-0028 — FRAME is eyewear; ACCESSORY is a case, cord, cleaner... */
 export type ProductKind = "FRAME" | "ACCESSORY";
+
+/** Palette tones (docs/COLORES.md). A variant lists the tones of its
+ * physical piece, main tone first; empty = not classified yet. */
+export type ColorTone =
+  | "NEGRO"
+  | "BLANCO"
+  | "GRIS"
+  | "PLATEADO"
+  | "DORADO"
+  | "MARRON"
+  | "BEIGE"
+  | "AZUL"
+  | "VERDE"
+  | "ROJO"
+  | "ROSA"
+  | "VIOLETA"
+  | "CAREY"
+  | "MULTICOLOR"
+  | "TRANSPARENTE";
 /** ADR-0028 — what an accessory is. */
 export type AccessoryRole = "CASE" | "CORD" | "CUSTOM_CORD" | "CLEANER" | "OTHER";
 
@@ -50,6 +69,9 @@ export interface ProductListItem {
   price: number;
   frameMeasurements: FrameMeasurements;
   colors: string[];
+  /** One swatch per distinct piece look (a two-tone frame is one swatch
+   * with two tones); classified variants only. */
+  colorSwatches: ColorTone[][];
   image: ProductImageDto | null;
   /**
    * Aggregate, not per-variant: true when at least one variant has
@@ -68,6 +90,8 @@ export interface ProductVariantDto {
   material: string | null;
   /** Accessory presentation (e.g. a cleaner's size); null for frames. */
   label: string | null;
+  /** Palette tones of this piece, main first; [] = not classified yet. */
+  colorTones: ColorTone[];
   sku: string;
   price: number;
   inStock: boolean;
@@ -130,4 +154,10 @@ export interface PaginationMeta {
 export interface Paginated<T> {
   data: T[];
   pagination: PaginationMeta;
+}
+
+/** GET /api/products/colors — palette tones with public frames. */
+export interface PublicColorOptionDto {
+  tone: ColorTone;
+  count: number;
 }
