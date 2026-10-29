@@ -46,3 +46,19 @@
   paleta, decide Roberto).
 - Aplicar tonos: desde el admin, variante por variante, o con un script aparte, revisado y
   autorizado, con respaldo previo.
+
+## Alta de productos con la paleta
+
+En «Nuevo producto» (anteojos y accesorios), la sección **Colores y fotos (opcional)** muestra los
+15 colores de la paleta y dos formas de carga:
+
+- **Varios colores:** cada color tocado es una variante (un armazón distinto) con su propio nombre
+  (por defecto el de la paleta, editable: «Negro mate»), SKU, stock y fotos. «Otro color» agrega uno
+  fuera de la paleta, sin tonos (queda pendiente de clasificar, como las variantes viejas).
+- **Una pieza de varios tonos:** un solo armazón; los tonos se tocan en orden (el principal
+  primero, mínimo dos) y el nombre sigue a los tonos hasta que se escribe a mano.
+
+El SKU y el stock se escriben a mano para cada variante (nunca se generan); los repetidos se marcan
+y no se envían. Las variantes se crean en un solo pedido atómico (`POST …/variants/batch`): si uno
+falla, no se crea ninguna. Sin colores, el producto se crea solo, como antes. Los borradores del
+formulario anterior (un color de texto, SKU y stock) vuelven como una fila.

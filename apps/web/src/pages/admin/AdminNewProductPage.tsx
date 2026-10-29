@@ -30,7 +30,7 @@ interface Tab {
   initialFields: ProductDraftFields;
   initialProgress: DraftProgress;
   lostPhotoCount: number;
-  previouslyUploadedPhotos: number;
+  previouslyUploadedPhotos: number[];
 }
 
 interface TabMeta {
@@ -49,7 +49,7 @@ function freshTab(kind: ProductKind): Tab {
     initialFields: emptyFields(kind),
     initialProgress: EMPTY_PROGRESS,
     lostPhotoCount: 0,
-    previouslyUploadedPhotos: 0,
+    previouslyUploadedPhotos: [],
   };
 }
 
@@ -58,7 +58,10 @@ function restoredTab(draft: StoredDraft): Tab {
     id: draft.id,
     initialFields: draft.fields,
     // Photos chosen before the reload are gone: a new selection starts at 0.
-    initialProgress: { ...draft.progress, uploadedPhotos: 0 },
+    initialProgress: {
+      ...draft.progress,
+      uploadedPhotos: draft.progress.uploadedPhotos.map(() => 0),
+    },
     lostPhotoCount: draft.photoCount,
     previouslyUploadedPhotos: draft.progress.uploadedPhotos,
   };

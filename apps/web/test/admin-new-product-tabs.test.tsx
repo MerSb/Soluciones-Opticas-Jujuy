@@ -10,6 +10,9 @@ import { STORAGE_KEY } from "../src/lib/product-drafts";
 // Multi-tab new-product page. Fictional data only; Cloudinary is never
 // reached (its upload URL is answered by the stub).
 
+// Many typed fields across tabs: slower than 5 s when the whole suite runs.
+vi.setConfig({ testTimeout: 20_000 });
+
 const BRANDS = [{ id: "b1", name: "Marca QA", slug: "marca-qa", deletedAt: null }];
 const CATEGORIES = [{ id: "c1", name: "Anteojos de Sol", slug: "sol", deletedAt: null }];
 
@@ -86,6 +89,21 @@ function stubBackend(
       variants += 1;
       return json(201, { id: `${variant[1]}-v${variants}` });
     }
+    const batch = url.pathname.match(/^\/api\/admin\/products\/(p\d+)\/variants\/batch$/);
+    if (method === "POST" && batch) {
+      const rows = (body as { variants: { sku: string }[] }).variants;
+      const skus = rows.map((row) => row.sku.toLowerCase());
+      if (new Set(skus).size !== skus.length) {
+        return json(409, { error: { code: "CONFLICT", message: "SKU repetido." } });
+      }
+      return json(
+        201,
+        rows.map((row) => {
+          variants += 1;
+          return { id: `${batch[1]}-v${variants}`, ...row };
+        }),
+      );
+    }
     if (method === "POST" && url.pathname.endsWith("/images/sign-upload")) {
       return json(200, {
         cloudName: "demo",
@@ -160,17 +178,38 @@ function renderPage() {
 const photo = (name: string) => new File(["fake-bytes"], name, { type: "image/jpeg" });
 const panel = () => screen.getByRole("tabpanel");
 
+interface ColorData {
+  /** A palette color clicked to add the row ("Negro"). */
+  color: string;
+  sku?: string;
+  stock?: string;
+  photos?: File[];
+  /** Order the thumbnails are clicked in (default: as chosen). */
+  clickOrder?: string[];
+}
+
+/** The row of a color, by its heading ("Negro", "Pieza combinada: …"). */
+const row = (heading: string) => within(within(panel()).getByRole("region", { name: heading }));
+
+async function fillColorRow(
+  user: ReturnType<typeof userEvent.setup>,
+  heading: string,
+  data: Omit<ColorData, "color">,
+) {
+  const r = row(heading);
+  if (data.sku) await user.type(r.getByLabelText("SKU"), data.sku);
+  await user.type(r.getByLabelText("Stock"), data.stock ?? "0");
+  if (data.photos) {
+    await user.upload(r.getByLabelText("Elegir fotos"), data.photos);
+    for (const name of data.clickOrder ?? data.photos.map((file) => file.name)) {
+      await user.click(r.getByRole("button", { name: new RegExp(`^${name}:`) }));
+    }
+  }
+}
+
 async function fillProduct(
   user: ReturnType<typeof userEvent.setup>,
-  data: {
-    name: string;
-    price: string;
-    color?: string;
-    sku?: string;
-    photos?: File[];
-    /** Order the thumbnails are clicked in (default: as chosen). */
-    clickOrder?: string[];
-  },
+  data: { name: string; price: string; colors?: ColorData[] },
 ) {
   const p = within(panel());
   await user.type(p.getByLabelText("Nombre"), data.name);
@@ -178,13 +217,13 @@ async function fillProduct(
   await user.selectOptions(p.getByLabelText("Marca"), "b1");
   await user.selectOptions(p.getByLabelText("Categoría"), "c1");
   await user.type(p.getByLabelText("Precio base (ARS)"), data.price);
-  if (data.color) await user.type(p.getByLabelText("Color"), data.color);
-  if (data.sku) await user.type(p.getByLabelText("SKU"), data.sku);
-  if (data.photos) {
-    await user.upload(p.getByLabelText("Elegir fotos"), data.photos);
-    for (const name of data.clickOrder ?? data.photos.map((file) => file.name)) {
-      await user.click(p.getByRole("button", { name: new RegExp(`^${name}:`) }));
-    }
+  for (const color of data.colors ?? []) {
+    await user.click(
+      within(p.getByRole("group", { name: "Colores de la paleta" })).getByRole("button", {
+        name: color.color,
+      }),
+    );
+    await fillColorRow(user, color.color, color);
   }
 }
 
@@ -214,17 +253,13 @@ describe("AdminNewProductPage — several products at once", () => {
     await fillProduct(user, {
       name: "Uno QA",
       price: "1000",
-      color: "Negro",
-      sku: "UNO-1",
-      photos: [photo("uno.jpg")],
+      colors: [{ color: "Negro", sku: "UNO-1", photos: [photo("uno.jpg")] }],
     });
     await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
     await fillProduct(user, {
       name: "Dos QA",
       price: "2000",
-      color: "Rojo",
-      sku: "DOS-1",
-      photos: [photo("dos-a.jpg"), photo("dos-b.jpg")],
+      colors: [{ color: "Rojo", sku: "DOS-1", photos: [photo("dos-a.jpg"), photo("dos-b.jpg")] }],
     });
     await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
     await fillProduct(user, { name: "Tres QA", price: "3000" });
@@ -255,19 +290,21 @@ describe("AdminNewProductPage — several products at once", () => {
     await fillProduct(user, {
       name: "Uno QA",
       price: "1000",
-      color: "Negro",
-      sku: "UNO-1",
-      photos: [photo("uno.jpg")],
+      colors: [{ color: "Negro", sku: "UNO-1", photos: [photo("uno.jpg")] }],
     });
     await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
     await fillProduct(user, {
       name: "Dos QA",
       price: "2000",
-      color: "Rojo",
-      sku: "DOS-1",
-      photos: [photo("dos-a.jpg"), photo("dos-b.jpg")],
-      // Clicked second-file-first: that is the order that must be saved.
-      clickOrder: ["dos-b.jpg", "dos-a.jpg"],
+      colors: [
+        {
+          color: "Rojo",
+          sku: "DOS-1",
+          photos: [photo("dos-a.jpg"), photo("dos-b.jpg")],
+          // Clicked second-file-first: that is the order that must be saved.
+          clickOrder: ["dos-b.jpg", "dos-a.jpg"],
+        },
+      ],
     });
 
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
@@ -276,14 +313,16 @@ describe("AdminNewProductPage — several products at once", () => {
     const writes = calls.filter((call) => call.method === "POST" && !call.path.startsWith("/v1_1"));
     expect(writes.map((call) => call.path)).toEqual([
       "/api/admin/products",
-      "/api/admin/products/p1/variants",
+      "/api/admin/products/p1/variants/batch",
       "/api/admin/products/p1/variants/p1-v1/images/sign-upload",
       "/api/admin/products/p1/variants/p1-v1/images",
       "/api/admin/products/p1/variants/p1-v1/images/sign-upload",
       "/api/admin/products/p1/variants/p1-v1/images",
     ]);
     expect(writes[0]!.body).toMatchObject({ name: "Dos QA", basePrice: 2000 });
-    expect(writes[1]!.body).toEqual({ color: "Rojo", sku: "DOS-1", stock: 0 });
+    expect(writes[1]!.body).toEqual({
+      variants: [{ color: "Rojo", colorTones: ["ROJO"], sku: "DOS-1", stock: 0 }],
+    });
     expect(calls.filter((call) => call.path.startsWith("/v1_1")).map((call) => call.body)).toEqual([
       "dos-b.jpg",
       "dos-a.jpg",
@@ -321,16 +360,24 @@ describe("AdminNewProductPage — several products at once", () => {
     ).toHaveLength(1);
   });
 
-  it("validates: photos need a color with SKU; an API error is shown and nothing else is sent", async () => {
+  it("validates: each color needs its SKU and stock; an API error is shown and nothing else is sent", async () => {
     const user = userEvent.setup();
     const calls = stubBackend({ failProductCreate: true });
     renderPage();
-    await fillProduct(user, { name: "Uno QA", price: "1000", photos: [photo("uno.jpg")] });
+    await fillProduct(user, { name: "Uno QA", price: "1000" });
+    await user.click(
+      within(within(panel()).getByRole("group", { name: "Colores de la paleta" })).getByRole(
+        "button",
+        { name: "Negro" },
+      ),
+    );
     const submit = within(panel()).getByRole("button", { name: "Crear producto" });
     expect(submit).toBeDisabled();
-    expect(within(panel()).getByText(/Falta el SKU del color/)).toBeInTheDocument();
+    expect(
+      within(panel()).getByText(/Falta el SKU de cada color, el stock de cada color/),
+    ).toBeInTheDocument();
 
-    await user.type(within(panel()).getByLabelText("SKU"), "UNO-1");
+    await fillColorRow(user, "Negro", { sku: "UNO-1" });
     await user.click(submit);
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
       "Ya existe un producto con ese nombre.",
@@ -346,16 +393,14 @@ describe("AdminNewProductPage — several products at once", () => {
     await fillProduct(user, {
       name: "Uno QA",
       price: "1000",
-      color: "Negro",
-      sku: "UNO-1",
-      photos: [photo("uno.jpg")],
+      colors: [{ color: "Negro", sku: "UNO-1", photos: [photo("uno.jpg")] }],
     });
     await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
     await fillProduct(user, { name: "Dos QA", price: "2000" });
     await user.click(screen.getAllByRole("tab")[0]!);
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
-      "El producto y su color se crearon, pero falló la foto 1: No pudimos conectarnos",
+      "El producto y sus colores se crearon, pero falló la foto 1 de Negro: No pudimos conectarnos",
     );
     await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
     await within(panel()).findByText("✓ «Uno QA» guardado.");
@@ -363,7 +408,7 @@ describe("AdminNewProductPage — several products at once", () => {
       calls.filter((call) => call.method === "POST" && call.path === "/api/admin/products"),
     ).toHaveLength(1);
     expect(
-      calls.filter((call) => call.method === "POST" && call.path.endsWith("/variants")),
+      calls.filter((call) => call.method === "POST" && call.path.endsWith("/variants/batch")),
     ).toHaveLength(1);
     // The retry first asks for the signed file (never reached Cloudinary: 409),
     // then uploads it again — one photo saved.
@@ -382,9 +427,7 @@ describe("AdminNewProductPage — several products at once", () => {
     await fillProduct(user, {
       name: "Uno QA",
       price: "1000",
-      color: "Negro",
-      sku: "UNO-1",
-      photos: [photo("uno.jpg"), photo("dos.jpg")],
+      colors: [{ color: "Negro", sku: "UNO-1", photos: [photo("uno.jpg"), photo("dos.jpg")] }],
     });
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent("falló la foto 1");
@@ -441,9 +484,7 @@ describe("AdminNewProductPage — several products at once", () => {
     await fillProduct(user, {
       name: "Uno QA",
       price: "1000",
-      color: "Negro",
-      sku: "UNO-1",
-      photos: [photo("uno.jpg")],
+      colors: [{ color: "Negro", sku: "UNO-1", photos: [photo("uno.jpg")] }],
     });
     await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
     await fillProduct(user, { name: "Dos QA", price: "2000" });
@@ -528,5 +569,179 @@ describe("AdminNewProductPage — several products at once", () => {
     expect(await screen.findByText("Listado de productos")).toBeInTheDocument();
     // What was typed stays as a draft for later.
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain("Uno QA");
+  });
+
+  describe("colors on the palette", () => {
+    const palette = () =>
+      within(within(panel()).getByRole("group", { name: "Colores de la paleta" }));
+
+    it("shows the 15 palette colors, for frames and for accessories", async () => {
+      const user = userEvent.setup();
+      stubBackend();
+      renderPage();
+      await within(panel()).findByRole("option", { name: "Marca QA" });
+      expect(palette().getAllByRole("button")).toHaveLength(15);
+      await user.click(within(panel()).getByRole("radio", { name: "Accesorio" }));
+      expect(palette().getAllByRole("button")).toHaveLength(15);
+    });
+
+    it("several colors: each one its own variant, with its own SKU, stock and photos", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [
+          { color: "Negro", sku: "UNO-N", stock: "3", photos: [photo("negro.jpg")] },
+          {
+            color: "Rojo",
+            sku: "UNO-R",
+            stock: "1",
+            photos: [photo("rojo-1.jpg"), photo("rojo-2.jpg")],
+          },
+        ],
+      });
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+
+      const batch = calls.find((call) => call.path.endsWith("/variants/batch"))!;
+      expect(batch.body).toEqual({
+        variants: [
+          { color: "Negro", colorTones: ["NEGRO"], sku: "UNO-N", stock: 3 },
+          { color: "Rojo", colorTones: ["ROJO"], sku: "UNO-R", stock: 1 },
+        ],
+      });
+      const registrations = calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/images"),
+      );
+      expect(
+        registrations.map((call) => [
+          call.path.split("/")[6],
+          (call.body as { alt: string }).alt,
+          (call.body as { isPrimary: boolean }).isPrimary,
+        ]),
+      ).toEqual([
+        ["p1-v1", "Uno QA — Negro — foto 1", true],
+        ["p1-v2", "Uno QA — Rojo — foto 1", true],
+        ["p1-v2", "Uno QA — Rojo — foto 2", false],
+      ]);
+      expect(
+        calls.filter((call) => call.path.startsWith("/v1_1")).map((call) => call.body),
+      ).toEqual(["negro.jpg", "rojo-1.jpg", "rojo-2.jpg"]);
+    });
+
+    it("clicking a chosen color again removes its row", async () => {
+      const user = userEvent.setup();
+      stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(palette().getByRole("button", { name: "Azul" }));
+      expect(palette().getByRole("button", { name: "Azul" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(within(panel()).getByRole("region", { name: "Azul" })).toBeInTheDocument();
+      await user.click(palette().getByRole("button", { name: "Azul" }));
+      expect(within(panel()).queryByRole("region", { name: "Azul" })).toBeNull();
+    });
+
+    it("a single piece of several tones is one variant with its tones in order", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(within(panel()).getByRole("radio", { name: /Una pieza de varios tonos/ }));
+      const tones = within(
+        within(panel()).getByRole("group", { name: "Tonos de la pieza combinada" }),
+      );
+      await user.click(tones.getByRole("button", { name: "Rojo" }));
+      expect(
+        within(panel()).getByText(/al menos dos tonos de la pieza combinada/),
+      ).toBeInTheDocument();
+      await user.click(tones.getByRole("button", { name: /^Negro/ }));
+      await fillColorRow(user, "Pieza combinada: Rojo y negro", { sku: "UNO-RN", stock: "2" });
+      expect(row("Pieza combinada: Rojo y negro").getByLabelText("Nombre del color")).toHaveValue(
+        "Rojo y negro",
+      );
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
+        variants: [
+          { color: "Rojo y negro", colorTones: ["ROJO", "NEGRO"], sku: "UNO-RN", stock: 2 },
+        ],
+      });
+    });
+
+    it("never sends repeated SKUs, and never generates one", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [
+          { color: "Negro", sku: "UNO-1" },
+          { color: "Blanco", sku: "uno-1" },
+        ],
+      });
+      expect(row("Blanco").getByText("SKU repetido en la lista.")).toBeInTheDocument();
+      expect(within(panel()).getByRole("button", { name: "Crear producto" })).toBeDisabled();
+      await user.click(palette().getByRole("button", { name: "Verde" }));
+      expect(row("Verde").getByLabelText("SKU")).toHaveValue("");
+      expect(calls.some((call) => call.path.includes("/variants"))).toBe(false);
+    });
+
+    it("a color outside the palette is kept by its name, without tones", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.type(
+        within(panel()).getByLabelText("Otro color (fuera de la paleta)"),
+        "Animal print",
+      );
+      await user.click(within(panel()).getByRole("button", { name: "Agregar color" }));
+      await fillColorRow(user, "Animal print (fuera de la paleta)", { sku: "UNO-AP" });
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
+        variants: [{ color: "Animal print", sku: "UNO-AP", stock: 0 }],
+      });
+    });
+
+    it("a draft saved by the previous form (one free-text color) comes back as one row", async () => {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify([
+          {
+            id: "old",
+            fields: {
+              kind: "FRAME",
+              name: "Viejo QA",
+              brandId: "",
+              categoryId: "",
+              shape: "",
+              basePrice: "",
+              accessoryRole: "",
+              soldIndividually: true,
+              color: "Negro mate",
+              sku: "VIE-1",
+              stock: "4",
+            },
+            progress: { productId: null, variantId: null, uploadedPhotos: 0 },
+            photoCount: 0,
+          },
+        ]),
+      );
+      stubBackend();
+      renderPage();
+      const r = within(
+        await screen.findByRole("region", { name: "Negro mate (fuera de la paleta)" }),
+      );
+      expect(r.getByLabelText("Nombre del color")).toHaveValue("Negro mate");
+      expect(r.getByLabelText("SKU")).toHaveValue("VIE-1");
+      expect(r.getByLabelText("Stock")).toHaveValue(4);
+    });
   });
 });

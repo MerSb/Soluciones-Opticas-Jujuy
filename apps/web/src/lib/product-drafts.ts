@@ -1,4 +1,5 @@
-import type { AccessoryRole, ProductKind } from "@soluciones-opticas/shared";
+import type { AccessoryRole, ColorTone, ProductKind } from "@soluciones-opticas/shared";
+import { parseTone } from "./color-tones";
 
 // Drafts of the multi-tab "new product" page. Only text fields are kept
 // in localStorage (per browser), so a reload does not lose what was typed;
@@ -14,18 +15,34 @@ export interface ProductDraftFields {
   basePrice: string;
   accessoryRole: AccessoryRole | "";
   soldIndividually: boolean;
-  /** Optional first color: needed to attach photos (photos belong to a variant). */
-  color: string;
+  /**
+   * The colors created with the product (optional; photos belong to a
+   * variant). "colors": each row is its own piece — its own SKU, stock and
+   * photos. "combined": a single piece of two or more tones, one row.
+   */
+  variantMode: VariantMode;
+  variants: DraftVariant[];
+}
+
+export type VariantMode = "colors" | "combined";
+
+/** One variant to create: `tones` from the palette (empty for a color
+ * outside it), `name` what the customer reads («Negro mate»). */
+export interface DraftVariant {
+  key: string;
+  tones: ColorTone[];
+  name: string;
   sku: string;
   stock: string;
 }
 
 /** What has already been created on the server for this tab, so a retry
- * continues where it stopped and never creates the product twice. */
+ * continues where it stopped and never creates the product or a color
+ * twice. `variantIds` and `uploadedPhotos` follow the order of `variants`. */
 export interface DraftProgress {
   productId: string | null;
-  variantId: string | null;
-  uploadedPhotos: number;
+  variantIds: string[] | null;
+  uploadedPhotos: number[];
 }
 
 export interface StoredDraft {
@@ -49,17 +66,28 @@ export function emptyFields(kind: ProductKind = "FRAME"): ProductDraftFields {
     basePrice: "",
     accessoryRole: "",
     soldIndividually: true,
-    color: "",
-    sku: "",
-    stock: "",
+    variantMode: "colors",
+    variants: [],
   };
 }
 
 export const EMPTY_PROGRESS: DraftProgress = {
   productId: null,
-  variantId: null,
-  uploadedPhotos: 0,
+  variantIds: null,
+  uploadedPhotos: [],
 };
+
+let draftVariantCounter = 0;
+export function newDraftVariant(tones: ColorTone[], name: string): DraftVariant {
+  draftVariantCounter += 1;
+  return {
+    key: `v${Date.now().toString(36)}-${draftVariantCounter}`,
+    tones,
+    name,
+    sku: "",
+    stock: "",
+  };
+}
 
 /** Anything typed or chosen that is not saved yet. */
 export function hasPendingChanges(fields: ProductDraftFields, photoCount: number, saved: boolean) {
@@ -67,10 +95,47 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
   const empty = emptyFields(fields.kind);
   return (
     photoCount > 0 ||
+    fields.variants.length > 0 ||
     (Object.keys(empty) as (keyof ProductDraftFields)[]).some(
-      (key) => key !== "kind" && fields[key] !== empty[key],
+      (key) =>
+        key !== "kind" && key !== "variants" && key !== "variantMode" && fields[key] !== empty[key],
     )
   );
+}
+
+// Drafts saved before colors could be chosen held one free-text color,
+// SKU and stock, and one variant's progress: read them as one row.
+interface OldDraftShape {
+  color?: string;
+  sku?: string;
+  stock?: string;
+}
+function upgradeFields(fields: ProductDraftFields & OldDraftShape): ProductDraftFields {
+  const { color = "", sku = "", stock = "", ...rest } = fields;
+  const base = { ...emptyFields(fields.kind), ...rest };
+  if (Array.isArray(fields.variants)) return base;
+  if (color.trim() === "" && sku.trim() === "" && stock === "") return base;
+  const tone = parseTone(color);
+  return {
+    ...base,
+    variants: [{ ...newDraftVariant(tone ? [tone] : [], color.trim()), sku, stock }],
+  };
+}
+function upgradeProgress(progress: Partial<DraftProgress> & { variantId?: string | null }) {
+  const old = progress as { variantId?: string | null; uploadedPhotos?: unknown };
+  return {
+    productId: progress.productId ?? null,
+    variantIds: Array.isArray(progress.variantIds)
+      ? progress.variantIds
+      : old.variantId
+        ? [old.variantId]
+        : null,
+    uploadedPhotos: Array.isArray(old.uploadedPhotos)
+      ? (old.uploadedPhotos as number[])
+      : typeof old.uploadedPhotos === "number"
+        ? [old.uploadedPhotos]
+        : [],
+  };
 }
 
 export function readStoredDrafts(): StoredDraft[] {
@@ -90,8 +155,8 @@ export function readStoredDrafts(): StoredDraft[] {
       .slice(0, MAX_TABS)
       .map((draft) => ({
         ...draft,
-        fields: { ...emptyFields(draft.fields.kind), ...draft.fields },
-        progress: { ...EMPTY_PROGRESS, ...draft.progress },
+        fields: upgradeFields(draft.fields),
+        progress: upgradeProgress(draft.progress ?? {}),
       }));
   } catch {
     // Private window, blocked storage or a corrupt value: start clean.
