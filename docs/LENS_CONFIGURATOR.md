@@ -124,3 +124,45 @@ reales del cliente. Los tests usan nombres obviamente ficticios.
   Mercado Pago, envío, facturación.
 - Tratamientos como adicionales pagos (`priceDelta` en `LensTypeTreatment`, cambio aditivo).
 - Imagen por variedad (hoy solo `swatchHex`).
+
+## Migración pendiente: precio opcional en los tipos de cristal (NO ejecutada)
+
+Estado al 2026-10-29: **documentada, sin autorizar.** No se ejecutó y no se modificaron los tres
+precios de $0,01 cargados en producción (Monofocal, Bifocales, Multifocales).
+
+### Por qué
+
+`lens_types.base_price` es `NOT NULL`: para registrar un tipo solo como compatibilidad hay que poner
+un precio, y se cargó $0,01. La ficha pública ya no muestra precios de cristal (sección «Cristales
+compatibles»), pero el dato ficticio sigue en la base y en la API.
+
+### Migración (aditiva, sin cambiar datos)
+
+```sql
+-- prisma/migrations/<fecha>_lens_type_price_optional/migration.sql
+ALTER TABLE "lens_types" ALTER COLUMN "base_price" DROP NOT NULL;
+```
+
+- Esquema: `basePrice Decimal? @map("base_price") @db.Decimal(10, 2)`.
+- Las filas existentes conservan su valor; ningún `UPDATE`.
+- Reversión: `ALTER TABLE "lens_types" ALTER COLUMN "base_price" SET NOT NULL;` (solo si no quedó
+  ninguna fila en `NULL`).
+
+### Código que depende de la columna (revisar todo en el mismo cambio)
+
+| Lugar                                                        | Hoy                                                      | Con precio opcional                                                                                |
+| ------------------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `apps/api/src/schemas/admin-lens.schema.ts`                  | `basePrice` obligatorio al crear                         | Opcional / `null`                                                                                  |
+| `apps/api/src/lib/lens-pricing.ts` (`effectiveLensPrice`)    | Siempre devuelve un precio                               | `Decimal \| null`                                                                                  |
+| `apps/api/src/services/admin-lens-types.service.ts`          | DTO admin con `basePrice: number`                        | `number \| null`                                                                                   |
+| `apps/api/src/services/lens-configuration.service.ts`        | `PublicLensTypeDto.price: number`; quote suma el cristal | `price: number \| null`; quote con un cristal sin precio responde «precio a consultar» (sin total) |
+| `packages/shared/src/lens.ts`                                | `price: number`                                          | `number \| null` (contrato público: cambio compatible solo si la web lo tolera antes)              |
+| `apps/web` admin de cristales                                | Precio requerido                                         | Campo opcional «Sin precio (solo compatibilidad)»                                                  |
+| `apps/web/src/lib/lens-configuration.ts`, `LensConfigurator` | Suman el precio                                          | Hoy sin uso en la ficha; adaptar o eliminar                                                        |
+
+### Orden de publicación sugerido
+
+1. Web que tolera `price: null` (la ficha actual ya no muestra precios).
+2. API + migración (Railway la aplica en `prisma migrate deploy`).
+3. Pasar los tres $0,01 a `NULL`: **modificación de datos comerciales**, con respaldo cifrado
+   previo y autorización explícita.
