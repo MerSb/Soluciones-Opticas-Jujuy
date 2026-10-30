@@ -209,11 +209,24 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     return calls;
   }
   const section = () => screen.getByText("Agregar otro color o variante").closest("details")!;
-  const writes = (calls: { method: string }[]) => calls.filter((c) => c.method !== "GET");
-  const combineBox = () =>
-    within(section()).getByRole("checkbox", { name: /Este armazón combina varios colores/ });
-  const tones = () =>
-    within(within(section()).getByRole("group", { name: "Tonos de la variante nueva" }));
+  const writes = <T extends { method: string }>(calls: T[]) =>
+    calls.filter((c) => c.method !== "GET");
+  const colors = () =>
+    within(within(section()).getByRole("radiogroup", { name: "Color de la variante nueva" }));
+  const field = (name: string) => within(section()).getByLabelText(name);
+  const add = () => within(section()).getByRole("button", { name: "Agregar variante" });
+
+  async function addVariant(
+    user: ReturnType<typeof userEvent.setup>,
+    data: { color: string; material?: string; sku: string; stock: string },
+  ) {
+    await user.click(colors().getByRole("radio", { name: data.color }));
+    if (data.material) await user.type(field("Material"), data.material);
+    await user.type(field("SKU"), data.sku);
+    await user.clear(field("Stock"));
+    await user.type(field("Stock"), data.stock);
+    await user.click(add());
+  }
 
   it("with variants loaded: the cards (and 'Corregir datos') come first, the add form is closed", () => {
     stubCreate();
@@ -222,12 +235,12 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     const fix = screen.getByRole("button", { name: "Corregir datos de Negro" });
     expect(section().contains(fix)).toBe(false);
     expect(fix.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One palette ("Cargar colores"); the combined-piece form only behind its checkbox.
-    expect(within(section()).getByRole("group", { name: "Paleta de colores" })).toBeInTheDocument();
-    expect(combineBox()).not.toBeChecked();
-    expect(
-      within(section()).queryByRole("group", { name: "Tonos de la variante nueva" }),
-    ).toBeNull();
+    // The simple form: one palette (one color), material, SKU and stock.
+    expect(within(section()).getAllByRole("radiogroup")).toHaveLength(1);
+    expect(colors().getAllByRole("radio")).toHaveLength(19);
+    expect(within(section()).queryByRole("checkbox")).toBeNull();
+    expect(within(section()).queryByRole("button", { name: /Negro|Rojo/ })).toBeNull();
+    for (const name of ["Material", "SKU", "Stock"]) expect(field(name)).toBeInTheDocument();
   });
 
   it("with no variants yet, it starts open", () => {
@@ -236,74 +249,99 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     expect(section()).toHaveAttribute("open");
   });
 
-  it("opening/closing it, and ticking/unticking the checkbox, write nothing", async () => {
+  it("opening/closing it and choosing a color write nothing", async () => {
     const user = userEvent.setup();
     const calls = stubCreate();
-    const confirm = vi
-      .spyOn(window, "confirm")
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
     expect(section()).toHaveAttribute("open");
-    await user.click(combineBox());
-    await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
-    // Unticking with data typed asks first; cancelling keeps everything.
-    await user.click(combineBox());
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(combineBox()).toBeChecked();
-    expect(within(section()).getByLabelText("SKU")).toHaveValue("SKU-2");
-    await user.click(combineBox());
-    expect(combineBox()).not.toBeChecked();
-    expect(within(section()).queryByLabelText("SKU")).toBeNull();
+    await user.click(colors().getByRole("radio", { name: "Rojo" }));
+    await user.click(colors().getByRole("radio", { name: "Azul" }));
+    expect(colors().getByRole("radio", { name: "Rojo" })).not.toBeChecked();
     await user.click(screen.getByText("Agregar otro color o variante"));
     expect(section()).not.toHaveAttribute("open");
     expect(writes(calls)).toEqual([]);
   });
 
-  it("ticked, it adds one combined piece with its tones (the existing variant is untouched)", async () => {
+  it("adds Negro with its material, SKU and stock in one step (the existing variant is untouched)", async () => {
     const user = userEvent.setup();
     const calls = stubCreate();
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
-    await user.click(combineBox());
-    await user.click(tones().getByRole("button", { name: /Rojo/ }));
-    await user.click(tones().getByRole("button", { name: /^Negro/ }));
-    await user.type(within(section()).getByLabelText("Material"), "Acetato");
-    await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
-    await user.clear(within(section()).getByLabelText("Stock"));
-    await user.type(within(section()).getByLabelText("Stock"), "3");
-    await user.click(within(section()).getByRole("button", { name: "Agregar pieza combinada" }));
+    await addVariant(user, { color: "Negro", material: "Acetato", sku: "SKU-2", stock: "3" });
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
     expect(writes(calls)[0]).toEqual({
       method: "POST",
       path: "/api/admin/products/p1/variants",
-      body: {
-        color: "Rojo y negro",
-        material: "Acetato",
-        colorTones: ["ROJO", "NEGRO"],
-        sku: "SKU-2",
-        stock: 3,
-      },
+      body: { color: "Negro", material: "Acetato", colorTones: ["NEGRO"], sku: "SKU-2", stock: 3 },
+    });
+    expect(await within(section()).findByRole("status")).toHaveTextContent(
+      "Variante agregada: Negro (SKU SKU-2).",
+    );
+    // Empty again for the next one.
+    expect(field("SKU")).toHaveValue("");
+    expect(field("Material")).toHaveValue("");
+    expect(colors().getByRole("radio", { name: "Negro" })).not.toBeChecked();
+  });
+
+  it("Celeste, Amarillo and Naranja are three separate operations, one variant each", async () => {
+    const user = userEvent.setup();
+    const calls = stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    for (const [color, sku] of [
+      ["Celeste", "SKU-C"],
+      ["Amarillo", "SKU-A"],
+      ["Naranja", "SKU-O"],
+    ] as const) {
+      await addVariant(user, { color, sku, stock: "1" });
+      await waitFor(() => expect(field("SKU")).toHaveValue(""));
+    }
+    expect(writes(calls).map((c) => c.body)).toEqual([
+      { color: "Celeste", material: null, colorTones: ["CELESTE"], sku: "SKU-C", stock: 1 },
+      { color: "Amarillo", material: null, colorTones: ["AMARILLO"], sku: "SKU-A", stock: 1 },
+      { color: "Naranja", material: null, colorTones: ["NARANJA"], sku: "SKU-O", stock: 1 },
+    ]);
+  });
+
+  it("«Combinado» adds no palette, checkbox or field: one variant, no tone assumed", async () => {
+    const user = userEvent.setup();
+    const calls = stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    const controls = () => section().querySelectorAll("input, select, textarea, [role=radiogroup]");
+    const before = controls().length;
+    await user.click(colors().getByRole("radio", { name: "Combinado" }));
+    expect(controls()).toHaveLength(before);
+    await addVariant(user, { color: "Combinado", material: "Acetato", sku: "SKU-CB", stock: "2" });
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    expect(writes(calls)[0]!.body).toEqual({
+      color: "Combinado",
+      material: "Acetato",
+      colorTones: ["COMBINADO"],
+      sku: "SKU-CB",
+      stock: 2,
     });
   });
 
-  it("keeps the validations: two tones and a SKU; a repeated SKU shows the API's reason", async () => {
+  it("needs the color and the SKU; a repeated SKU shows the API's reason and keeps what was typed", async () => {
     const user = userEvent.setup();
-    stubCreate(true);
+    const calls = stubCreate(true);
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
-    await user.click(combineBox());
-    const add = () => within(section()).getByRole("button", { name: "Agregar pieza combinada" });
-    await user.type(within(section()).getByLabelText("SKU"), "SKU-1");
-    await user.click(tones().getByRole("button", { name: /Rojo/ }));
-    expect(add()).toBeDisabled(); // one tone is not a combination
-    expect(within(section()).getByText("Elegí al menos dos tonos.")).toBeInTheDocument();
-    await user.click(tones().getByRole("button", { name: /Azul/ }));
+    expect(add()).toBeDisabled();
+    expect(within(section()).getByText("Elegí el color en la paleta.")).toBeInTheDocument();
+    await user.type(field("SKU"), "SKU-1");
+    expect(add()).toBeDisabled();
+    await user.click(colors().getByRole("radio", { name: "Rojo" }));
+    await user.type(field("Material"), "Metal");
     await user.click(add());
     expect(await within(section()).findByRole("alert")).toHaveTextContent(
       'El SKU "SKU-1" ya está en uso.',
     );
-    expect(within(section()).getByLabelText("SKU")).toHaveValue("SKU-1");
+    expect(field("SKU")).toHaveValue("SKU-1");
+    expect(field("Material")).toHaveValue("Metal");
+    expect(colors().getByRole("radio", { name: "Rojo" })).toBeChecked();
+    expect(writes(calls)).toHaveLength(1);
   });
 });

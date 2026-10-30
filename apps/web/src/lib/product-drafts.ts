@@ -16,25 +16,23 @@ export interface ProductDraftFields {
   accessoryRole: AccessoryRole | "";
   soldIndividually: boolean;
   /**
-   * The colors created with the product (optional; photos belong to a
-   * variant). Each palette color is its own piece — its own SKU, stock and
-   * photos. With `combineColors` ticked, rows marked `combined` are single
-   * pieces of two or more tones; both kinds can be in the same product.
+   * The variants created with the product (optional; photos belong to a
+   * variant). Each one is one piece: one palette color (or «Combinado»),
+   * its own material, SKU, stock and photos.
    */
-  combineColors: boolean;
   variants: DraftVariant[];
   /** Frames only: compatible lens types (ids from GET /api/admin/lens-types). */
   lensTypeIds: string[];
 }
 
-/** One variant to create: `tones` from the palette (empty for a color
- * outside it), `name` what the customer reads («Negro mate»). A `combined`
- * row is one piece of two or more tones. */
+/** One variant to create: its palette color in `tones` (drafts saved
+ * before the one-color form may hold several tones, or none for a color
+ * outside the palette) and `name`, the color the customer reads. */
 export interface DraftVariant {
   key: string;
-  combined?: boolean;
   tones: ColorTone[];
   name: string;
+  material: string;
   sku: string;
   stock: string;
 }
@@ -71,7 +69,6 @@ export function emptyFields(kind: ProductKind = "FRAME"): ProductDraftFields {
     basePrice: "",
     accessoryRole: "",
     soldIndividually: true,
-    combineColors: false,
     variants: [],
     lensTypeIds: [],
   };
@@ -85,14 +82,20 @@ export const EMPTY_PROGRESS: DraftProgress = {
 };
 
 let draftVariantCounter = 0;
-export function newDraftVariant(tones: ColorTone[], name: string): DraftVariant {
+export function newDraftVariant(
+  tones: ColorTone[],
+  name: string,
+  rest: Partial<Pick<DraftVariant, "material" | "sku" | "stock">> = {},
+): DraftVariant {
   draftVariantCounter += 1;
   return {
     key: `v${Date.now().toString(36)}-${draftVariantCounter}`,
     tones,
     name,
+    material: "",
     sku: "",
     stock: "",
+    ...rest,
   };
 }
 
@@ -105,35 +108,44 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
     fields.variants.length > 0 ||
     fields.lensTypeIds.length > 0 ||
     (Object.keys(empty) as (keyof ProductDraftFields)[]).some(
-      (key) =>
-        !["kind", "variants", "combineColors", "lensTypeIds"].includes(key) &&
-        fields[key] !== empty[key],
+      (key) => !["kind", "variants", "lensTypeIds"].includes(key) && fields[key] !== empty[key],
     )
   );
 }
 
 // Drafts saved before colors could be chosen held one free-text color,
-// SKU and stock, and one variant's progress: read them as one row.
-// Drafts saved while the form had a "Varios colores / Una pieza de varios
-// tonos" choice: a "combined" one held one combined row.
+// SKU and stock, and one variant's progress: read them as one row. Drafts
+// saved with the multi-color palette may mark rows `combined` (one piece of
+// several tones) and have no material: their rows are kept as they are.
 interface OldDraftShape {
   color?: string;
   sku?: string;
   stock?: string;
   variantMode?: "colors" | "combined";
+  combineColors?: boolean;
 }
 function upgradeFields(fields: ProductDraftFields & OldDraftShape): ProductDraftFields {
-  const { color = "", sku = "", stock = "", variantMode, ...rest } = fields;
+  const {
+    color = "",
+    sku = "",
+    stock = "",
+    variantMode: _mode,
+    combineColors: _combine,
+    ...rest
+  } = fields;
   const base = { ...emptyFields(fields.kind), ...rest };
   if (!Array.isArray(base.lensTypeIds)) base.lensTypeIds = [];
-  if (variantMode === "combined" && Array.isArray(fields.variants)) {
+  if (Array.isArray(fields.variants)) {
     return {
       ...base,
-      combineColors: true,
-      variants: fields.variants.map((row) => ({ ...row, combined: true })),
+      variants: fields.variants.map(
+        ({ combined: _c, ...row }: DraftVariant & { combined?: boolean }) => ({
+          ...row,
+          material: typeof row.material === "string" ? row.material : "",
+        }),
+      ),
     };
   }
-  if (Array.isArray(fields.variants)) return base;
   if (color.trim() === "" && sku.trim() === "" && stock === "") return base;
   const tone = parseTone(color);
   return {
