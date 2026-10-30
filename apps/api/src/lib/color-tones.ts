@@ -1,9 +1,11 @@
 import type { ColorTone } from "@soluciones-opticas/shared";
 
-// The color palette (docs/COLORES.md): Roberto's 12 base colors plus carey,
-// multicolor and transparente. A variant stores the tones of its physical
-// piece, main tone first: ["ROJO"] is a red frame, ["ROJO", "NEGRO"] one
-// two-tone frame — never two variants. Transparente next to another tone
+// The color palette (docs/COLORES.md): Roberto's 18 colors plus
+// «Combinado». A variant stores the tones of its physical piece, main tone
+// first: ["ROJO"] is a red frame; ["ROJO", "NEGRO"] (loaded before the
+// one-color form) one two-tone frame — never two variants. ["COMBINADO"]
+// is a piece of several colors whose tones were not chosen: it stands
+// alone and no tone is assumed for it. Transparente next to another tone
 // is a finish ("rosa transparente" is a pink frame), alone it is a color.
 
 export const COLOR_TONES = [
@@ -15,13 +17,17 @@ export const COLOR_TONES = [
   "MARRON",
   "BEIGE",
   "AZUL",
+  "CELESTE",
   "VERDE",
   "ROJO",
   "ROSA",
   "VIOLETA",
+  "AMARILLO",
+  "NARANJA",
   "CAREY",
   "MULTICOLOR",
   "TRANSPARENTE",
+  "COMBINADO",
 ] as const satisfies readonly ColorTone[];
 
 export const MAX_TONES_PER_VARIANT = 4;
@@ -37,14 +43,18 @@ const TONE_WORDS: Record<ColorTone, string[]> = {
   DORADO: ["dorado", "dorada", "oro", "gold"],
   MARRON: ["marron", "cafe", "habano", "chocolate"],
   BEIGE: ["beige", "baige", "nude", "crema"],
-  AZUL: ["azul", "celeste", "marino"],
+  AZUL: ["azul", "marino"],
+  CELESTE: ["celeste"],
   VERDE: ["verde", "verdes"],
   ROJO: ["rojo", "roja", "bordo"],
   ROSA: ["rosa", "rosado", "rosada", "fucsia"],
   VIOLETA: ["violeta", "morado", "lila", "purpura"],
+  AMARILLO: ["amarillo", "amarilla"],
+  NARANJA: ["naranja"],
   CAREY: ["carey"],
   MULTICOLOR: ["multicolor"],
   TRANSPARENTE: ["transparente", "cristal"],
+  COMBINADO: ["combinado", "combinada"],
 };
 
 const FINISH_WORDS = [
@@ -86,8 +96,11 @@ export function suggestTones(color: string | null): { tones: ColorTone[]; unknow
 // of these explicit forms, the whole text, never a part of it:
 //   "Rojo" · "Rojo mate" (a closed list of finishes) · "Rosa transparente"
 //   · "Negro y dorado" (exactly two palette names joined by "y").
-// Anything else ("Gris gun", "Celeste", "Animal print") stays pending. It
-// is computed on the fly and never written to the database.
+// Celeste, amarillo and naranja joined the palette later: they count only as
+// the whole text, ignoring case and outer spaces («Celeste», « naranja »),
+// never with a finish or in a combination. Anything else ("Gris gun",
+// "Celeste mate", "Animal print", "Combinado") stays pending. It is computed
+// on the fly and never written to the database.
 const LEGACY_NAMES: Record<string, ColorTone> = {
   negro: "NEGRO",
   negra: "NEGRO",
@@ -114,10 +127,17 @@ const LEGACY_NAMES: Record<string, ColorTone> = {
   transparente: "TRANSPARENTE",
 };
 const LEGACY_FINISHES = new Set(["mate", "brillante", "metalico", "metalica"]);
+const LEGACY_EXACT: Record<string, ColorTone> = {
+  celeste: "CELESTE",
+  amarillo: "AMARILLO",
+  naranja: "NARANJA",
+};
 
 /** The tones an old variant's text stands for, or null when not explicit. */
 export function legacyTones(color: string | null | undefined): ColorTone[] | null {
   if (!color) return null;
+  const exact = LEGACY_EXACT[color.trim().toLowerCase()];
+  if (exact) return [exact];
   const words = toneKey(color).split(" ");
   const tone = (word: string | undefined) => (word ? LEGACY_NAMES[word] : undefined);
   const [a, b, c] = words;

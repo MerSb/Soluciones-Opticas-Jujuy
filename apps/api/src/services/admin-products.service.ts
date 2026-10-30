@@ -517,9 +517,9 @@ async function assertNoDuplicateAccessoryVariant(
   if (clash) throw duplicateColorError(color, label);
 }
 
-/** Several colors at once, all or nothing. An accessory never repeats a
- * color; a frame may (the same color in two lens tints is legitimate), so
- * for frames only the rows of this batch are compared. */
+/** Several variants at once, all or nothing. An accessory never repeats a
+ * color; a frame may — the same color in another material or lens tint is
+ * another piece, told apart by its own SKU (as with a single new variant). */
 export async function createVariantsBatch(
   productId: string,
   body: CreateVariantsBatchBody,
@@ -536,13 +536,11 @@ export async function createVariantsBatch(
   );
   const skus = new Set<string>();
   for (const row of body.variants) {
-    const key = variantKey(row.color, row.label ?? null);
-    if (seen.has(key)) {
-      throw product.kind === "ACCESSORY"
-        ? duplicateColorError(row.color, row.label ?? null)
-        : ApiError.conflict(`El color «${row.color}» está repetido en la lista.`);
+    if (product.kind === "ACCESSORY") {
+      const key = variantKey(row.color, row.label ?? null);
+      if (seen.has(key)) throw duplicateColorError(row.color, row.label ?? null);
+      seen.add(key);
     }
-    seen.add(key);
     if (skus.has(row.sku.toLowerCase())) {
       throw ApiError.conflict(`El SKU "${row.sku}" está repetido en la lista.`);
     }
@@ -558,6 +556,7 @@ export async function createVariantsBatch(
           data: {
             productId,
             color: row.color,
+            material: row.material ?? null,
             label: row.label ?? null,
             colorTones: row.colorTones ?? [],
             sku: row.sku,

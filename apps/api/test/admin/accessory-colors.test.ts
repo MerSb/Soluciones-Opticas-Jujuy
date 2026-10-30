@@ -198,26 +198,73 @@ describe("POST /api/admin/products/:id/variants/batch", () => {
     expect(dupSku.status).toBe(409);
   });
 
-  // docs/COLORES.md: frames now load several palette colors at once too,
-  // but may repeat a color already loaded (another lens tint, say).
-  it("frames load several colors at once and may still repeat a loaded color", async () => {
+  // docs/COLORES.md: a frame may repeat a color — already loaded or in the
+  // same batch (another material or lens tint) — told apart by its SKU.
+  it("frames may repeat a color, also in one batch, each with its own SKU and material", async () => {
     const id = await newProduct("FRAME", "anteojo");
     const loaded = await batch(id, [{ color: "Negro", stock: 1, sku: sku("FR-1") }]);
     expect(loaded.status).toBe(201);
     const again = await batch(id, [{ color: "Negro", stock: 1, sku: sku("FR-1B") }]);
     expect(again.status).toBe(201);
     const twiceInOne = await batch(id, [
-      { color: "Rojo", stock: 1, sku: sku("FR-1C") },
-      { color: "rojo", stock: 1, sku: sku("FR-1D") },
+      { color: "Rojo", material: "Acetato", stock: 1, sku: sku("FR-1C") },
+      { color: "rojo", material: "Metal", stock: 4, sku: sku("FR-1D") },
     ]);
-    expect(twiceInOne.status).toBe(409);
-    expect(twiceInOne.body.error.message).toBe("El color «rojo» está repetido en la lista.");
+    expect(twiceInOne.status).toBe(201);
+    expect(
+      (twiceInOne.body as AdminVariantDto[]).map((v) => [v.color, v.material, v.sku, v.stock]),
+    ).toEqual([
+      ["Rojo", "Acetato", sku("FR-1C"), 1],
+      ["rojo", "Metal", sku("FR-1D"), 4],
+    ]);
+    const sameSku = await batch(id, [
+      { color: "Azul", stock: 1, sku: sku("FR-1E") },
+      { color: "Azul", stock: 1, sku: sku("fr-1e") },
+    ]);
+    expect(sameSku.status).toBe(409);
+    const taken = await batch(id, [{ color: "Azul", stock: 1, sku: sku("FR-1") }]);
+    expect(taken.status).toBe(409);
+    expect(await prisma.productVariant.count({ where: { productId: id } })).toBe(4);
     for (const suffix of ["FR-2", "FR-3"]) {
       const single = await admin
         .post(`/api/admin/products/${id}/variants`)
         .send({ color: "Negro", sku: sku(suffix), stock: 1 });
       expect(single.status).toBe(201);
     }
+  });
+
+  it("saves each row's material, and none when it is left out", async () => {
+    const id = await newProduct("FRAME", "material");
+    const response = await batch(id, [
+      { color: "Negro", colorTones: ["NEGRO"], material: " Acetato ", stock: 2, sku: sku("MAT-1") },
+      { color: "Combinado", colorTones: ["COMBINADO"], stock: 0, sku: sku("MAT-2") },
+      { color: "Celeste", colorTones: ["CELESTE"], material: null, stock: 1, sku: sku("MAT-3") },
+    ]);
+    expect(response.status).toBe(201);
+    const stored = await prisma.productVariant.findMany({
+      where: { productId: id },
+      orderBy: { sku: "asc" },
+      select: { color: true, material: true, colorTones: true, stock: true },
+    });
+    expect(stored).toEqual([
+      { color: "Negro", material: "Acetato", colorTones: ["NEGRO"], stock: 2 },
+      { color: "Combinado", material: null, colorTones: ["COMBINADO"], stock: 0 },
+      { color: "Celeste", material: null, colorTones: ["CELESTE"], stock: 1 },
+    ]);
+    const tooLong = await batch(id, [
+      { color: "Rojo", material: "x".repeat(201), stock: 1, sku: sku("MAT-4") },
+    ]);
+    expect(tooLong.status).toBe(400);
+  });
+
+  it("accessories still refuse a repeated color", async () => {
+    const id = await newProduct("ACCESSORY", "repetido");
+    const twice = await batch(id, [
+      { color: "Negro", material: "Cuero", stock: 1, sku: sku("ACC-R1") },
+      { color: "negro", material: "Tela", stock: 1, sku: sku("ACC-R2") },
+    ]);
+    expect(twice.status).toBe(409);
+    expect(await prisma.productVariant.count({ where: { productId: id } })).toBe(0);
   });
 
   it("is admin only", async () => {
