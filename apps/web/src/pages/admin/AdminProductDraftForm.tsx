@@ -6,7 +6,6 @@ import type {
   AdminProductDetail,
   AdminVariantDto,
   AccessoryRole,
-  ColorTone,
   CreateProductRequest,
   CreateVariantsBatchRequest,
   ProductKind,
@@ -19,7 +18,7 @@ import { ApiClientError, apiPost, apiPut } from "../../services/api-client";
 import { useAdminLensTypesQuery } from "../../services/queries/admin-lens";
 import { LensTypeChecklist } from "./LensTypeChecklist";
 import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
-import { toneLabel } from "../../lib/color-tones";
+import { colorKey } from "../../lib/accessories";
 import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import {
   EMPTY_PROGRESS,
@@ -29,7 +28,7 @@ import {
   type DraftVariant,
   type ProductDraftFields,
 } from "../../lib/product-drafts";
-import { ColorChoice } from "./ColorChoice";
+import { ACCESSORY_EXTRA_COLORS, ColorChoice, chosenColor } from "./ColorChoice";
 import { DraftVariantRow } from "./DraftVariantRow";
 import {
   invalidateProduct,
@@ -117,7 +116,8 @@ export function AdminProductDraftForm({
   const unsureRef = useRef<{ key: string; publicId: string } | null>(null);
   const [unsureKey, setUnsureKey] = useState<string | null>(null);
   // The variant being typed, before «Agregar variante» puts it in the list.
-  const [newTone, setNewTone] = useState<ColorTone | null>(null);
+  const [newChoice, setNewChoice] = useState<string | null>(null);
+  const [newOther, setNewOther] = useState("");
   const [newMaterial, setNewMaterial] = useState("");
   const [newSku, setNewSku] = useState("");
   const [newStock, setNewStock] = useState("");
@@ -136,7 +136,8 @@ export function AdminProductDraftForm({
   const chosenPhotos = Object.values(photoCounts).reduce((sum, c) => sum + c.chosen, 0);
   const allPhotos = Object.values(photoCounts).reduce((sum, c) => sum + c.all, 0);
   const typingVariant =
-    newTone !== null || [newMaterial, newSku, newStock].some((value) => value.trim() !== "");
+    newChoice !== null ||
+    [newOther, newMaterial, newSku, newStock].some((value) => value.trim() !== "");
   const dirty = hasPendingChanges(fields, allPhotos, saved) || (typingVariant && !saved);
 
   useEffect(() => {
@@ -180,7 +181,8 @@ export function AdminProductDraftForm({
   }
 
   function resetNewVariant() {
-    setNewTone(null);
+    setNewChoice(null);
+    setNewOther("");
     setNewMaterial("");
     setNewSku("");
     setNewStock("");
@@ -190,28 +192,32 @@ export function AdminProductDraftForm({
   // One variant at a time: its color, material, SKU and stock go to the
   // list below, where its photos are chosen; the form is then empty for the
   // next one. A frame may repeat a color (another material), told apart by
-  // its SKU; an accessory never repeats one.
+  // its SKU; an accessory never repeats one. «Otro color…» keeps the typed
+  // name, without tones (docs/COLORES.md).
   function addVariant() {
     const sku = newSku.trim();
+    const chosen = chosenColor(newChoice, newOther);
     const problem =
-      newTone === null
+      newChoice === null
         ? "Elegí el color en la paleta."
-        : sku === ""
-          ? "Escribí el SKU."
-          : !/^\d+$/.test(newStock.trim())
-            ? "Ingresá el stock: un número entero, 0 o más."
-            : rows.some((row) => row.sku.trim().toLowerCase() === sku.toLowerCase())
-              ? `El SKU «${sku}» ya está en la lista.`
-              : isAccessory && rows.some((row) => row.tones.join("+") === newTone)
-                ? `${toneLabel(newTone)} ya está en la lista: en un accesorio cada color va una vez.`
-                : null;
+        : chosen === null
+          ? "Escribí el nombre del color."
+          : sku === ""
+            ? "Escribí el SKU."
+            : !/^\d+$/.test(newStock.trim())
+              ? "Ingresá el stock: un número entero, 0 o más."
+              : rows.some((row) => row.sku.trim().toLowerCase() === sku.toLowerCase())
+                ? `El SKU «${sku}» ya está en la lista.`
+                : isAccessory && rows.some((row) => colorKey(row.name) === colorKey(chosen.color))
+                  ? `${chosen.color} ya está en la lista: en un accesorio cada color va una vez.`
+                  : null;
     if (problem) {
       setNewError(problem);
       return;
     }
     setRows([
       ...rows,
-      newDraftVariant([newTone!], toneLabel(newTone!), {
+      newDraftVariant(chosen!.tones, chosen!.color, {
         material: newMaterial.trim(),
         sku,
         stock: newStock.trim(),
@@ -483,7 +489,11 @@ export function AdminProductDraftForm({
                 name={`${id}-kind`}
                 value={value}
                 checked={fields.kind === value}
-                onChange={() => set("kind", value as ProductKind)}
+                onChange={() => {
+                  set("kind", value as ProductKind);
+                  // «Rosado» and the like are accessory names only.
+                  if (newChoice && ACCESSORY_EXTRA_COLORS.includes(newChoice)) setNewChoice(null);
+                }}
                 className="accent-[var(--color-primary)]"
               />
               {label}
@@ -670,13 +680,19 @@ export function AdminProductDraftForm({
             <div>
               <p className="mb-1.5 text-sm font-medium text-text">Color</p>
               <ColorChoice
-                value={newTone}
-                onChange={(tone) => {
-                  setNewTone(tone);
+                value={newChoice}
+                onChange={(choice) => {
+                  setNewChoice(choice);
                   setNewError(null);
                 }}
                 label="Color de la variante nueva"
                 disabled={saving}
+                extraNames={isAccessory ? ACCESSORY_EXTRA_COLORS : []}
+                otherName={newOther}
+                onOtherName={(name) => {
+                  setNewOther(name);
+                  setNewError(null);
+                }}
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-3">

@@ -63,9 +63,15 @@
 Desde el 2026-10-30, crear un producto y agregar una variante en su ficha usan el mismo formulario
 simple: **Color, Material, SKU y Stock**.
 
-- **Color:** una sola paleta de puntitos con los 18 colores y «Combinado»; se elige **uno** por
-  variante (botones de opción, nunca selección múltiple). Elegir «Combinado» no muestra otra
-  paleta, casilla ni campo.
+- **Color:** una sola paleta de puntitos con los 18 colores, «Combinado» y, al final, «Otro
+  color…»; se elige **uno** por variante (botones de opción, nunca selección múltiple). Elegir
+  «Combinado» no muestra nada más. «Otro color…» muestra solo el campo «Nombre del color»: se
+  guarda ese nombre sin tonos (no se crea ningún catálogo ni se inventa una equivalencia; cuenta en
+  los círculos solo si encaja en la equivalencia explícita de más arriba).
+- **Accesorios:** la misma paleta suma «Rosado», el único nombre de la lista anterior de
+  accesorios que no es un color de la paleta; se guarda como antes, por su nombre y sin tonos.
+  Las presentaciones («Presentación», «Precio propio») siguen igual, y los colores ya cargados con
+  otros nombres se muestran tal cual.
 - **Material** (opcional), **SKU** (obligatorio, escrito a mano, nunca generado) y **Stock**
   (obligatorio, entero ≥ 0).
 - Otro color = otra variante: se vuelve a usar el mismo formulario.

@@ -257,6 +257,24 @@ describe("POST /api/admin/products/:id/variants/batch", () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it("keeps a name outside the palette as typed, with no tones («Otro color…», «Rosado»)", async () => {
+    const id = await newProduct("ACCESSORY", "otro-color");
+    const response = await batch(id, [
+      { color: "Rosado", stock: 1, sku: sku("OC-1") },
+      { color: "Verde agua", material: "Tela", stock: 0, sku: sku("OC-2") },
+    ]);
+    expect(response.status).toBe(201);
+    const stored = await prisma.productVariant.findMany({
+      where: { productId: id },
+      orderBy: { sku: "asc" },
+      select: { color: true, material: true, colorTones: true },
+    });
+    expect(stored).toEqual([
+      { color: "Rosado", material: null, colorTones: [] },
+      { color: "Verde agua", material: "Tela", colorTones: [] },
+    ]);
+  });
+
   it("accessories still refuse a repeated color", async () => {
     const id = await newProduct("ACCESSORY", "repetido");
     const twice = await batch(id, [

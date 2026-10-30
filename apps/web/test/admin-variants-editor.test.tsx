@@ -237,7 +237,8 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     expect(fix.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The simple form: one palette (one color), material, SKU and stock.
     expect(within(section()).getAllByRole("radiogroup")).toHaveLength(1);
-    expect(colors().getAllByRole("radio")).toHaveLength(19);
+    expect(colors().getAllByRole("radio")).toHaveLength(20);
+    expect(colors().queryByRole("radio", { name: "Rosado" })).toBeNull(); // accessories only
     expect(within(section()).queryByRole("checkbox")).toBeNull();
     expect(within(section()).queryByRole("button", { name: /Negro|Rojo/ })).toBeNull();
     for (const name of ["Material", "SKU", "Stock"]) expect(field(name)).toBeInTheDocument();
@@ -322,6 +323,31 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
       sku: "SKU-CB",
       stock: 2,
     });
+  });
+
+  it("«Otro color…» asks only for its name and saves it as typed, without tones", async () => {
+    const user = userEvent.setup();
+    const calls = stubCreate();
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
+    await user.click(screen.getByText("Agregar otro color o variante"));
+    const before = section().querySelectorAll("input:not([type=radio])").length;
+    await user.click(colors().getByRole("radio", { name: "Otro color…" }));
+    expect(section().querySelectorAll("input:not([type=radio])")).toHaveLength(before + 1);
+    expect(within(section()).getAllByRole("radiogroup")).toHaveLength(1);
+    await user.type(field("SKU"), "SKU-GG");
+    expect(add()).toBeDisabled();
+    expect(within(section()).getByText("Escribí el nombre del color.")).toBeInTheDocument();
+    await user.type(field("Nombre del color"), "Gris gun");
+    await user.type(field("Material"), "Metal");
+    await user.click(add());
+    await waitFor(() => expect(writes(calls)).toHaveLength(1));
+    expect(writes(calls)[0]!.body).toEqual({
+      color: "Gris gun",
+      material: "Metal",
+      sku: "SKU-GG",
+      stock: 0,
+    });
+    await waitFor(() => expect(within(section()).queryByLabelText("Nombre del color")).toBeNull());
   });
 
   it("needs the color and the SKU; a repeated SKU shows the API's reason and keeps what was typed", async () => {
