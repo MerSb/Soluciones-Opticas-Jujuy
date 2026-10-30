@@ -79,7 +79,8 @@ const sku = z.string().trim().min(1).max(100);
 const nullableColorOrMaterial = z.string().trim().min(1).max(200).nullable();
 const nullableLabel = z.string().trim().min(1).max(100).nullable();
 // Palette tones of one piece, main first (lib/color-tones.ts). [] clears
-// the classification. Multicolor already says "several": it stands alone.
+// the classification. Multicolor and Combinado already say "several": they
+// stand alone.
 const colorTones = z
   .array(z.enum(COLOR_TONES))
   .max(MAX_TONES_PER_VARIANT)
@@ -88,6 +89,9 @@ const colorTones = z
   })
   .refine((tones) => !tones.includes("MULTICOLOR") || tones.length === 1, {
     message: "Multicolor no se combina con otros tonos.",
+  })
+  .refine((tones) => !tones.includes("COMBINADO") || tones.length === 1, {
+    message: "Combinado no se combina con otros tonos.",
   });
 
 export const createVariantBodySchema = z.object({
@@ -101,14 +105,15 @@ export const createVariantBodySchema = z.object({
 });
 export type CreateVariantBody = z.infer<typeof createVariantBodySchema>;
 
-// Several colors in one go (accessories, and frames from the palette). Color and stock are required per
-// row — a stock is never assumed — and the whole batch is one transaction.
+// Several variants in one go (the new-product page). Color and stock are required per row — a stock
+// is never assumed — material is optional, and the whole batch is one transaction.
 export const createVariantsBatchBodySchema = z.object({
   variants: z
     .array(
       z.object({
         color: z.string().trim().min(1).max(200),
         stock: z.number().int().nonnegative().max(1_000_000),
+        material: nullableColorOrMaterial.optional(),
         sku,
         label: nullableLabel.optional(),
         colorTones: colorTones.optional(),

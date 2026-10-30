@@ -21,13 +21,17 @@ export type ColorTone =
   | "MARRON"
   | "BEIGE"
   | "AZUL"
+  | "CELESTE"
   | "VERDE"
   | "ROJO"
   | "ROSA"
   | "VIOLETA"
+  | "AMARILLO"
+  | "NARANJA"
   | "CAREY"
   | "MULTICOLOR"
-  | "TRANSPARENTE";
+  | "TRANSPARENTE"
+  | "COMBINADO";
 /** ADR-0028 — what an accessory is. */
 export type AccessoryRole = "CASE" | "CORD" | "CUSTOM_CORD" | "CLEANER" | "OTHER";
 

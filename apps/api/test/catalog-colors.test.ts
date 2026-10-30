@@ -38,6 +38,15 @@ const FIXTURES: [string, { color: string; colorTones: string[] }[]][] = [
   ["legacy", [{ color: "Rojo mate", colorTones: [] }]],
   ["legacyCombo", [{ color: "Negro y rojo", colorTones: [] }]],
   ["ambiguous", [{ color: "Rojizo", colorTones: [] }]],
+  // Celeste, amarillo and naranja joined the palette later: an old text
+  // counts only when it is exactly that name; the new form stores the tone.
+  ["legacyCeleste", [{ color: " CELESTE ", colorTones: [] }]],
+  ["celesteMate", [{ color: "Celeste mate", colorTones: [] }]],
+  ["naranja", [{ color: "Naranja", colorTones: ["NARANJA"] }]],
+  ["blue", [{ color: "Azul", colorTones: ["AZUL"] }]],
+  // «Combinado»: its own circle, no tone assumed; an old text stays pending.
+  ["combinado", [{ color: "Combinado", colorTones: ["COMBINADO"] }]],
+  ["legacyCombinado", [{ color: "Combinado", colorTones: [] }]],
 ];
 
 const list = async (params: Record<string, string | number>) => {
@@ -160,6 +169,26 @@ describe("catalog color filter (?colors=)", () => {
     expect((await list({ colors: "carey" })).slugs).toEqual([slug("carey")]);
   });
 
+  it("offers celeste, amarillo and naranja: new tones and exact old names, apart from azul", async () => {
+    expect((await list({ colors: "celeste" })).slugs).toEqual([slug("legacyCeleste")]);
+    expect((await list({ colors: "naranja" })).slugs).toEqual([slug("naranja")]);
+    const amarillo = await list({ colors: "amarillo" });
+    expect(amarillo.res.status).toBe(200);
+    expect(amarillo.slugs).toEqual([]);
+    expect((await list({ colors: "azul" })).slugs).toEqual([slug("blue")]);
+  });
+
+  it("offers «Combinado» as its own circle, never as other colors", async () => {
+    expect((await list({ colors: "combinado" })).slugs).toEqual([slug("combinado")]);
+    for (const tone of ["rojo", "negro", "multicolor"]) {
+      expect((await list({ colors: tone })).slugs).not.toContain(slug("combinado"));
+    }
+    // The old text "Combinado" is not reclassified; ?color= still finds both.
+    expect((await list({ color: "Combinado" })).slugs.sort()).toEqual(
+      [slug("combinado"), slug("legacyCombinado")].sort(),
+    );
+  });
+
   it("accepts names with accents or any case, and refuses colors outside the palette", async () => {
     expect((await list({ colors: "Marrón" })).res.status).toBe(200);
     const bad = await list({ colors: "rojo,fucsia-neon" });
@@ -186,7 +215,9 @@ describe("catalog color filter (?colors=)", () => {
 
   it("keeps every old variant public; only an ambiguous text stays out of the circles", async () => {
     const { slugs } = await list({});
-    for (const key of ["legacy", "legacyCombo", "ambiguous"]) expect(slugs).toContain(slug(key));
+    for (const key of ["legacy", "legacyCombo", "ambiguous", "celesteMate", "legacyCombinado"]) {
+      expect(slugs).toContain(slug(key));
+    }
     const red = (await list({ colors: "rojo" })).slugs;
     expect(red).not.toContain(slug("ambiguous"));
     expect(red).toContain(slug("legacy"));
@@ -207,6 +238,9 @@ describe("color data in the shop", () => {
     expect(card("legacyCombo").colorSwatches).toEqual([["NEGRO", "ROJO"]]);
     expect(card("ambiguous").colorSwatches).toEqual([]);
     expect(card("ambiguous").colors).toEqual(["Rojizo"]);
+    expect(card("legacyCeleste").colorSwatches).toEqual([["CELESTE"]]);
+    expect(card("celesteMate").colorSwatches).toEqual([]);
+    expect(card("combinado").colorSwatches).toEqual([["COMBINADO"]]);
   });
 
   it("keeps names on the card while any color of the product is not classified", async () => {
@@ -267,6 +301,8 @@ describe("admin: tones of a variant", () => {
     [["FUCSIA"], "unknown tone"],
     [["ROJO", "ROJO"], "a repeated tone"],
     [["MULTICOLOR", "ROJO"], "multicolor with another tone"],
+    [["COMBINADO", "ROJO"], "combinado with another tone"],
+    [["ROJO", "COMBINADO"], "a tone with combinado"],
     [["ROJO", "NEGRO", "AZUL", "VERDE", "GRIS"], "more than four tones"],
   ])("refuses %j (%s)", async (colorTones) => {
     const variant = await prisma.productVariant.findFirstOrThrow({
@@ -310,6 +346,9 @@ describe("suggestTones (review preview only)", () => {
     ["Negro detalles morado y rojo", ["NEGRO", "VIOLETA", "ROJO"], []],
     ["crema y animal print", ["BEIGE"], ["animal", "print"]],
     ["Fucsia neón", ["ROSA"], ["neon"]],
+    ["Celeste", ["CELESTE"], []],
+    ["Azul y amarillo", ["AZUL", "AMARILLO"], []],
+    ["Naranja", ["NARANJA"], []],
   ])("«%s» → %j", (color, tones, unknown) => {
     expect(suggestTones(color)).toEqual({ tones, unknown });
   });
@@ -347,13 +386,22 @@ describe("legacyTones (explicit equivalence for old variants)", () => {
     ["Rosa transparente", ["ROSA", "TRANSPARENTE"]],
     ["Negro  y dorado", ["NEGRO", "DORADO"]],
     ["Transparente", ["TRANSPARENTE"]],
+    ["Celeste", ["CELESTE"]],
+    ["  celeste  ", ["CELESTE"]],
+    ["AMARILLO", ["AMARILLO"]],
+    ["Naranja", ["NARANJA"]],
   ])("«%s» → %j", async (color, tones) => {
     const { legacyTones } = await import("../src/lib/color-tones.js");
     expect(legacyTones(color)).toEqual(tones);
   });
 
   it.each([
-    "Celeste",
+    "Celeste mate",
+    "Celeste y negro",
+    "Negro y naranja",
+    "Amarilla",
+    "Naranja transparente",
+    "Combinado",
     "Gris gun",
     "Animal Print",
     "Baige",
