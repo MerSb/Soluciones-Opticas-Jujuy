@@ -124,6 +124,38 @@ describe("admin — palette color of an existing variant", () => {
   });
 });
 
+describe("admin — variants loaded before the simple form", () => {
+  it("are listed as they are — names outside the palette, two tones, no tones — and nothing is written", () => {
+    const calls = stubApi();
+    renderWithProviders(
+      <AdminVariantsEditor
+        productId="p1"
+        variants={[
+          { ...VARIANT, id: "a", color: "Animal print", sku: "OLD-AP", colorTones: [] },
+          {
+            ...VARIANT,
+            id: "b",
+            color: "Rojo y negro",
+            sku: "OLD-RN",
+            colorTones: ["ROJO", "NEGRO"],
+          },
+          { ...VARIANT, id: "c", color: "Celeste", sku: "OLD-CE", colorTones: [] },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Animal print · Metal")).toBeInTheDocument();
+    expect(screen.getByText("Rojo y negro · Metal")).toBeInTheDocument();
+    expect(screen.getAllByText("Color de la paleta: sin clasificar")).toHaveLength(2);
+    expect(
+      screen.getByText("Color de la paleta: Rojo y negro (una sola pieza de varios tonos)"),
+    ).toBeInTheDocument();
+    for (const name of ["Animal print", "Rojo y negro", "Celeste"]) {
+      expect(screen.getByRole("button", { name: `Corregir datos de ${name}` })).toBeInTheDocument();
+    }
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("admin — adding a frame's variant", () => {
   it("may repeat a color already loaded (another material), as its own variant", async () => {
     const calls = stubApi();

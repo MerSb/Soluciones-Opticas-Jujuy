@@ -68,7 +68,7 @@ export function VariantTonesEditor({
       </p>
       <ColorChoice
         value={draft}
-        onChange={setDraft}
+        onChange={(tone) => setDraft(tone as ColorTone)}
         label={`Color de la paleta de ${name}`}
         disabled={update.isPending}
       />

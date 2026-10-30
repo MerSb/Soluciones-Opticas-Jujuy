@@ -130,7 +130,8 @@ describe("admin — multi-color accessory", () => {
       },
     });
     // One color per variant; nothing chosen yet, and the SKU is never suggested.
-    expect(within(palette).getAllByRole("radio")).toHaveLength(19);
+    // The palette, plus the accessory name offered before («Rosado») and «Otro color…».
+    expect(within(palette).getAllByRole("radio")).toHaveLength(21);
     expect(within(palette).queryByRole("radio", { checked: true })).toBeNull();
     expect(addField("SKU")).toHaveValue("");
 
@@ -153,6 +154,49 @@ describe("admin — multi-color accessory", () => {
         },
       ]),
     );
+  });
+
+  it("keeps the names that could be loaded before: «Rosado», or any other typed name", async () => {
+    const posts: unknown[] = [];
+    const palette = await renderAdmin({
+      "GET /api/admin/products/p1": () =>
+        adminCase([variant("v1", "Negro", 8), variant("v2", "Fucsia flúor", 1)]),
+      "POST /api/admin/products/p1/variants": (_url, init) => {
+        posts.push(JSON.parse(init!.body as string));
+        return json(201, variant(`n${posts.length}`, "x", 1));
+      },
+    });
+    // A color loaded earlier outside the palette is still listed as it is.
+    expect(screen.getByText("Fucsia flúor")).toBeInTheDocument();
+    const add = within(addSection()).getByRole("button", { name: "Agregar variante" });
+    await userEvent.click(within(palette).getByRole("radio", { name: "Rosado" }));
+    await userEvent.type(addField("SKU"), "EST-ROS");
+    await userEvent.click(add);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await waitFor(() => expect(addField("SKU")).toHaveValue(""));
+    await userEvent.click(within(palette).getByRole("radio", { name: "Otro color…" }));
+    await userEvent.type(addField("Nombre del color"), "Verde agua");
+    await userEvent.type(addField("SKU"), "EST-VA");
+    await userEvent.click(add);
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts).toEqual([
+      {
+        color: "Rosado",
+        material: null,
+        sku: "EST-ROS",
+        stock: 0,
+        label: null,
+        priceOverride: null,
+      },
+      {
+        color: "Verde agua",
+        material: null,
+        sku: "EST-VA",
+        stock: 0,
+        label: null,
+        priceOverride: null,
+      },
+    ]);
   });
 
   it("a presentation may have no color; it needs a color or a presentation", async () => {

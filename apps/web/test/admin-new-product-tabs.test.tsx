@@ -616,7 +616,7 @@ describe("AdminNewProductPage — several products at once", () => {
     const batchBody = (calls: Call[]) =>
       calls.find((call) => call.path.endsWith("/variants/batch"))!.body;
 
-    it("one palette: the 18 colors and «Combinado», one choice, for frames and for accessories", async () => {
+    it("one palette: the 18 colors, «Combinado» and «Otro color…», one choice; accessories keep «Rosado»", async () => {
       const user = userEvent.setup();
       stubBackend();
       renderPage();
@@ -641,6 +641,7 @@ describe("AdminNewProductPage — several products at once", () => {
         "Multicolor",
         "Transparente",
         "Combinado",
+        "Otro color…",
       ];
       expect(
         colors()
@@ -654,7 +655,71 @@ describe("AdminNewProductPage — several products at once", () => {
       expect(colors().getByRole("radio", { name: "Azul" })).toBeChecked();
       expect(colors().getByRole("radio", { name: "Negro" })).not.toBeChecked();
       await user.click(within(panel()).getByRole("radio", { name: "Accesorio" }));
-      expect(colors().getAllByRole("radio")).toHaveLength(19);
+      expect(
+        colors()
+          .getAllByRole("radio")
+          .map((radio) => radio.closest("label")!.textContent),
+      ).toEqual([...names.slice(0, -1), "Rosado", "Otro color…"]);
+    });
+
+    it("«Otro color…» shows only a field for its name: kept by that name, with no tone invented", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      const fields = () => newVariant().getAllByRole("textbox").length;
+      const before = fields();
+      await user.click(colors().getByRole("radio", { name: "Otro color…" }));
+      expect(fields()).toBe(before + 1);
+      expect(within(panel()).getAllByRole("radiogroup")).toHaveLength(1);
+      expect(within(panel()).queryByRole("checkbox", { name: /combina/ })).toBeNull();
+      await user.type(newVariant().getByLabelText("SKU"), "UNO-AP");
+      await user.type(newVariant().getByLabelText("Stock"), "1");
+      await user.click(newVariant().getByRole("button", { name: "Agregar variante" }));
+      expect(within(panel()).getByRole("alert")).toHaveTextContent("Escribí el nombre del color.");
+      await user.type(newVariant().getByLabelText("Nombre del color"), "  Animal   print ");
+      await user.type(newVariant().getByLabelText("Material"), "Acetato");
+      await user.click(newVariant().getByRole("button", { name: "Agregar variante" }));
+      await choosePhotos(user, "Variante 1: Animal print (fuera de la paleta)", {
+        photos: [photo("ap.jpg")],
+      });
+      // Back to an empty form: the name field goes away with the choice.
+      expect(newVariant().queryByLabelText("Nombre del color")).toBeNull();
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(batchBody(calls)).toEqual({
+        variants: [{ color: "Animal print", material: "Acetato", sku: "UNO-AP", stock: 1 }],
+      });
+      expect(
+        calls
+          .filter((c) => c.method === "POST" && c.path.endsWith("/images"))
+          .map((c) => (c.body as { alt: string }).alt),
+      ).toEqual(["Uno QA — Animal print — foto 1"]);
+    });
+
+    it("an accessory can still be «Rosado» (saved by that name, as before), and frames don't offer it", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      const p = within(panel());
+      await p.findByRole("option", { name: "Marca QA" });
+      expect(colors().queryByRole("radio", { name: "Rosado" })).toBeNull();
+      await user.click(p.getByRole("radio", { name: "Accesorio" }));
+      await user.type(p.getByLabelText("Nombre"), "Estuche QA");
+      await user.selectOptions(p.getByLabelText("Marca"), "b1");
+      await user.selectOptions(p.getByLabelText("Categoría"), "c1");
+      await user.selectOptions(p.getByLabelText("Tipo de accesorio"), "CASE");
+      await user.type(p.getByLabelText("Precio (ARS)"), "5000");
+      await addVariant(user, { color: "Rosado", material: "Cuero", sku: "EST-ROS", stock: "2" });
+      await addVariant(user, { color: "Rosa", sku: "EST-ROSA", stock: "1" });
+      await user.click(p.getByRole("button", { name: "Crear accesorio" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(batchBody(calls)).toEqual({
+        variants: [
+          { color: "Rosado", material: "Cuero", sku: "EST-ROS", stock: 2 },
+          { color: "Rosa", material: null, colorTones: ["ROSA"], sku: "EST-ROSA", stock: 1 },
+        ],
+      });
     });
 
     it("Negro, material Acetato, SKU and stock: one variant, its material saved with it", async () => {
