@@ -105,8 +105,11 @@ function renderAdmin(routes: Record<string, Handler>) {
   renderAt("/admin/products/p1", [
     { path: "/admin/products/:id", element: <AdminProductDetailPage /> },
   ]);
-  return screen.findByRole("group", { name: "Paleta de colores" });
+  return screen.findByRole("radiogroup", { name: "Color de la variante nueva" });
 }
+
+const addSection = () => screen.getByText("Agregar otro color o variante").closest("details")!;
+const addField = (name: string) => within(addSection()).getByLabelText(name);
 
 describe("color helpers", () => {
   it("same color regardless of case, accents and spacing; suggested SKUs", () => {
@@ -117,122 +120,89 @@ describe("color helpers", () => {
 });
 
 describe("admin — multi-color accessory", () => {
-  it("picks several colors, asks each one's stock, and saves them in one request", async () => {
+  it("adds one color with its material, SKU and stock, in one request", async () => {
     const posts: unknown[] = [];
     const palette = await renderAdmin({
       "GET /api/admin/products/p1": () => adminCase([variant("v1", "Negro", 8)]),
-      "POST /api/admin/products/p1/variants/batch": (_url, init) => {
+      "POST /api/admin/products/p1/variants": (_url, init) => {
         posts.push(JSON.parse(init!.body as string));
-        return json(201, [variant("v2", "Rosado", 5), variant("v3", "Gris", 3)]);
+        return json(201, { ...variant("v2", "Gris", 3), material: "Cuero" });
       },
     });
+    // One color per variant; nothing chosen yet, and the SKU is never suggested.
+    expect(within(palette).getAllByRole("radio")).toHaveLength(19);
+    expect(within(palette).queryByRole("radio", { checked: true })).toBeNull();
+    expect(addField("SKU")).toHaveValue("");
 
-    // Nothing is pre-selected except what is already loaded (locked).
-    const negro = within(palette).getByRole("button", { name: /^Negro/ });
-    expect(negro).toHaveAttribute("aria-pressed", "true");
-    expect(negro).toBeDisabled();
-    expect(negro).toHaveTextContent("(ya cargado)");
-    for (const color of ["Rosado", "Gris", "Celeste", "Azul"]) {
-      expect(within(palette).getByRole("button", { name: color })).toHaveAttribute(
-        "aria-pressed",
-        "false",
-      );
-    }
-
-    await userEvent.click(within(palette).getByRole("button", { name: "Rosado" }));
-    await userEvent.click(within(palette).getByRole("button", { name: "Gris" }));
-    const save = screen.getByRole("button", { name: "Guardar 2 colores" });
-    expect(save).toBeDisabled(); // no stock assumed
-    expect(screen.getByLabelText("Stock de Rosado")).toHaveValue(null);
-    // Not typed yet: no error shown, just nothing to save.
-    expect(screen.queryByText("Ingresá un número entero, 0 o más.")).toBeNull();
-    expect(screen.getByLabelText("SKU de Rosado")).toHaveValue("ESTUCHE-SOL-QA-ROSADO");
-
-    await userEvent.type(screen.getByLabelText("Stock de Rosado"), "5");
-    await userEvent.type(screen.getByLabelText("Stock de Gris"), "3");
-    expect(save).toBeEnabled();
-    await userEvent.click(save);
-
+    await userEvent.click(within(palette).getByRole("radio", { name: "Gris" }));
+    await userEvent.type(addField("Material"), "Cuero");
+    await userEvent.type(addField("SKU"), "EST-GRIS");
+    await userEvent.clear(addField("Stock"));
+    await userEvent.type(addField("Stock"), "3");
+    await userEvent.click(within(addSection()).getByRole("button", { name: "Agregar variante" }));
     await waitFor(() =>
       expect(posts).toEqual([
         {
-          variants: [
-            // "Rosado" is not a palette name, "Gris" is: it is saved with its tone.
-            { color: "Rosado", stock: 5, sku: "ESTUCHE-SOL-QA-ROSADO" },
-            { color: "Gris", colorTones: ["GRIS"], stock: 3, sku: "ESTUCHE-SOL-QA-GRIS" },
-          ],
+          color: "Gris",
+          material: "Cuero",
+          colorTones: ["GRIS"],
+          sku: "EST-GRIS",
+          stock: 3,
+          label: null,
+          priceOverride: null,
         },
       ]),
     );
-    expect(await screen.findByText("Colores agregados: Rosado, Gris.")).toBeInTheDocument();
   });
 
-  it("deselects, adds a custom color and refuses duplicates", async () => {
+  it("a presentation may have no color; it needs a color or a presentation", async () => {
+    const posts: unknown[] = [];
+    await renderAdmin({
+      "GET /api/admin/products/p1": () => adminCase([variant("v1", "Negro", 8)]),
+      "POST /api/admin/products/p1/variants": (_url, init) => {
+        posts.push(JSON.parse(init!.body as string));
+        return json(201, variant("v2", null, 2, "Grande"));
+      },
+    });
+    const add = within(addSection()).getByRole("button", { name: "Agregar variante" });
+    await userEvent.type(addField("SKU"), "EST-G");
+    expect(add).toBeDisabled();
+    expect(
+      within(addSection()).getByText("Elegí el color o escribí la presentación."),
+    ).toBeInTheDocument();
+    await userEvent.type(addField("Presentación (opcional)"), "Grande");
+    await userEvent.type(addField("Precio propio (opcional)"), "6000");
+    await userEvent.click(add);
+    await waitFor(() =>
+      expect(posts).toEqual([
+        {
+          color: null,
+          material: null,
+          sku: "EST-G",
+          stock: 0,
+          label: "Grande",
+          priceOverride: 6000,
+        },
+      ]),
+    );
+  });
+
+  it("shows the API's reason when a color can't be saved (a repeated color), keeping what was typed", async () => {
     const palette = await renderAdmin({
       "GET /api/admin/products/p1": () => adminCase([variant("v1", "Negro", 8)]),
-    });
-    await userEvent.click(within(palette).getByRole("button", { name: "Celeste" }));
-    expect(screen.getByLabelText("Stock de Celeste")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Quitar Celeste" }));
-    expect(screen.queryByLabelText("Stock de Celeste")).toBeNull();
-    expect(within(palette).getByRole("button", { name: "Celeste" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-
-    const other = screen.getByLabelText("Otro color");
-    await userEvent.type(other, "Bordó");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar color" }));
-    expect(within(palette).getByRole("button", { name: "Bordó" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByLabelText("Stock de Bordó")).toBeInTheDocument();
-
-    await userEvent.type(other, " NEGRO ");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar color" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "«NEGRO» ya está cargado en este accesorio.",
-    );
-    await userEvent.clear(other);
-    await userEvent.type(other, "rosado");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar color" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("ya está en la paleta");
-  });
-
-  it("validates stock: whole numbers, never negative", async () => {
-    const palette = await renderAdmin({
-      "GET /api/admin/products/p1": () => adminCase([]),
-    });
-    await userEvent.click(within(palette).getByRole("button", { name: "Azul" }));
-    const stock = screen.getByLabelText("Stock de Azul");
-    for (const value of ["-1", "1.5"]) {
-      await userEvent.clear(stock);
-      await userEvent.type(stock, value);
-      expect(stock).toHaveAttribute("aria-invalid", "true");
-      expect(screen.getByText("Ingresá un número entero, 0 o más.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Guardar 1 color" })).toBeDisabled();
-    }
-    await userEvent.clear(stock);
-    await userEvent.type(stock, "0");
-    expect(screen.getByRole("button", { name: "Guardar 1 color" })).toBeEnabled();
-  });
-
-  it("shows the API's reason when a color can't be saved", async () => {
-    const palette = await renderAdmin({
-      "GET /api/admin/products/p1": () => adminCase([]),
-      "POST /api/admin/products/p1/variants/batch": () =>
+      "POST /api/admin/products/p1/variants": () =>
         json(409, {
-          error: { code: "CONFLICT", message: 'El SKU "ESTUCHE-SOL-QA-AZUL" ya está en uso.' },
+          error: { code: "CONFLICT", message: "«Negro» ya está cargado en este accesorio." },
         }),
     });
-    await userEvent.click(within(palette).getByRole("button", { name: "Azul" }));
-    await userEvent.type(screen.getByLabelText("Stock de Azul"), "2");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar 1 color" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      'El SKU "ESTUCHE-SOL-QA-AZUL" ya está en uso.',
+    await userEvent.click(within(palette).getByRole("radio", { name: "Negro" }));
+    await userEvent.type(addField("SKU"), "EST-N2");
+    await userEvent.click(within(addSection()).getByRole("button", { name: "Agregar variante" }));
+    expect(await within(addSection()).findByRole("alert")).toHaveTextContent(
+      "«Negro» ya está cargado en este accesorio.",
     );
-    expect(screen.getByLabelText("Stock de Azul")).toHaveValue(2); // nothing lost
+    expect(addField("SKU")).toHaveValue("EST-N2");
+    expect(within(palette).getByRole("radio", { name: "Negro" })).toBeChecked();
   });
 
   it("updating one color's stock patches only that variant", async () => {

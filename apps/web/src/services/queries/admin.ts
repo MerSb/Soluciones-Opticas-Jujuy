@@ -15,7 +15,6 @@ import type {
   CreateImageRequest,
   CreateProductRequest,
   CreateVariantRequest,
-  CreateVariantsBatchRequest,
   Paginated,
   UpdateBrandRequest,
   UpdateCategoryRequest,
@@ -226,16 +225,6 @@ export function useCreateVariantMutation(productId: string) {
   return useMutation({
     mutationFn: (body: CreateVariantRequest) =>
       apiPost<AdminVariantDto>(`/api/admin/products/${productId}/variants`, body),
-    onSuccess: () => invalidateProduct(queryClient, productId),
-  });
-}
-
-/** ADR-0028 — accessories: several colors at once (all or nothing). */
-export function useCreateVariantsBatchMutation(productId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: CreateVariantsBatchRequest) =>
-      apiPost<AdminVariantDto[]>(`/api/admin/products/${productId}/variants/batch`, body),
     onSuccess: () => invalidateProduct(queryClient, productId),
   });
 }

@@ -3,19 +3,18 @@ import type { FormEvent } from "react";
 import type { AdminVariantDto, ColorTone, ProductKind } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ApiClientError } from "../../services/api-client";
-import { COLOR_FAMILY_OPTIONS, FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
+import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import {
   useCreateVariantMutation,
   useDeleteVariantMutation,
   useUpdateVariantMutation,
 } from "../../services/queries/admin";
 import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
-import { AccessoryColorPicker } from "./AccessoryColorPicker";
 import { VariantSkuEditor } from "./VariantSkuEditor";
 import { VariantTonesEditor } from "./VariantTonesEditor";
 import { VariantDetailsEditor } from "./VariantDetailsEditor";
-import { ColorTonePicker } from "./ColorTonePicker";
-import { tonesName } from "../../lib/color-tones";
+import { ColorChoice } from "./ColorChoice";
+import { toneLabel } from "../../lib/color-tones";
 
 const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 // An empty stock field must never be saved as 0 by accident (Number("")
@@ -33,11 +32,11 @@ function photoAltBase(productName: string, variant: AdminVariantDto): string {
 const priceOrNull = (value: string) => (value.trim() === "" ? null : Number(value));
 
 // ADR-0028: an accessory's variants are its colors or presentations
-// (e.g. a cleaner's sizes), each with its own optional price. A frame's
-// variants keep exactly the existing form and card.
+// (e.g. a cleaner's sizes), each with its own optional price. A new variant
+// of either kind is added with one simple form (docs/COLORES.md): color (one
+// dot of the palette, or «Combinado»), material, SKU and stock.
 export function AdminVariantsEditor({
   productId,
-  productSlug = "",
   productName = "",
   variants,
   kind = "FRAME",
@@ -48,71 +47,44 @@ export function AdminVariantsEditor({
   basePrice?: number;
   /** For the description of new photos ("Product — Color — foto N"). */
   productName?: string;
-  /** For suggested SKUs of new accessory colors. */
-  productSlug?: string;
   variants: AdminVariantDto[];
   kind?: ProductKind;
 }) {
   const isAccessory = kind === "ACCESSORY";
   const createVariant = useCreateVariantMutation(productId);
-  const [color, setColor] = useState("");
+  const [tone, setTone] = useState<ColorTone | null>(null);
   const [material, setMaterial] = useState("");
   const [label, setLabel] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
   const [sku, setSku] = useState("");
   const [stock, setStock] = useState("0");
-  const [tones, setTones] = useState<ColorTone[]>([]);
-  // The single-piece form (a combined piece; for accessories, also a
-  // presentation) stays hidden behind its checkbox: one palette at a time.
-  const [combine, setCombine] = useState(false);
-  // A frame's piece here is a combination: two tones or more.
-  const tonesMissing = !isAccessory && tones.length < 2;
+  // A frame variant is a color; an accessory's may be only a presentation.
+  const colorMissing = tone === null && (!isAccessory || label.trim() === "");
 
-  function resetPieceForm() {
-    setColor("");
+  function resetForm() {
+    setTone(null);
     setMaterial("");
     setLabel("");
     setPriceOverride("");
     setSku("");
     setStock("0");
-    setTones([]);
-  }
-
-  // Unticking only hides the form — after confirming, if something was
-  // typed or chosen; nothing is ever sent from here.
-  function toggleCombine(on: boolean) {
-    if (on) return setCombine(true);
-    const typed =
-      tones.length > 0 ||
-      [color, material, label, priceOverride, sku].some((v) => v.trim() !== "") ||
-      stock !== "0";
-    if (
-      typed &&
-      !window.confirm("¿Descartar los datos de esta pieza? Todavía no se guardó nada.")
-    ) {
-      return;
-    }
-    resetPieceForm();
-    createVariant.reset();
-    setCombine(false);
   }
 
   function handleCreate(event: FormEvent) {
     event.preventDefault();
-    if (tonesMissing) return;
+    if (colorMissing) return;
     createVariant.mutate(
       {
-        // No name typed: the tones name the piece ("Rojo y negro").
-        color: color.trim() !== "" ? color : tones.length > 0 ? tonesName(tones) : null,
-        material: material.trim() === "" ? null : material,
-        ...(tones.length > 0 ? { colorTones: tones } : {}),
-        sku,
+        color: tone ? toneLabel(tone) : null,
+        material: blankToNull(material),
+        ...(tone ? { colorTones: [tone] } : {}),
+        sku: sku.trim(),
         stock: Number(stock),
         ...(isAccessory
           ? { label: blankToNull(label), priceOverride: priceOrNull(priceOverride) }
           : {}),
       },
-      { onSuccess: resetPieceForm },
+      { onSuccess: resetForm },
     );
   }
 
@@ -168,162 +140,102 @@ export function AdminVariantsEditor({
             ▾
           </span>
         </summary>
-        <div className="border-t border-border p-4">
+        <form onSubmit={handleCreate} className="space-y-4 border-t border-border p-4" noValidate>
           <div>
-            <AccessoryColorPicker
-              productId={productId}
-              productSlug={productSlug}
-              variants={variants}
-              kind={kind}
+            <p className="mb-1.5 text-sm font-medium text-text">
+              {isAccessory ? "Color (opcional si es una presentación)" : "Color"}
+            </p>
+            <ColorChoice
+              value={tone}
+              onChange={setTone}
+              label="Color de la variante nueva"
+              disabled={createVariant.isPending}
             />
+            <p className="mt-1 text-xs text-text-muted">
+              Un color por variante. Para otro color, agregá otra variante.
+            </p>
           </div>
-
-          <label className="mt-6 flex min-h-11 items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={combine}
-              onChange={(event) => toggleCombine(event.target.checked)}
-              className="mt-1 accent-[var(--color-primary)]"
+          <div className="flex flex-wrap items-end gap-3">
+            <FormField
+              label="Material"
+              list="material-options"
+              value={material}
+              maxLength={200}
+              onChange={(e) => setMaterial(e.target.value)}
+              className="w-40"
             />
-            <span>
-              <span className="font-medium text-text">
-                {isAccessory
-                  ? "Es una presentación (por ejemplo, un tamaño) o combina varios colores"
-                  : "Este armazón combina varios colores"}
-              </span>
-              <span className="block text-xs text-text-muted">
-                Varios colores independientes son varias variantes, cada una con su SKU, stock y
-                fotos (arriba). Una pieza combinada es una sola variante con varios tonos, un SKU,
-                un stock y sus propias fotos.
-              </span>
-            </span>
-          </label>
-
-          {combine && (
-            <form
-              onSubmit={handleCreate}
-              className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
-              noValidate
+            <datalist id="material-options">
+              {FRAME_MATERIAL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.label} />
+              ))}
+            </datalist>
+            {isAccessory && (
+              <>
+                <FormField
+                  label="Presentación (opcional)"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={100}
+                  className="w-44"
+                />
+                <FormField
+                  label="Precio propio (opcional)"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  value={priceOverride}
+                  onChange={(e) => setPriceOverride(e.target.value)}
+                  className="w-40"
+                />
+              </>
+            )}
+            <FormField
+              label="SKU"
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              required
+              maxLength={100}
+              className="w-40"
+            />
+            <FormField
+              label="Stock"
+              type="number"
+              min="0"
+              step="1"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              error={isBlank(stock) ? STOCK_REQUIRED : undefined}
+              className="w-28"
+            />
+            <button
+              type="submit"
+              disabled={
+                createVariant.isPending || sku.trim() === "" || isBlank(stock) || colorMissing
+              }
+              className="min-h-11 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
             >
-              <div className="w-full">
-                <p className="mb-1.5 text-sm font-medium text-text">
-                  {isAccessory
-                    ? "Tonos de esta pieza (opcional)"
-                    : "Tonos de esta pieza, el principal primero (mínimo dos)"}
-                </p>
-                <ColorTonePicker
-                  value={tones}
-                  onChange={setTones}
-                  label="Tonos de la variante nueva"
-                />
-                <p className="mt-1 text-xs text-text-muted">
-                  {isAccessory
-                    ? "Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos, no aparece en el filtro por colores."
-                    : "Por ejemplo, rojo y negro. Para cambiar el material de un color ya cargado, usá «Corregir datos» en su tarjeta."}
-                </p>
-              </div>
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-text"
-                  htmlFor="new-variant-color"
-                >
-                  Color
-                </label>
-                <input
-                  id="new-variant-color"
-                  list="color-options"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-                />
-                <datalist id="color-options">
-                  {COLOR_FAMILY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.label} />
-                  ))}
-                </datalist>
-              </div>
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-text"
-                  htmlFor="new-variant-material"
-                >
-                  Material
-                </label>
-                <input
-                  id="new-variant-material"
-                  list="material-options"
-                  value={material}
-                  onChange={(e) => setMaterial(e.target.value)}
-                  className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-                />
-                <datalist id="material-options">
-                  {FRAME_MATERIAL_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.label} />
-                  ))}
-                </datalist>
-              </div>
-              {isAccessory && (
-                <>
-                  <FormField
-                    label="Presentación (opcional)"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    maxLength={100}
-                    className="w-44"
-                  />
-                  <FormField
-                    label="Precio propio (opcional)"
-                    type="number"
-                    inputMode="decimal"
-                    min="0.01"
-                    step="0.01"
-                    value={priceOverride}
-                    onChange={(e) => setPriceOverride(e.target.value)}
-                    className="w-40"
-                  />
-                </>
-              )}
-              <FormField
-                label="SKU"
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                required
-                className="w-40"
-              />
-              <FormField
-                label="Stock"
-                type="number"
-                min="0"
-                step="1"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                error={isBlank(stock) ? STOCK_REQUIRED : undefined}
-                className="w-28"
-              />
-              <button
-                type="submit"
-                disabled={
-                  createVariant.isPending || sku.trim() === "" || isBlank(stock) || tonesMissing
-                }
-                className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
-              >
-                {createVariant.isPending
-                  ? "Agregando…"
-                  : isAccessory
-                    ? "Agregar presentación"
-                    : "Agregar pieza combinada"}
-              </button>
-              {tonesMissing && (
-                <p className="w-full text-xs text-text-muted">Elegí al menos dos tonos.</p>
-              )}
-            </form>
+              {createVariant.isPending ? "Agregando…" : "Agregar variante"}
+            </button>
+          </div>
+          {colorMissing && (
+            <p className="text-xs text-text-muted">
+              {isAccessory
+                ? "Elegí el color o escribí la presentación."
+                : "Elegí el color en la paleta."}
+            </p>
           )}
-          {combine && createError && (
-            <p role="alert" className="mt-2 text-sm text-danger">
+          <div role="status" className="text-sm text-success">
+            {createVariant.isSuccess &&
+              createVariant.data &&
+              `Variante agregada: ${[createVariant.data.color, createVariant.data.label].filter(Boolean).join(" · ") || createVariant.data.sku} (SKU ${createVariant.data.sku}).`}
+          </div>
+          {createError && (
+            <p role="alert" className="text-sm text-danger">
               {createError}
             </p>
           )}
-        </div>
+        </form>
       </details>
     </div>
   );

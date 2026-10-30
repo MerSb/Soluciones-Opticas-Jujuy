@@ -63,100 +63,83 @@ function stubApi() {
   return calls;
 }
 
-describe("admin — tones of an existing variant", () => {
-  it("classifies it in place, in click order, sending only the tones", async () => {
+describe("admin — palette color of an existing variant", () => {
+  it("classifies it in place with one color, sending only its tone", async () => {
     const calls = stubApi();
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT]} />);
-    expect(screen.getByText("Tonos: sin clasificar")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Editar tonos de Negro" }));
-    const group = screen.getByRole("group", { name: "Tonos de Negro" });
-    await userEvent.click(within(group).getByRole("button", { name: /^Rojo/ }));
-    await userEvent.click(within(group).getByRole("button", { name: /^Negro/ }));
-    expect(within(group).getByRole("button", { name: /^Rojo/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    expect(screen.getByText("Color de la paleta: sin clasificar")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Cambiar el color de la paleta de Negro" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Guardar tonos" }));
+    const group = screen.getByRole("radiogroup", { name: "Color de la paleta de Negro" });
+    expect(within(group).getAllByRole("radio")).toHaveLength(19);
+    await userEvent.click(within(group).getByRole("radio", { name: "Rojo" }));
+    await userEvent.click(within(group).getByRole("radio", { name: "Negro" }));
+    expect(within(group).getByRole("radio", { name: "Rojo" })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Guardar color" }));
     await waitFor(() =>
       expect(calls).toEqual([
         {
           method: "PATCH",
           path: "/api/admin/products/p1/variants/v1",
-          body: { colorTones: ["ROJO", "NEGRO"] },
+          body: { colorTones: ["NEGRO"] },
         },
       ]),
     );
   });
 
-  it("keeps multicolor alone and cancels without sending", async () => {
+  it("offers «Combinado» as one more choice, and cancels without sending", async () => {
     const calls = stubApi();
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Editar tonos de Negro" }));
-    const group = screen.getByRole("group", { name: "Tonos de Negro" });
-    await userEvent.click(within(group).getByRole("button", { name: /^Rojo/ }));
-    await userEvent.click(within(group).getByRole("button", { name: /^Multicolor/ }));
-    expect(within(group).getByRole("button", { name: /^Rojo/ })).toHaveAttribute(
-      "aria-pressed",
-      "false",
+    await userEvent.click(
+      screen.getByRole("button", { name: "Cambiar el color de la paleta de Negro" }),
     );
+    const group = screen.getByRole("radiogroup", { name: "Color de la paleta de Negro" });
+    await userEvent.click(within(group).getByRole("radio", { name: "Combinado" }));
+    expect(within(group).getByRole("radio", { name: "Combinado" })).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(calls).toEqual([]);
-    expect(screen.getByText("Tonos: sin clasificar")).toBeInTheDocument();
+    expect(screen.getByText("Color de la paleta: sin clasificar")).toBeInTheDocument();
   });
 
-  it("names a classified two-tone piece as one piece", () => {
-    stubApi();
+  it("keeps a two-tone piece loaded before as it is until another color is chosen", async () => {
+    const calls = stubApi();
     renderWithProviders(
       <AdminVariantsEditor
         productId="p1"
         variants={[{ ...VARIANT, colorTones: ["ROJO", "NEGRO"] }]}
       />,
     );
-    expect(screen.getByText("Tonos: Rojo y negro (una sola pieza combinada)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Color de la paleta: Rojo y negro (una sola pieza de varios tonos)"),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Cambiar el color de la paleta de Negro" }),
+    );
+    const group = screen.getByRole("radiogroup", { name: "Color de la paleta de Negro" });
+    expect(within(group).queryByRole("radio", { checked: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Guardar color" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(calls).toEqual([]);
   });
 });
 
-describe("admin — loading a frame's colors", () => {
-  it("picks several palette colors, each its own variant with its tone, nothing locked", async () => {
+describe("admin — adding a frame's variant", () => {
+  it("may repeat a color already loaded (another material), as its own variant", async () => {
     const calls = stubApi();
-    renderWithProviders(
-      <AdminVariantsEditor productId="p1" productSlug="gatito" variants={[VARIANT]} />,
+    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT]} />);
+    const add = within(
+      screen.getByText("Agregar otro color o variante").closest("details") as HTMLElement,
     );
-    const palette = screen.getByRole("group", { name: "Paleta de colores" });
-    expect(within(palette).getAllByRole("button")).toHaveLength(15);
-    // Negro is already loaded, and can still be chosen (another tint).
-    expect(within(palette).getByRole("button", { name: "Negro" })).toBeEnabled();
-    await userEvent.click(within(palette).getByRole("button", { name: "Rojo" }));
-    await userEvent.click(within(palette).getByRole("button", { name: "Carey" }));
-    await userEvent.type(screen.getByLabelText("Stock de Rojo"), "2");
-    await userEvent.type(screen.getByLabelText("Stock de Carey"), "0");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar 2 colores" }));
+    await userEvent.click(add.getByRole("radio", { name: "Negro" }));
+    await userEvent.type(add.getByLabelText("Material"), "Acetato");
+    await userEvent.type(add.getByLabelText("SKU"), "SKU-2");
+    await userEvent.click(add.getByRole("button", { name: "Agregar variante" }));
     await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0]!.path).toBe("/api/admin/products/p1/variants/batch");
-    expect(calls[0]!.body).toEqual({
-      variants: [
-        { color: "Rojo", colorTones: ["ROJO"], stock: 2, sku: expect.any(String) },
-        { color: "Carey", colorTones: ["CAREY"], stock: 0, sku: expect.any(String) },
-      ],
-    });
-  });
-
-  it("registers one two-tone piece, named after its tones", async () => {
-    const calls = stubApi();
-    renderWithProviders(<AdminVariantsEditor productId="p1" variants={[]} />);
-    await userEvent.click(
-      screen.getByRole("checkbox", { name: /Este armazón combina varios colores/ }),
-    );
-    const group = screen.getByRole("group", { name: "Tonos de la variante nueva" });
-    await userEvent.click(within(group).getByRole("button", { name: /^Rojo/ }));
-    await userEvent.click(within(group).getByRole("button", { name: /^Negro/ }));
-    await userEvent.type(screen.getByLabelText("SKU"), "RN-1");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar pieza combinada" }));
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0]!.body).toMatchObject({
-      color: "Rojo y negro",
-      colorTones: ["ROJO", "NEGRO"],
-      sku: "RN-1",
+    expect(calls[0]).toEqual({
+      method: "POST",
+      path: "/api/admin/products/p1/variants",
+      body: { color: "Negro", material: "Acetato", colorTones: ["NEGRO"], sku: "SKU-2", stock: 0 },
     });
   });
 });
@@ -192,6 +175,25 @@ describe("shop — swatches and variants", () => {
     );
     expect(within(group).getByRole("button", { name: "Negro, código b" })).toBeInTheDocument();
     expect(within(group).getByRole("button", { name: "Rojo y negro" })).toBeInTheDocument();
+  });
+
+  it("names the material too when two variants share a color", () => {
+    const variants = [
+      { ...variant("a", "Negro", ["NEGRO"]), material: "Acetato" },
+      { ...variant("b", "Negro", ["NEGRO"]), material: "Metal" },
+      variant("c", "Combinado", ["COMBINADO"]),
+    ];
+    renderWithProviders(
+      <VariantSelector variants={variants} selected={variants[0]!} onSelect={() => {}} />,
+    );
+    const group = screen.getByRole("group", { name: "Elegir color" });
+    expect(
+      within(group).getByRole("button", { name: "Negro, Acetato, código a" }),
+    ).toHaveTextContent("Negro· Acetato · a");
+    expect(
+      within(group).getByRole("button", { name: "Negro, Metal, código b" }),
+    ).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "Combinado" })).toBeInTheDocument();
   });
 
   it("selecting one of two same-color variants picks exactly that one", async () => {
@@ -271,7 +273,49 @@ describe("shop — color filter", () => {
     expect(onChange).toHaveBeenLastCalledWith({ colors: undefined });
   });
 
+  it("offers the new colors and «Combinado» as circles of their own", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const path = new URL(input).pathname;
+        const json =
+          path === "/api/products/colors"
+            ? [
+                { tone: "AZUL", count: 4 },
+                { tone: "CELESTE", count: 2 },
+                { tone: "AMARILLO", count: 1 },
+                { tone: "NARANJA", count: 1 },
+                { tone: "COMBINADO", count: 3 },
+              ]
+            : [];
+        return { ok: true, status: 200, json: async () => json };
+      }),
+    );
+    const onChange = vi.fn();
+    renderWithProviders(<FilterFields filters={{ page: 1 }} onChange={onChange} idPrefix="t" />);
+    const group = await screen.findByRole("group", { name: "Filtrar por color" });
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual(
+      expect.arrayContaining([
+        "Azul (4)",
+        "Celeste (2)",
+        "Amarillo (1)",
+        "Naranja (1)",
+        "Combinado (3)",
+      ]),
+    );
+    await userEvent.click(within(group).getByRole("button", { name: "Combinado (3)" }));
+    expect(onChange).toHaveBeenLastCalledWith({ colors: ["COMBINADO"] });
+  });
+
   it("keeps the URL shareable: ?colors= round-trips, unknown names are dropped, ?color= still read", () => {
+    expect(
+      parseCatalogSearchParams(new URLSearchParams("colors=celeste,AMARILLO,naranja,combinado"))
+        .colors,
+    ).toEqual(["CELESTE", "AMARILLO", "NARANJA", "COMBINADO"]);
     const filters = parseCatalogSearchParams(
       new URLSearchParams("colors=Rojo,marrón,fucsia,rojo&color=Negro mate"),
     );

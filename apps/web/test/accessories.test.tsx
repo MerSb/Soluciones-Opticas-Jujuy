@@ -395,12 +395,14 @@ describe("admin — accessory variants", () => {
       }),
     );
 
-    // The presentation form is behind its checkbox.
-    await userEvent.click(screen.getByRole("checkbox", { name: /Es una presentación/ }));
-    await userEvent.type(screen.getByLabelText("Presentación (opcional)"), "Presentación C");
-    await userEvent.type(screen.getByLabelText("Precio propio (opcional)"), "10000");
-    await userEvent.type(screen.getByLabelText("SKU"), "QA-C");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar presentación" }));
+    // The same simple form as frames, plus presentation and price.
+    const add = within(
+      screen.getByText("Agregar otro color o variante").closest("details") as HTMLElement,
+    );
+    await userEvent.type(add.getByLabelText("Presentación (opcional)"), "Presentación C");
+    await userEvent.type(add.getByLabelText("Precio propio (opcional)"), "10000");
+    await userEvent.type(add.getByLabelText("SKU"), "QA-C");
+    await userEvent.click(add.getByRole("button", { name: "Agregar variante" }));
     await waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith({
         color: null,
@@ -413,15 +415,16 @@ describe("admin — accessory variants", () => {
     );
   });
 
-  it("a frame's piece form (behind its checkbox) has no presentation or price fields", async () => {
+  it("a frame's form has no presentation or price fields", async () => {
     stubApi({});
     renderAt("/", [{ path: "/", element: <AdminVariantsEditor productId="p1" variants={[]} /> }]);
     expect(screen.getByRole("heading", { name: "Variantes" })).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("checkbox", { name: /Este armazón combina varios colores/ }),
-    );
     expect(screen.queryByLabelText("Presentación (opcional)")).toBeNull();
-    expect(screen.getByRole("button", { name: "Agregar pieza combinada" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Precio propio (opcional)")).toBeNull();
+    expect(
+      screen.getByRole("radiogroup", { name: "Color de la variante nueva" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agregar variante" })).toBeInTheDocument();
   });
 });
 
@@ -509,13 +512,16 @@ describe("predeploy fixes (web)", () => {
       "Ingresá el stock (0 si no hay unidades).",
     );
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /Es una presentación/ }));
-    const createStock = screen.getAllByLabelText("Stock").at(-1)!;
-    await userEvent.type(screen.getByLabelText("SKU"), "QA-NEW");
+    const add = within(
+      screen.getByText("Agregar otro color o variante").closest("details") as HTMLElement,
+    );
+    const createStock = add.getByLabelText("Stock");
+    await userEvent.type(add.getByLabelText("Presentación (opcional)"), "Grande");
+    await userEvent.type(add.getByLabelText("SKU"), "QA-NEW");
     await userEvent.clear(createStock);
-    expect(screen.getByRole("button", { name: "Agregar presentación" })).toBeDisabled();
+    expect(add.getByRole("button", { name: "Agregar variante" })).toBeDisabled();
     await userEvent.type(createStock, "0");
-    expect(screen.getByRole("button", { name: "Agregar presentación" })).toBeEnabled();
+    expect(add.getByRole("button", { name: "Agregar variante" })).toBeEnabled();
   });
 });
 

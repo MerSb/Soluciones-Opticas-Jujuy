@@ -1,4 +1,4 @@
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId } from "react";
 import { ColorToneDot } from "../../components/products/ColorToneDot";
 import {
   PhotoSequencePicker,
@@ -7,16 +7,18 @@ import {
   type PhotoUploadStatus,
 } from "../../components/admin/PhotoSequencePicker";
 import type { DraftVariant } from "../../lib/product-drafts";
+import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { useSimilarProductsQuery } from "../../services/queries/admin";
 
 const INPUT =
   "w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text disabled:opacity-60";
 
 /**
- * One variant of the new-product form: the name the customer reads, its
- * own SKU and stock (always typed by hand — never generated) and its own
- * photos, numbered by clicking them. The photos stay in this row; the
- * form reads them through `onPhotos` when saving.
+ * One variant of the new-product form, already added: its color (fixed —
+ * another color is another variant), its material, its own SKU and stock
+ * (always typed by hand — never generated) and its own photos, numbered by
+ * clicking them. The photos stay in this row; the form reads them through
+ * `onPhotos` when saving.
  */
 export function DraftVariantRow({
   variant,
@@ -31,12 +33,10 @@ export function DraftVariantRow({
   locked,
   statuses,
   skuRepeated,
-  nameRepeated,
-  tonePicker,
 }: {
   variant: DraftVariant;
   heading: string;
-  /** Name, SKU and stock can still change (the variant isn't created yet). */
+  /** Material, SKU and stock can still change (the variant isn't created yet). */
   editable: boolean;
   photosDisabled: boolean;
   onChange: (patch: Partial<DraftVariant>) => void;
@@ -47,9 +47,6 @@ export function DraftVariantRow({
   locked: ReadonlySet<string>;
   statuses: Readonly<Record<string, PhotoUploadStatus>>;
   skuRepeated: boolean;
-  nameRepeated: boolean;
-  /** A combined piece chooses its tones here (ColorTonePicker). */
-  tonePicker?: ReactNode;
 }) {
   const id = useId();
   const sequence = usePhotoSequence();
@@ -83,24 +80,25 @@ export function DraftVariantRow({
           </button>
         )}
       </div>
-      {tonePicker}
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label htmlFor={`${id}-name`} className="mb-1 block text-xs font-medium text-text">
-            Nombre del color
+          <label htmlFor={`${id}-material`} className="mb-1 block text-xs font-medium text-text">
+            Material
           </label>
           <input
-            id={`${id}-name`}
-            value={variant.name}
+            id={`${id}-material`}
+            list={`${id}-materials`}
+            value={variant.material}
             maxLength={200}
             disabled={!editable}
-            onChange={(event) => onChange({ name: event.target.value })}
-            aria-invalid={nameRepeated || variant.name.trim() === ""}
+            onChange={(event) => onChange({ material: event.target.value })}
             className={INPUT}
           />
-          {nameRepeated && (
-            <p className="mt-0.5 text-xs text-danger">Ese nombre ya está en la lista.</p>
-          )}
+          <datalist id={`${id}-materials`}>
+            {FRAME_MATERIAL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.label} />
+            ))}
+          </datalist>
         </div>
         <div>
           <label htmlFor={`${id}-sku`} className="mb-1 block text-xs font-medium text-text">

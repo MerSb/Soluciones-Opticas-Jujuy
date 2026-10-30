@@ -205,8 +205,9 @@ const photo = (name: string) => new File(["fake-bytes"], name, { type: "image/jp
 const panel = () => screen.getByRole("tabpanel");
 
 interface ColorData {
-  /** A palette color clicked to add the row ("Negro"). */
+  /** The palette color chosen for the variant ("Negro", "Combinado"). */
   color: string;
+  material?: string;
   sku?: string;
   stock?: string;
   photos?: File[];
@@ -214,22 +215,30 @@ interface ColorData {
   clickOrder?: string[];
 }
 
-/** The row of a color, by its heading ("Negro", "Pieza combinada: …"). */
+/** An added variant, by its heading ("Variante 1: Negro"). */
 const row = (heading: string) => within(within(panel()).getByRole("region", { name: heading }));
+/** The form of the variant being typed (color, material, SKU, stock). */
+const newVariant = () => within(within(panel()).getByRole("group", { name: "Variante nueva" }));
 
-async function fillColorRow(
+async function addVariant(user: ReturnType<typeof userEvent.setup>, data: ColorData) {
+  const form = newVariant();
+  await user.click(form.getByRole("radio", { name: data.color }));
+  if (data.material) await user.type(form.getByLabelText("Material"), data.material);
+  if (data.sku) await user.type(form.getByLabelText("SKU"), data.sku);
+  await user.type(form.getByLabelText("Stock"), data.stock ?? "0");
+  await user.click(form.getByRole("button", { name: "Agregar variante" }));
+}
+
+async function choosePhotos(
   user: ReturnType<typeof userEvent.setup>,
   heading: string,
-  data: Omit<ColorData, "color">,
+  data: Pick<ColorData, "photos" | "clickOrder">,
 ) {
+  if (!data.photos) return;
   const r = row(heading);
-  if (data.sku) await user.type(r.getByLabelText("SKU"), data.sku);
-  await user.type(r.getByLabelText("Stock"), data.stock ?? "0");
-  if (data.photos) {
-    await user.upload(r.getByLabelText("Elegir fotos"), data.photos);
-    for (const name of data.clickOrder ?? data.photos.map((file) => file.name)) {
-      await user.click(r.getByRole("button", { name: new RegExp(`^${name}:`) }));
-    }
+  await user.upload(r.getByLabelText("Elegir fotos"), data.photos);
+  for (const name of data.clickOrder ?? data.photos.map((file) => file.name)) {
+    await user.click(r.getByRole("button", { name: new RegExp(`^${name}:`) }));
   }
 }
 
@@ -243,13 +252,9 @@ async function fillProduct(
   await user.selectOptions(p.getByLabelText("Marca"), "b1");
   await user.selectOptions(p.getByLabelText("Categoría"), "c1");
   await user.type(p.getByLabelText("Precio base (ARS)"), data.price);
-  for (const color of data.colors ?? []) {
-    await user.click(
-      within(p.getByRole("group", { name: "Colores de la paleta" })).getByRole("button", {
-        name: color.color,
-      }),
-    );
-    await fillColorRow(user, color.color, color);
+  for (const [index, color] of (data.colors ?? []).entries()) {
+    await addVariant(user, color);
+    await choosePhotos(user, `Variante ${index + 1}: ${color.color}`, color);
   }
 }
 
@@ -296,7 +301,7 @@ describe("AdminNewProductPage — several products at once", () => {
 
     await user.click(tabs[0]!);
     expect(within(panel()).getByLabelText("Nombre")).toHaveValue("Uno QA");
-    expect(within(panel()).getByLabelText("SKU")).toHaveValue("UNO-1");
+    expect(row("Variante 1: Negro").getByLabelText("SKU")).toHaveValue("UNO-1");
     expect(within(panel()).getByText("uno.jpg")).toBeInTheDocument();
     expect(within(panel()).queryByText("dos-a.jpg")).toBeNull();
 
@@ -347,7 +352,7 @@ describe("AdminNewProductPage — several products at once", () => {
     ]);
     expect(writes[0]!.body).toMatchObject({ name: "Dos QA", basePrice: 2000 });
     expect(writes[1]!.body).toEqual({
-      variants: [{ color: "Rojo", colorTones: ["ROJO"], sku: "DOS-1", stock: 0 }],
+      variants: [{ color: "Rojo", material: null, colorTones: ["ROJO"], sku: "DOS-1", stock: 0 }],
     });
     expect(calls.filter((call) => call.path.startsWith("/v1_1")).map((call) => call.body)).toEqual([
       "dos-b.jpg",
@@ -386,24 +391,32 @@ describe("AdminNewProductPage — several products at once", () => {
     ).toHaveLength(1);
   });
 
-  it("validates: each color needs its SKU and stock; an API error is shown and nothing else is sent", async () => {
+  it("validates: a variant needs its color, SKU and stock before it is added; an API error is shown and nothing else is sent", async () => {
     const user = userEvent.setup();
     const calls = stubBackend({ failProductCreate: true });
     renderPage();
     await fillProduct(user, { name: "Uno QA", price: "1000" });
-    await user.click(
-      within(within(panel()).getByRole("group", { name: "Colores de la paleta" })).getByRole(
-        "button",
-        { name: "Negro" },
-      ),
-    );
+    const form = newVariant();
+    await user.click(form.getByRole("button", { name: "Agregar variante" }));
+    expect(within(panel()).getByRole("alert")).toHaveTextContent("Elegí el color en la paleta.");
+    await user.click(form.getByRole("radio", { name: "Negro" }));
+    // What is being typed is never lost: it must be added (or discarded) first.
     const submit = within(panel()).getByRole("button", { name: "Crear producto" });
     expect(submit).toBeDisabled();
     expect(
-      within(panel()).getByText(/Falta el SKU de cada color, el stock de cada color/),
+      within(panel()).getByText(/agregar a la lista la variante que estás cargando/),
     ).toBeInTheDocument();
+    await user.click(form.getByRole("button", { name: "Agregar variante" }));
+    expect(within(panel()).getByRole("alert")).toHaveTextContent("Escribí el SKU.");
+    await user.type(form.getByLabelText("SKU"), "UNO-1");
+    await user.click(form.getByRole("button", { name: "Agregar variante" }));
+    expect(within(panel()).getByRole("alert")).toHaveTextContent(
+      "Ingresá el stock: un número entero, 0 o más.",
+    );
+    await user.type(form.getByLabelText("Stock"), "2");
+    await user.click(form.getByRole("button", { name: "Agregar variante" }));
+    expect(row("Variante 1: Negro").getByLabelText("SKU")).toHaveValue("UNO-1");
 
-    await fillColorRow(user, "Negro", { sku: "UNO-1" });
     await user.click(submit);
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
       "Ya existe un producto con ese nombre.",
@@ -426,7 +439,7 @@ describe("AdminNewProductPage — several products at once", () => {
     await user.click(screen.getAllByRole("tab")[0]!);
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
-      "El producto y sus colores se crearon, pero falló la foto 1 de Negro: No pudimos conectarnos",
+      "El producto y sus variantes se crearon, pero falló la foto 1 de Negro: No pudimos conectarnos",
     );
     await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
     await within(panel()).findByText("✓ «Uno QA» guardado.");
@@ -525,7 +538,7 @@ describe("AdminNewProductPage — several products at once", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Uno QA●", "Dos QA●"]);
     await user.click(tabs[0]!);
-    expect(within(panel()).getByLabelText("SKU")).toHaveValue("UNO-1");
+    expect(row("Variante 1: Negro").getByLabelText("SKU")).toHaveValue("UNO-1");
     expect(
       within(panel()).getByText(/Las fotos elegidas antes de recargar no se conservan/),
     ).toBeInTheDocument();
@@ -597,21 +610,76 @@ describe("AdminNewProductPage — several products at once", () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toContain("Uno QA");
   });
 
-  describe("colors on the palette", () => {
-    const palette = () =>
-      within(within(panel()).getByRole("group", { name: "Colores de la paleta" }));
+  describe("variants with the simple form (color, material, SKU, stock)", () => {
+    const colors = () =>
+      within(newVariant().getByRole("radiogroup", { name: "Color de la variante nueva" }));
+    const batchBody = (calls: Call[]) =>
+      calls.find((call) => call.path.endsWith("/variants/batch"))!.body;
 
-    it("shows the 15 palette colors, for frames and for accessories", async () => {
+    it("one palette: the 18 colors and «Combinado», one choice, for frames and for accessories", async () => {
       const user = userEvent.setup();
       stubBackend();
       renderPage();
       await within(panel()).findByRole("option", { name: "Marca QA" });
-      expect(palette().getAllByRole("button")).toHaveLength(15);
+      const names = [
+        "Negro",
+        "Blanco",
+        "Gris",
+        "Plateado",
+        "Dorado",
+        "Marrón",
+        "Beige",
+        "Azul",
+        "Celeste",
+        "Verde",
+        "Rojo",
+        "Rosa",
+        "Violeta",
+        "Amarillo",
+        "Naranja",
+        "Carey",
+        "Multicolor",
+        "Transparente",
+        "Combinado",
+      ];
+      expect(
+        colors()
+          .getAllByRole("radio")
+          .map((radio) => radio.closest("label")!.textContent),
+      ).toEqual(names);
+      expect(within(panel()).getAllByRole("radiogroup")).toHaveLength(1);
+      expect(within(panel()).queryByRole("checkbox", { name: /combina/ })).toBeNull();
+      await user.click(colors().getByRole("radio", { name: "Negro" }));
+      await user.click(colors().getByRole("radio", { name: "Azul" }));
+      expect(colors().getByRole("radio", { name: "Azul" })).toBeChecked();
+      expect(colors().getByRole("radio", { name: "Negro" })).not.toBeChecked();
       await user.click(within(panel()).getByRole("radio", { name: "Accesorio" }));
-      expect(palette().getAllByRole("button")).toHaveLength(15);
+      expect(colors().getAllByRole("radio")).toHaveLength(19);
     });
 
-    it("several colors: each one its own variant, with its own SKU, stock and photos", async () => {
+    it("Negro, material Acetato, SKU and stock: one variant, its material saved with it", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [{ color: "Negro", material: "Acetato", sku: "UNO-N", stock: "3" }],
+      });
+      // The form is empty again for the next variant.
+      expect(newVariant().getByLabelText("SKU")).toHaveValue("");
+      expect(colors().getByRole("radio", { name: "Negro" })).not.toBeChecked();
+      expect(row("Variante 1: Negro").getByLabelText("Material")).toHaveValue("Acetato");
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(batchBody(calls)).toEqual({
+        variants: [
+          { color: "Negro", material: "Acetato", colorTones: ["NEGRO"], sku: "UNO-N", stock: 3 },
+        ],
+      });
+    });
+
+    it("Celeste, Amarillo and Naranja added one after the other: three variants, each with its own photos", async () => {
       const user = userEvent.setup();
       const calls = stubBackend();
       renderPage();
@@ -619,23 +687,29 @@ describe("AdminNewProductPage — several products at once", () => {
         name: "Uno QA",
         price: "1000",
         colors: [
-          { color: "Negro", sku: "UNO-N", stock: "3", photos: [photo("negro.jpg")] },
+          { color: "Celeste", sku: "UNO-C", stock: "1", photos: [photo("celeste.jpg")] },
+          { color: "Amarillo", material: "Metal", sku: "UNO-A", stock: "2" },
           {
-            color: "Rojo",
-            sku: "UNO-R",
-            stock: "1",
-            photos: [photo("rojo-1.jpg"), photo("rojo-2.jpg")],
+            color: "Naranja",
+            sku: "UNO-O",
+            stock: "0",
+            photos: [photo("naranja-1.jpg"), photo("naranja-2.jpg")],
           },
         ],
       });
       await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
       expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
-
-      const batch = calls.find((call) => call.path.endsWith("/variants/batch"))!;
-      expect(batch.body).toEqual({
+      expect(batchBody(calls)).toEqual({
         variants: [
-          { color: "Negro", colorTones: ["NEGRO"], sku: "UNO-N", stock: 3 },
-          { color: "Rojo", colorTones: ["ROJO"], sku: "UNO-R", stock: 1 },
+          { color: "Celeste", material: null, colorTones: ["CELESTE"], sku: "UNO-C", stock: 1 },
+          {
+            color: "Amarillo",
+            material: "Metal",
+            colorTones: ["AMARILLO"],
+            sku: "UNO-A",
+            stock: 2,
+          },
+          { color: "Naranja", material: null, colorTones: ["NARANJA"], sku: "UNO-O", stock: 0 },
         ],
       });
       const registrations = calls.filter(
@@ -648,131 +722,135 @@ describe("AdminNewProductPage — several products at once", () => {
           (call.body as { isPrimary: boolean }).isPrimary,
         ]),
       ).toEqual([
-        ["p1-v1", "Uno QA — Negro — foto 1", true],
-        ["p1-v2", "Uno QA — Rojo — foto 1", true],
-        ["p1-v2", "Uno QA — Rojo — foto 2", false],
+        ["p1-v1", "Uno QA — Celeste — foto 1", true],
+        ["p1-v3", "Uno QA — Naranja — foto 1", true],
+        ["p1-v3", "Uno QA — Naranja — foto 2", false],
       ]);
       expect(
         calls.filter((call) => call.path.startsWith("/v1_1")).map((call) => call.body),
-      ).toEqual(["negro.jpg", "rojo-1.jpg", "rojo-2.jpg"]);
+      ).toEqual(["celeste.jpg", "naranja-1.jpg", "naranja-2.jpg"]);
     });
 
-    it("clicking a chosen color again removes its row", async () => {
-      const user = userEvent.setup();
-      stubBackend();
-      renderPage();
-      await fillProduct(user, { name: "Uno QA", price: "1000" });
-      await user.click(palette().getByRole("button", { name: "Azul" }));
-      expect(palette().getByRole("button", { name: "Azul" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
-      expect(within(panel()).getByRole("region", { name: "Azul" })).toBeInTheDocument();
-      await user.click(palette().getByRole("button", { name: "Azul" }));
-      expect(within(panel()).queryByRole("region", { name: "Azul" })).toBeNull();
-    });
-
-    const combineBox = () =>
-      within(panel()).getByRole("checkbox", { name: /Este armazón combina varios colores/ });
-    const pieceTones = (n = 1) =>
-      within(within(panel()).getByRole("group", { name: `Tonos de la pieza combinada ${n}` }));
-
-    it("one palette; the combined piece is behind an unticked checkbox", async () => {
-      stubBackend();
-      renderPage();
-      await within(panel()).findByRole("option", { name: "Marca QA" });
-      expect(
-        within(panel()).getAllByRole("group", { name: /Colores de la paleta|Tonos de la pieza/ }),
-      ).toHaveLength(1);
-      expect(combineBox()).not.toBeChecked();
-    });
-
-    it("a single combined piece: one variant with its tones in order, no independent colors needed", async () => {
+    it("«Combinado» shows no other palette, checkbox or field: one variant, no tone assumed", async () => {
       const user = userEvent.setup();
       const calls = stubBackend();
       renderPage();
       await fillProduct(user, { name: "Uno QA", price: "1000" });
-      await user.click(combineBox());
-      await user.click(pieceTones().getByRole("button", { name: "Rojo" }));
-      expect(
-        within(panel()).getByText(/al menos dos tonos en cada pieza combinada/),
-      ).toBeInTheDocument();
-      await user.click(pieceTones().getByRole("button", { name: /^Negro/ }));
-      await fillColorRow(user, "Pieza combinada: Rojo y negro", { sku: "UNO-RN", stock: "2" });
-      expect(row("Pieza combinada: Rojo y negro").getByLabelText("Nombre del color")).toHaveValue(
-        "Rojo y negro",
-      );
+      const fields = () => newVariant().getAllByRole("textbox").length;
+      const before = fields();
+      await user.click(colors().getByRole("radio", { name: "Combinado" }));
+      expect(fields()).toBe(before);
+      expect(within(panel()).getAllByRole("radiogroup")).toHaveLength(1);
+      expect(within(panel()).queryByRole("checkbox", { name: /combina/ })).toBeNull();
+      await user.type(newVariant().getByLabelText("Material"), "Acetato");
+      await user.type(newVariant().getByLabelText("SKU"), "UNO-CB");
+      await user.type(newVariant().getByLabelText("Stock"), "2");
+      await user.click(newVariant().getByRole("button", { name: "Agregar variante" }));
+      await choosePhotos(user, "Variante 1: Combinado", { photos: [photo("cb.jpg")] });
       await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
       expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
-      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
+      expect(batchBody(calls)).toEqual({
         variants: [
-          { color: "Rojo y negro", colorTones: ["ROJO", "NEGRO"], sku: "UNO-RN", stock: 2 },
+          {
+            color: "Combinado",
+            material: "Acetato",
+            colorTones: ["COMBINADO"],
+            sku: "UNO-CB",
+            stock: 2,
+          },
         ],
       });
+      const photos = calls.filter((c) => c.method === "POST" && c.path.endsWith("/images"));
+      expect(photos.map((c) => (c.body as { alt: string }).alt)).toEqual([
+        "Uno QA — Combinado — foto 1",
+      ]);
     });
 
-    it("independent colors and a combined piece in the same product, each with its own photos", async () => {
+    it("the same color twice (another material) is two variants, told apart by their SKU", async () => {
       const user = userEvent.setup();
       const calls = stubBackend();
       renderPage();
       await fillProduct(user, {
         name: "Uno QA",
         price: "1000",
-        colors: [{ color: "Negro", sku: "UNO-N", stock: "1", photos: [photo("negro.jpg")] }],
-      });
-      await user.click(combineBox());
-      await user.click(pieceTones().getByRole("button", { name: "Rojo" }));
-      await user.click(pieceTones().getByRole("button", { name: /^Negro/ }));
-      await fillColorRow(user, "Pieza combinada: Rojo y negro", {
-        sku: "UNO-RN",
-        stock: "2",
-        photos: [photo("rn.jpg")],
-      });
-      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
-      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
-      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
-        variants: [
-          { color: "Negro", colorTones: ["NEGRO"], sku: "UNO-N", stock: 1 },
-          { color: "Rojo y negro", colorTones: ["ROJO", "NEGRO"], sku: "UNO-RN", stock: 2 },
+        colors: [
+          { color: "Negro", material: "Acetato", sku: "UNO-NA", stock: "1" },
+          { color: "Negro", material: "Metal", sku: "UNO-NM", stock: "4" },
         ],
       });
-      const photos = calls.filter((c) => c.method === "POST" && c.path.endsWith("/images"));
-      expect(photos.map((c) => [c.path.split("/")[6], (c.body as { alt: string }).alt])).toEqual([
-        ["p1-v1", "Uno QA — Negro — foto 1"],
-        ["p1-v2", "Uno QA — Rojo y negro — foto 1"],
-      ]);
+      expect(row("Variante 2: Negro").getByLabelText("Material")).toHaveValue("Metal");
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(batchBody(calls)).toEqual({
+        variants: [
+          { color: "Negro", material: "Acetato", colorTones: ["NEGRO"], sku: "UNO-NA", stock: 1 },
+          { color: "Negro", material: "Metal", colorTones: ["NEGRO"], sku: "UNO-NM", stock: 4 },
+        ],
+      });
     });
 
-    it("unticking hides the combined piece: asks before discarding typed data, and writes nothing", async () => {
+    it("refuses a repeated SKU, never sends it, and never generates one", async () => {
       const user = userEvent.setup();
       const calls = stubBackend();
-      const confirm = vi
-        .spyOn(window, "confirm")
-        .mockReturnValueOnce(false)
-        .mockReturnValueOnce(true);
       renderPage();
-      await fillProduct(user, { name: "Uno QA", price: "1000" });
-      await user.click(combineBox());
-      await user.click(combineBox()); // nothing typed: no question
-      expect(confirm).not.toHaveBeenCalled();
-      expect(combineBox()).not.toBeChecked();
-
-      await user.click(combineBox());
-      await user.click(pieceTones().getByRole("button", { name: "Azul" }));
-      await user.click(combineBox()); // cancelled: everything stays
-      expect(combineBox()).toBeChecked();
-      expect(pieceTones().getByRole("button", { name: "Azul" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [{ color: "Negro", sku: "UNO-1" }],
+      });
+      await addVariant(user, { color: "Blanco", sku: "uno-1" });
+      expect(within(panel()).getByRole("alert")).toHaveTextContent(
+        "El SKU «uno-1» ya está en la lista.",
       );
-      await user.click(combineBox()); // accepted: gone
-      expect(
-        within(panel()).queryByRole("group", { name: /Tonos de la pieza combinada/ }),
-      ).toBeNull();
+      expect(within(panel()).queryByRole("region", { name: "Variante 2: Blanco" })).toBeNull();
+      // Changed by hand in the list: marked, and nothing can be created.
+      await user.clear(newVariant().getByLabelText("SKU"));
+      await user.type(newVariant().getByLabelText("SKU"), "UNO-2");
+      await user.click(newVariant().getByRole("button", { name: "Agregar variante" }));
+      await user.clear(row("Variante 2: Blanco").getByLabelText("SKU"));
+      await user.type(row("Variante 2: Blanco").getByLabelText("SKU"), "Uno-1");
+      expect(row("Variante 2: Blanco").getByText("SKU repetido en la lista.")).toBeInTheDocument();
+      expect(within(panel()).getByRole("button", { name: "Crear producto" })).toBeDisabled();
+      await user.click(colors().getByRole("radio", { name: "Verde" }));
+      expect(newVariant().getByLabelText("SKU")).toHaveValue("");
+      expect(calls.some((call) => call.path.includes("/variants"))).toBe(false);
+    });
+
+    it("«Quitar» removes an added variant and «Descartar» clears the one being typed, sending nothing", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [{ color: "Azul", sku: "UNO-AZ" }],
+      });
+      await user.click(row("Variante 1: Azul").getByRole("button", { name: "Quitar" }));
+      expect(within(panel()).queryByRole("region", { name: "Variante 1: Azul" })).toBeNull();
+      await user.click(colors().getByRole("radio", { name: "Rosa" }));
+      await user.type(newVariant().getByLabelText("SKU"), "UNO-RS");
+      await user.click(newVariant().getByRole("button", { name: "Descartar" }));
+      expect(colors().getByRole("radio", { name: "Rosa" })).not.toBeChecked();
+      expect(newVariant().getByLabelText("SKU")).toHaveValue("");
+      expect(within(panel()).getByRole("button", { name: "Crear producto" })).toBeEnabled();
       expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
     });
 
-    it("a draft saved with the previous 'Una pieza de varios tonos' mode comes back ticked", async () => {
+    it("an accessory never repeats a color", async () => {
+      const user = userEvent.setup();
+      stubBackend();
+      renderPage();
+      await within(panel()).findByRole("option", { name: "Marca QA" });
+      await user.click(within(panel()).getByRole("radio", { name: "Accesorio" }));
+      await addVariant(user, { color: "Negro", sku: "EST-1" });
+      await addVariant(user, { color: "Negro", sku: "EST-2" });
+      expect(within(panel()).getByRole("alert")).toHaveTextContent(
+        "Negro ya está en la lista: en un accesorio cada color va una vez.",
+      );
+      expect(within(panel()).queryByRole("region", { name: "Variante 2: Negro" })).toBeNull();
+    });
+
+    it("a draft saved with a combined piece keeps its tones and gets an empty material", async () => {
       window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify([
@@ -787,10 +865,11 @@ describe("AdminNewProductPage — several products at once", () => {
               basePrice: "",
               accessoryRole: "",
               soldIndividually: true,
-              variantMode: "combined",
+              combineColors: true,
               variants: [
                 {
                   key: "k1",
+                  combined: true,
                   tones: ["ROJO", "NEGRO"],
                   name: "Rojo y negro",
                   sku: "V-RN",
@@ -805,48 +884,10 @@ describe("AdminNewProductPage — several products at once", () => {
       );
       stubBackend();
       renderPage();
-      const r = within(
-        await screen.findByRole("region", { name: "Pieza combinada: Rojo y negro" }),
-      );
+      const r = within(await screen.findByRole("region", { name: "Variante 1: Rojo y negro" }));
       expect(r.getByLabelText("SKU")).toHaveValue("V-RN");
-      expect(combineBox()).toBeChecked();
-    });
-
-    it("never sends repeated SKUs, and never generates one", async () => {
-      const user = userEvent.setup();
-      const calls = stubBackend();
-      renderPage();
-      await fillProduct(user, {
-        name: "Uno QA",
-        price: "1000",
-        colors: [
-          { color: "Negro", sku: "UNO-1" },
-          { color: "Blanco", sku: "uno-1" },
-        ],
-      });
-      expect(row("Blanco").getByText("SKU repetido en la lista.")).toBeInTheDocument();
-      expect(within(panel()).getByRole("button", { name: "Crear producto" })).toBeDisabled();
-      await user.click(palette().getByRole("button", { name: "Verde" }));
-      expect(row("Verde").getByLabelText("SKU")).toHaveValue("");
-      expect(calls.some((call) => call.path.includes("/variants"))).toBe(false);
-    });
-
-    it("a color outside the palette is kept by its name, without tones", async () => {
-      const user = userEvent.setup();
-      const calls = stubBackend();
-      renderPage();
-      await fillProduct(user, { name: "Uno QA", price: "1000" });
-      await user.type(
-        within(panel()).getByLabelText("Otro color (fuera de la paleta)"),
-        "Animal print",
-      );
-      await user.click(within(panel()).getByRole("button", { name: "Agregar color" }));
-      await fillColorRow(user, "Animal print (fuera de la paleta)", { sku: "UNO-AP" });
-      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
-      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
-      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
-        variants: [{ color: "Animal print", sku: "UNO-AP", stock: 0 }],
-      });
+      expect(r.getByLabelText("Material")).toHaveValue("");
+      expect(within(panel()).queryByRole("checkbox", { name: /combina/ })).toBeNull();
     });
 
     it("a draft saved by the previous form (one free-text color) comes back as one row", async () => {
@@ -876,9 +917,8 @@ describe("AdminNewProductPage — several products at once", () => {
       stubBackend();
       renderPage();
       const r = within(
-        await screen.findByRole("region", { name: "Negro mate (fuera de la paleta)" }),
+        await screen.findByRole("region", { name: "Variante 1: Negro mate (fuera de la paleta)" }),
       );
-      expect(r.getByLabelText("Nombre del color")).toHaveValue("Negro mate");
       expect(r.getByLabelText("SKU")).toHaveValue("VIE-1");
       expect(r.getByLabelText("Stock")).toHaveValue(4);
     });
@@ -898,17 +938,19 @@ describe("AdminNewProductPage — several products at once", () => {
     });
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
-      'El producto se creó, pero no sus colores (no se creó ninguno): El SKU "UNO-N" ya está en uso.',
+      'El producto se creó, pero no sus variantes (no se creó ninguna): El SKU "UNO-N" ya está en uso.',
     );
     // Nothing typed or chosen was lost, and the colors can still be edited.
     expect(within(panel()).getByLabelText("Nombre")).toHaveValue("Uno QA");
-    expect(row("Negro").getByLabelText("SKU")).toHaveValue("UNO-N");
-    expect(row("Negro").getByLabelText("Stock")).toHaveValue(3);
-    expect(row("Rojo").getByLabelText("SKU")).toHaveValue("UNO-R");
-    expect(row("Negro").getByRole("button", { name: /^negro.jpg:/ })).toBeInTheDocument();
+    expect(row("Variante 1: Negro").getByLabelText("SKU")).toHaveValue("UNO-N");
+    expect(row("Variante 1: Negro").getByLabelText("Stock")).toHaveValue(3);
+    expect(row("Variante 2: Rojo").getByLabelText("SKU")).toHaveValue("UNO-R");
+    expect(
+      row("Variante 1: Negro").getByRole("button", { name: /^negro.jpg:/ }),
+    ).toBeInTheDocument();
 
-    await user.clear(row("Negro").getByLabelText("SKU"));
-    await user.type(row("Negro").getByLabelText("SKU"), "UNO-N2");
+    await user.clear(row("Variante 1: Negro").getByLabelText("SKU"));
+    await user.type(row("Variante 1: Negro").getByLabelText("SKU"), "UNO-N2");
     await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
     expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
     expect(
@@ -935,9 +977,11 @@ describe("AdminNewProductPage — several products at once", () => {
     });
     await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
     expect(await within(panel()).findByRole("alert")).toHaveTextContent(
-      "El producto y sus colores se crearon, pero falló la foto 1 de Rojo",
+      "El producto y sus variantes se crearon, pero falló la foto 1 de Rojo",
     );
-    expect(row("Rojo").getByRole("button", { name: /^rojo.jpg:.*falló/ })).toBeInTheDocument();
+    expect(
+      row("Variante 2: Rojo").getByRole("button", { name: /^rojo.jpg:.*falló/ }),
+    ).toBeInTheDocument();
 
     await user.click(within(panel()).getByRole("button", { name: "Reintentar lo pendiente" }));
     expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();

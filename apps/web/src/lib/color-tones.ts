@@ -11,10 +11,13 @@ export const COLOR_TONE_OPTIONS = [
   { tone: "MARRON", label: "Marrón", fill: "#5c3a21" },
   { tone: "BEIGE", label: "Beige", fill: "#d9c3a0" },
   { tone: "AZUL", label: "Azul", fill: "#2563eb" },
+  { tone: "CELESTE", label: "Celeste", fill: "#7dd3fc" },
   { tone: "VERDE", label: "Verde", fill: "#16a34a" },
   { tone: "ROJO", label: "Rojo", fill: "#dc2626" },
   { tone: "ROSA", label: "Rosa", fill: "#ec4899" },
   { tone: "VIOLETA", label: "Violeta", fill: "#7c3aed" },
+  { tone: "AMARILLO", label: "Amarillo", fill: "#facc15" },
+  { tone: "NARANJA", label: "Naranja", fill: "#f97316" },
   {
     tone: "CAREY",
     label: "Carey",
@@ -29,6 +32,13 @@ export const COLOR_TONE_OPTIONS = [
     tone: "TRANSPARENTE",
     label: "Transparente",
     fill: "repeating-conic-gradient(#e5e7eb 0 25%,#ffffff 0 50%) 0 0/8px 8px",
+  },
+  // Several colors whose tones were not chosen: a neutral split, never
+  // the colors of a particular combination.
+  {
+    tone: "COMBINADO",
+    label: "Combinado",
+    fill: "linear-gradient(135deg,#374151 0 50%,#d1d5db 50% 100%)",
   },
 ] as const satisfies readonly { tone: ColorTone; label: string; fill: string }[];
 

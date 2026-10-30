@@ -30,9 +30,10 @@ export function VariantSelector({
   if (variants.length <= 1) return null;
   const byPresentation = variants.some((variant) => variant.label);
   const heading = byPresentation ? "Presentación" : "Color";
-  // Several variants may share a color name (the same black in two lens
-  // tints, say): never merged — each has its own SKU, stock and photos —
-  // and told apart by its own photo and its SKU instead of a bare number.
+  // Several variants may share a color name (the same black in another
+  // material or lens tint, say): never merged — each has its own SKU, stock
+  // and photos — and told apart by its own photo, its material (when it has
+  // one) and its SKU instead of a bare number.
   const names = variants.map(variantDisplayName);
   const total = (name: string) => names.filter((n) => n === name).length;
 
@@ -63,7 +64,11 @@ export function VariantSelector({
               key={variant.id}
               type="button"
               aria-pressed={isSelected}
-              aria-label={repeated ? `${name}, código ${variant.sku}` : undefined}
+              aria-label={
+                repeated
+                  ? [name, variant.material, `código ${variant.sku}`].filter(Boolean).join(", ")
+                  : undefined
+              }
               onClick={() => onSelect(variant)}
               className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
                 isSelected
@@ -90,7 +95,7 @@ export function VariantSelector({
               {name}
               {repeated && (
                 <span className="text-xs text-text-muted" aria-hidden="true">
-                  · {variant.sku}
+                  · {[variant.material, variant.sku].filter(Boolean).join(" · ")}
                 </span>
               )}
               {showAvailability && !variant.inStock && (

@@ -14,13 +14,13 @@ import type {
 } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ShapeSelect } from "../../components/admin/ShapeSelect";
-import { ColorToneDot } from "../../components/products/ColorToneDot";
 import type { PhotoCandidate, PhotoUploadStatus } from "../../components/admin/PhotoSequencePicker";
 import { ApiClientError, apiPost, apiPut } from "../../services/api-client";
 import { useAdminLensTypesQuery } from "../../services/queries/admin-lens";
 import { LensTypeChecklist } from "./LensTypeChecklist";
 import { ACCESSORY_ROLE_OPTIONS, accessoryRoleUsage } from "../../lib/accessories";
-import { COLOR_TONE_OPTIONS, toneLabel, tonesName } from "../../lib/color-tones";
+import { toneLabel } from "../../lib/color-tones";
+import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import {
   EMPTY_PROGRESS,
   hasPendingChanges,
@@ -29,7 +29,7 @@ import {
   type DraftVariant,
   type ProductDraftFields,
 } from "../../lib/product-drafts";
-import { ColorTonePicker } from "./ColorTonePicker";
+import { ColorChoice } from "./ColorChoice";
 import { DraftVariantRow } from "./DraftVariantRow";
 import {
   invalidateProduct,
@@ -38,12 +38,12 @@ import {
 } from "../../services/queries/admin";
 
 // One tab of the multi-tab new-product page: the same basic fields as the
-// single form, plus the colors it comes in, chosen on the color palette
-// (docs/COLORES.md): several colors are several variants, each with its own
-// SKU, stock and photos; a single piece of two or more tones is one variant.
-// Saving runs the existing endpoints in order — product, its colors (one
-// atomic batch), each color's photos — and remembers what is already
-// created, so a retry continues from there and never creates anything twice.
+// single form, plus its variants (docs/COLORES.md), added one at a time with
+// one simple form — color (one dot of the palette, or «Combinado»),
+// material, SKU and stock — each with its own photos. Saving runs the
+// existing endpoints in order — product, its variants (one atomic batch),
+// each variant's photos — and remembers what is already created, so a
+// retry continues from there and never creates anything twice.
 
 export interface DraftTabState {
   fields: ProductDraftFields;
@@ -116,7 +116,12 @@ export function AdminProductDraftForm({
   // before uploading anything, and it can't be unselected meanwhile.
   const unsureRef = useRef<{ key: string; publicId: string } | null>(null);
   const [unsureKey, setUnsureKey] = useState<string | null>(null);
-  const [customColor, setCustomColor] = useState("");
+  // The variant being typed, before «Agregar variante» puts it in the list.
+  const [newTone, setNewTone] = useState<ColorTone | null>(null);
+  const [newMaterial, setNewMaterial] = useState("");
+  const [newSku, setNewSku] = useState("");
+  const [newStock, setNewStock] = useState("");
+  const [newError, setNewError] = useState<string | null>(null);
   const [failedRow, setFailedRow] = useState<number | null>(null);
   const [uploadingRow, setUploadingRow] = useState<number | null>(null);
 
@@ -130,7 +135,9 @@ export function AdminProductDraftForm({
   const rows = fields.variants;
   const chosenPhotos = Object.values(photoCounts).reduce((sum, c) => sum + c.chosen, 0);
   const allPhotos = Object.values(photoCounts).reduce((sum, c) => sum + c.all, 0);
-  const dirty = hasPendingChanges(fields, allPhotos, saved);
+  const typingVariant =
+    newTone !== null || [newMaterial, newSku, newStock].some((value) => value.trim() !== "");
+  const dirty = hasPendingChanges(fields, allPhotos, saved) || (typingVariant && !saved);
 
   useEffect(() => {
     onChange({ fields, progress, photoCount: chosenPhotos, dirty, saved, saving });
@@ -172,80 +179,48 @@ export function AdminProductDraftForm({
     setProgress(next);
   }
 
-  // Each palette color clicked is its own variant (row); clicking it again
-  // removes it. Combined pieces are separate rows (below).
-  const singles = rows.filter((row) => !row.combined);
-  const combos = rows.filter((row) => row.combined);
-
-  function toggleColor(tone: ColorTone) {
-    const existing = singles.find((row) => row.tones.length === 1 && row.tones[0] === tone);
-    if (existing) removeRow(existing.key);
-    else setRows([...singles, newDraftVariant([tone], toneLabel(tone)), ...combos]);
+  function resetNewVariant() {
+    setNewTone(null);
+    setNewMaterial("");
+    setNewSku("");
+    setNewStock("");
+    setNewError(null);
   }
 
-  function addCustomColor() {
-    const name = customColor.trim().replace(/\s+/g, " ");
-    if (!name) return;
-    setRows([...singles, newDraftVariant([], name), ...combos]);
-    setCustomColor("");
-  }
-
-  function addCombinedPiece() {
-    setRows([...rows, { ...newDraftVariant([], ""), combined: true }]);
-  }
-
-  // A combined piece's tones, in the order clicked; its name follows the
-  // tones until it is typed by hand.
-  function setCombinedTones(key: string, tones: ColorTone[]) {
-    const row = rows.find((r) => r.key === key);
-    if (!row) return;
-    const autoName = row.name === "" || row.name === tonesName(row.tones);
-    updateRow(key, { tones, name: autoName ? tonesName(tones) : row.name });
-  }
-
-  const comboHasData = (row: DraftVariant) =>
-    row.tones.length > 0 ||
-    row.sku.trim() !== "" ||
-    row.stock !== "" ||
-    (photoCounts[row.key]?.all ?? 0) > 0;
-
-  // Ticking shows one empty combined piece; unticking hides them — after a
-  // confirmation if anything was typed or chosen, never silently.
-  function setCombineColors(on: boolean) {
-    if (on) {
-      setFields((current) => ({
-        ...current,
-        combineColors: true,
-        variants: current.variants.some((row) => row.combined)
-          ? current.variants
-          : [...current.variants, { ...newDraftVariant([], ""), combined: true }],
-      }));
+  // One variant at a time: its color, material, SKU and stock go to the
+  // list below, where its photos are chosen; the form is then empty for the
+  // next one. A frame may repeat a color (another material), told apart by
+  // its SKU; an accessory never repeats one.
+  function addVariant() {
+    const sku = newSku.trim();
+    const problem =
+      newTone === null
+        ? "Elegí el color en la paleta."
+        : sku === ""
+          ? "Escribí el SKU."
+          : !/^\d+$/.test(newStock.trim())
+            ? "Ingresá el stock: un número entero, 0 o más."
+            : rows.some((row) => row.sku.trim().toLowerCase() === sku.toLowerCase())
+              ? `El SKU «${sku}» ya está en la lista.`
+              : isAccessory && rows.some((row) => row.tones.join("+") === newTone)
+                ? `${toneLabel(newTone)} ya está en la lista: en un accesorio cada color va una vez.`
+                : null;
+    if (problem) {
+      setNewError(problem);
       return;
     }
-    if (
-      combos.some(comboHasData) &&
-      !window.confirm(
-        "¿Descartar la pieza combinada? Se borran sus tonos, SKU, stock y fotos elegidas (nada se había guardado).",
-      )
-    ) {
-      return;
-    }
-    for (const row of combos) {
-      photosRef.current.delete(row.key);
-    }
-    setPhotoCounts(({ ...rest }) => {
-      for (const row of combos) delete rest[row.key];
-      return rest;
-    });
-    setFields((current) => ({
-      ...current,
-      combineColors: false,
-      variants: current.variants.filter((row) => !row.combined),
-    }));
+    setRows([
+      ...rows,
+      newDraftVariant([newTone!], toneLabel(newTone!), {
+        material: newMaterial.trim(),
+        sku,
+        stock: newStock.trim(),
+      }),
+    ]);
+    resetNewVariant();
   }
 
   const lowerSkus = rows.map((row) => row.sku.trim().toLowerCase());
-  const lowerNames = rows.map((row) => row.name.trim().toLowerCase());
   const repeated = (list: string[], index: number) =>
     list[index] !== "" && list.indexOf(list[index]!) !== index;
   const missing: string[] = [];
@@ -254,19 +229,15 @@ export function AdminProductDraftForm({
   if (!fields.categoryId) missing.push("la categoría");
   if (!fields.basePrice || Number(fields.basePrice) <= 0) missing.push("el precio");
   if (isAccessory && !fields.accessoryRole) missing.push("el tipo de accesorio");
-  if (combos.some((row) => row.tones.length < 2)) {
-    missing.push("al menos dos tonos en cada pieza combinada");
-  }
-  if (rows.some((row) => !row.name.trim() && !(row.combined && row.tones.length < 2))) {
-    missing.push("el nombre de cada color");
-  }
-  if (rows.some((row) => !row.sku.trim())) missing.push("el SKU de cada color");
+  if (rows.some((row) => !row.sku.trim())) missing.push("el SKU de cada variante");
   if (rows.some((row) => !/^\d+$/.test(row.stock.trim()))) {
-    missing.push("el stock de cada color (número entero, 0 o más)");
+    missing.push("el stock de cada variante (número entero, 0 o más)");
   }
   if (lowerSkus.some((_, i) => repeated(lowerSkus, i))) missing.push("SKU distintos");
-  if (lowerNames.some((_, i) => repeated(lowerNames, i)))
-    missing.push("nombres de color distintos");
+  // Never lose what is being typed: it goes to the list, or is cleared.
+  if (typingVariant && !variantsCreated) {
+    missing.push("agregar a la lista la variante que estás cargando («Agregar variante»)");
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -314,10 +285,11 @@ export function AdminProductDraftForm({
       }
       if (rows.length > 0 && !variantIds) {
         step = "variants";
-        // All colors in one atomic request: a repeated SKU creates none.
+        // All variants in one atomic request: a repeated SKU creates none.
         const body: CreateVariantsBatchRequest = {
           variants: rows.map((row) => ({
             color: row.name.trim(),
+            material: row.material.trim() === "" ? null : row.material.trim(),
             ...(row.tones.length > 0 ? { colorTones: row.tones } : {}),
             sku: row.sku.trim(),
             stock: Number(row.stock),
@@ -370,15 +342,15 @@ export function AdminProductDraftForm({
       const productId = progressRef.current.productId;
       if (productId) invalidateProduct(queryClient, productId);
       if (step === "photo") setFailedRow(rowIndex);
-      const rowName = rows[rowIndex]?.name.trim() || "el color";
+      const rowName = rows[rowIndex]?.name.trim() || "la variante";
       setSaveError(
         step === "product"
           ? describe(error, "No pudimos crear el producto.")
           : step === "lenses"
             ? `El producto se creó, pero no sus cristales compatibles: ${describe(error, "no pudimos guardarlos.")} Reintentá: solo se guardan los cristales, el producto no se vuelve a crear.`
             : step === "variants"
-              ? `El producto se creó, pero no sus colores (no se creó ninguno): ${describe(error, "no pudimos crear los colores.")}`
-              : `El producto y sus colores se crearon, pero falló la foto ${photoIndex + 1} de ${rowName}: ${describe(error, "no pudimos subir la foto.")}`,
+              ? `El producto se creó, pero no sus variantes (no se creó ninguna): ${describe(error, "no pudimos crear las variantes.")}`
+              : `El producto y sus variantes se crearon, pero falló la foto ${photoIndex + 1} de ${rowName}: ${describe(error, "no pudimos subir la foto.")}`,
       );
     } finally {
       setUploadingRow(null);
@@ -413,43 +385,23 @@ export function AdminProductDraftForm({
       <DraftVariantRow
         key={row.key}
         variant={row}
-        heading={
-          row.combined
-            ? `Pieza combinada${row.tones.length > 0 ? `: ${tonesName(row.tones)}` : ` ${combos.indexOf(row) + 1}`}`
-            : row.tones.length > 0
-              ? toneLabel(row.tones[0]!)
-              : `${row.name} (fuera de la paleta)`
-        }
+        heading={`Variante ${index + 1}: ${row.name}${row.tones.length === 0 ? " (fuera de la paleta)" : ""}`}
         editable={editable}
         photosDisabled={saving}
         onChange={(patch) => updateRow(row.key, patch)}
-        onRemove={!row.combined || combos.length > 1 ? () => removeRow(row.key) : undefined}
+        onRemove={() => removeRow(row.key)}
         onPhotos={onPhotos}
         firstIsPrimary={before === 0}
         existingCount={before}
         locked={locked}
         statuses={statuses}
         skuRepeated={repeated(lowerSkus, index)}
-        nameRepeated={repeated(lowerNames, index)}
-        tonePicker={
-          row.combined ? (
-            <div>
-              <p className="mb-1 text-xs font-medium text-text">
-                Tonos de esta pieza, el principal primero (mínimo dos)
-              </p>
-              <ColorTonePicker
-                value={row.tones}
-                onChange={(tones) => setCombinedTones(row.key, tones)}
-                label={`Tonos de la pieza combinada ${combos.indexOf(row) + 1}`}
-                disabled={!editable}
-              />
-            </div>
-          ) : undefined
-        }
       />
     );
   }
 
+  const newInput =
+    "w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text disabled:opacity-60";
   const selectClass =
     "w-full rounded-md border border-border bg-surface-muted px-4 py-2.5 text-text disabled:opacity-60";
   const locked = productCreated || saving;
@@ -460,7 +412,7 @@ export function AdminProductDraftForm({
         <p className="font-semibold text-success">✓ «{fields.name}» guardado.</p>
         <p className="mt-1 text-text-muted">
           {rows.length > 0
-            ? `${rows.length} ${rows.length === 1 ? "color" : "colores"} (${rows.map((row) => row.name).join(", ")}) y ${chosenPhotos} foto${chosenPhotos === 1 ? "" : "s"}.`
+            ? `${rows.length} ${rows.length === 1 ? "variante" : "variantes"} (${rows.map((row) => row.name).join(", ")}) y ${chosenPhotos} foto${chosenPhotos === 1 ? "" : "s"}.`
             : "Podés seguir con colores, fotos y estilos en su ficha."}
         </p>
         <Link
@@ -701,105 +653,126 @@ export function AdminProductDraftForm({
       )}
 
       <fieldset className="space-y-3 rounded-md border border-border p-4">
-        <legend className="px-1 text-sm font-semibold text-text">Colores y fotos (opcional)</legend>
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-text">Cargar colores</p>
-          <p className="text-sm text-text">
-            Tocá todos los colores en que viene: cada uno es un armazón distinto, con su SKU, su
-            stock y sus fotos. Sin colores, el producto se crea solo y los agregás después en su
-            ficha.
-          </p>
-          <div role="group" aria-label="Colores de la paleta" className="flex flex-wrap gap-2">
-            {COLOR_TONE_OPTIONS.map(({ tone, label }) => {
-              const chosen = singles.some((row) => row.tones.length === 1 && row.tones[0] === tone);
-              return (
-                <button
-                  key={tone}
-                  type="button"
-                  aria-pressed={chosen}
-                  disabled={variantsCreated || saving}
-                  onClick={() => toggleColor(tone)}
-                  className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-sm transition-colors disabled:opacity-50 ${
-                    chosen
-                      ? "border-primary bg-primary/10 font-semibold text-primary"
-                      : "border-border text-text hover:border-primary"
-                  }`}
-                >
-                  <ColorToneDot tones={[tone]} />
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
+        <legend className="px-1 text-sm font-semibold text-text">
+          Variantes y fotos (opcional)
+        </legend>
+        <p className="text-sm text-text">
+          Cada variante es una pieza: un color, su material, su SKU, su stock y sus fotos. Para otro
+          color, agregá otra variante. Sin variantes, el producto se crea solo y las agregás después
+          en su ficha.
+        </p>
+        {!variantsCreated && (
+          <div
+            role="group"
+            aria-label="Variante nueva"
+            className="space-y-3 rounded-md bg-surface-sunken p-3"
+          >
             <div>
-              <label htmlFor={`${id}-custom`} className="mb-1 block text-xs font-medium text-text">
-                Otro color (fuera de la paleta)
-              </label>
-              <input
-                id={`${id}-custom`}
-                value={customColor}
-                maxLength={60}
-                disabled={variantsCreated || saving}
-                onChange={(event) => setCustomColor(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addCustomColor();
-                  }
+              <p className="mb-1.5 text-sm font-medium text-text">Color</p>
+              <ColorChoice
+                value={newTone}
+                onChange={(tone) => {
+                  setNewTone(tone);
+                  setNewError(null);
                 }}
-                className="w-48 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
+                label="Color de la variante nueva"
+                disabled={saving}
               />
             </div>
-            <button
-              type="button"
-              onClick={addCustomColor}
-              disabled={customColor.trim() === "" || variantsCreated || saving}
-              className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text hover:border-primary disabled:opacity-60"
-            >
-              Agregar color
-            </button>
-          </div>
-        </div>
-
-        {singles.map((row) => {
-          const index = rows.indexOf(row);
-          return renderRow(row, index);
-        })}
-
-        <label className="flex min-h-11 items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={fields.combineColors}
-            disabled={variantsCreated || saving}
-            onChange={(event) => setCombineColors(event.target.checked)}
-            className="mt-1 accent-[var(--color-primary)]"
-          />
-          <span>
-            <span className="font-medium text-text">Este armazón combina varios colores</span>
-            <span className="block text-xs text-text-muted">
-              Una pieza combinada es una sola variante con dos o más tonos (por ejemplo, rojo y
-              negro), con un SKU, un stock y sus fotos. Los colores de arriba son variantes
-              independientes.
-            </span>
-          </span>
-        </label>
-
-        {fields.combineColors && (
-          <div className="space-y-3">
-            {combos.map((row) => renderRow(row, rows.indexOf(row)))}
-            {!variantsCreated && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label
+                  htmlFor={`${id}-new-material`}
+                  className="mb-1 block text-xs font-medium text-text"
+                >
+                  Material
+                </label>
+                <input
+                  id={`${id}-new-material`}
+                  list={`${id}-new-materials`}
+                  value={newMaterial}
+                  maxLength={200}
+                  disabled={saving}
+                  onChange={(event) => setNewMaterial(event.target.value)}
+                  className={newInput}
+                />
+                <datalist id={`${id}-new-materials`}>
+                  {FRAME_MATERIAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.label} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label
+                  htmlFor={`${id}-new-sku`}
+                  className="mb-1 block text-xs font-medium text-text"
+                >
+                  SKU
+                </label>
+                <input
+                  id={`${id}-new-sku`}
+                  value={newSku}
+                  maxLength={100}
+                  disabled={saving}
+                  onChange={(event) => {
+                    setNewSku(event.target.value);
+                    setNewError(null);
+                  }}
+                  className={newInput}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor={`${id}-new-stock`}
+                  className="mb-1 block text-xs font-medium text-text"
+                >
+                  Stock
+                </label>
+                <input
+                  id={`${id}-new-stock`}
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  value={newStock}
+                  disabled={saving}
+                  onChange={(event) => {
+                    setNewStock(event.target.value);
+                    setNewError(null);
+                  }}
+                  className={newInput}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={addCombinedPiece}
+                onClick={addVariant}
                 disabled={saving}
-                className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text hover:border-primary disabled:opacity-60"
+                className="min-h-11 rounded-md border border-primary px-4 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
               >
-                Agregar otra pieza combinada
+                Agregar variante
               </button>
+              {typingVariant && (
+                <button
+                  type="button"
+                  onClick={resetNewVariant}
+                  disabled={saving}
+                  className="min-h-11 px-2 text-sm font-medium text-text-muted underline underline-offset-4 hover:text-text"
+                >
+                  Descartar
+                </button>
+              )}
+            </div>
+            {newError && (
+              <p role="alert" className="text-sm text-danger">
+                {newError}
+              </p>
             )}
           </div>
         )}
+
+        {rows.map((row, index) => renderRow(row, index))}
       </fieldset>
 
       {!productCreated && <SimilarProductsWarning name={fields.name} sku="" />}
