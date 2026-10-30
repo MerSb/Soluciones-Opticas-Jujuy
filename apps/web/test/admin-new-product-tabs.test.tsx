@@ -672,20 +672,32 @@ describe("AdminNewProductPage — several products at once", () => {
       expect(within(panel()).queryByRole("region", { name: "Azul" })).toBeNull();
     });
 
-    it("a single piece of several tones is one variant with its tones in order", async () => {
+    const combineBox = () =>
+      within(panel()).getByRole("checkbox", { name: /Este armazón combina varios colores/ });
+    const pieceTones = (n = 1) =>
+      within(within(panel()).getByRole("group", { name: `Tonos de la pieza combinada ${n}` }));
+
+    it("one palette; the combined piece is behind an unticked checkbox", async () => {
+      stubBackend();
+      renderPage();
+      await within(panel()).findByRole("option", { name: "Marca QA" });
+      expect(
+        within(panel()).getAllByRole("group", { name: /Colores de la paleta|Tonos de la pieza/ }),
+      ).toHaveLength(1);
+      expect(combineBox()).not.toBeChecked();
+    });
+
+    it("a single combined piece: one variant with its tones in order, no independent colors needed", async () => {
       const user = userEvent.setup();
       const calls = stubBackend();
       renderPage();
       await fillProduct(user, { name: "Uno QA", price: "1000" });
-      await user.click(within(panel()).getByRole("radio", { name: /Una pieza de varios tonos/ }));
-      const tones = within(
-        within(panel()).getByRole("group", { name: "Tonos de la pieza combinada" }),
-      );
-      await user.click(tones.getByRole("button", { name: "Rojo" }));
+      await user.click(combineBox());
+      await user.click(pieceTones().getByRole("button", { name: "Rojo" }));
       expect(
-        within(panel()).getByText(/al menos dos tonos de la pieza combinada/),
+        within(panel()).getByText(/al menos dos tonos en cada pieza combinada/),
       ).toBeInTheDocument();
-      await user.click(tones.getByRole("button", { name: /^Negro/ }));
+      await user.click(pieceTones().getByRole("button", { name: /^Negro/ }));
       await fillColorRow(user, "Pieza combinada: Rojo y negro", { sku: "UNO-RN", stock: "2" });
       expect(row("Pieza combinada: Rojo y negro").getByLabelText("Nombre del color")).toHaveValue(
         "Rojo y negro",
@@ -697,6 +709,107 @@ describe("AdminNewProductPage — several products at once", () => {
           { color: "Rojo y negro", colorTones: ["ROJO", "NEGRO"], sku: "UNO-RN", stock: 2 },
         ],
       });
+    });
+
+    it("independent colors and a combined piece in the same product, each with its own photos", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      renderPage();
+      await fillProduct(user, {
+        name: "Uno QA",
+        price: "1000",
+        colors: [{ color: "Negro", sku: "UNO-N", stock: "1", photos: [photo("negro.jpg")] }],
+      });
+      await user.click(combineBox());
+      await user.click(pieceTones().getByRole("button", { name: "Rojo" }));
+      await user.click(pieceTones().getByRole("button", { name: /^Negro/ }));
+      await fillColorRow(user, "Pieza combinada: Rojo y negro", {
+        sku: "UNO-RN",
+        stock: "2",
+        photos: [photo("rn.jpg")],
+      });
+      await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
+      expect(await screen.findByText("Ficha del producto")).toBeInTheDocument();
+      expect(calls.find((call) => call.path.endsWith("/variants/batch"))!.body).toEqual({
+        variants: [
+          { color: "Negro", colorTones: ["NEGRO"], sku: "UNO-N", stock: 1 },
+          { color: "Rojo y negro", colorTones: ["ROJO", "NEGRO"], sku: "UNO-RN", stock: 2 },
+        ],
+      });
+      const photos = calls.filter((c) => c.method === "POST" && c.path.endsWith("/images"));
+      expect(photos.map((c) => [c.path.split("/")[6], (c.body as { alt: string }).alt])).toEqual([
+        ["p1-v1", "Uno QA — Negro — foto 1"],
+        ["p1-v2", "Uno QA — Rojo y negro — foto 1"],
+      ]);
+    });
+
+    it("unticking hides the combined piece: asks before discarding typed data, and writes nothing", async () => {
+      const user = userEvent.setup();
+      const calls = stubBackend();
+      const confirm = vi
+        .spyOn(window, "confirm")
+        .mockReturnValueOnce(false)
+        .mockReturnValueOnce(true);
+      renderPage();
+      await fillProduct(user, { name: "Uno QA", price: "1000" });
+      await user.click(combineBox());
+      await user.click(combineBox()); // nothing typed: no question
+      expect(confirm).not.toHaveBeenCalled();
+      expect(combineBox()).not.toBeChecked();
+
+      await user.click(combineBox());
+      await user.click(pieceTones().getByRole("button", { name: "Azul" }));
+      await user.click(combineBox()); // cancelled: everything stays
+      expect(combineBox()).toBeChecked();
+      expect(pieceTones().getByRole("button", { name: "Azul" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await user.click(combineBox()); // accepted: gone
+      expect(
+        within(panel()).queryByRole("group", { name: /Tonos de la pieza combinada/ }),
+      ).toBeNull();
+      expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+    });
+
+    it("a draft saved with the previous 'Una pieza de varios tonos' mode comes back ticked", async () => {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify([
+          {
+            id: "old",
+            fields: {
+              kind: "FRAME",
+              name: "Viejo QA",
+              brandId: "",
+              categoryId: "",
+              shape: "",
+              basePrice: "",
+              accessoryRole: "",
+              soldIndividually: true,
+              variantMode: "combined",
+              variants: [
+                {
+                  key: "k1",
+                  tones: ["ROJO", "NEGRO"],
+                  name: "Rojo y negro",
+                  sku: "V-RN",
+                  stock: "1",
+                },
+              ],
+            },
+            progress: { productId: null, variantIds: null, uploadedPhotos: [] },
+            photoCount: 0,
+          },
+        ]),
+      );
+      stubBackend();
+      renderPage();
+      const r = within(
+        await screen.findByRole("region", { name: "Pieza combinada: Rojo y negro" }),
+      );
+      expect(r.getByLabelText("SKU")).toHaveValue("V-RN");
+      expect(combineBox()).toBeChecked();
     });
 
     it("never sends repeated SKUs, and never generates one", async () => {

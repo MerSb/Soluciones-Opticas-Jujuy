@@ -17,21 +17,22 @@ export interface ProductDraftFields {
   soldIndividually: boolean;
   /**
    * The colors created with the product (optional; photos belong to a
-   * variant). "colors": each row is its own piece — its own SKU, stock and
-   * photos. "combined": a single piece of two or more tones, one row.
+   * variant). Each palette color is its own piece — its own SKU, stock and
+   * photos. With `combineColors` ticked, rows marked `combined` are single
+   * pieces of two or more tones; both kinds can be in the same product.
    */
-  variantMode: VariantMode;
+  combineColors: boolean;
   variants: DraftVariant[];
   /** Frames only: compatible lens types (ids from GET /api/admin/lens-types). */
   lensTypeIds: string[];
 }
 
-export type VariantMode = "colors" | "combined";
-
 /** One variant to create: `tones` from the palette (empty for a color
- * outside it), `name` what the customer reads («Negro mate»). */
+ * outside it), `name` what the customer reads («Negro mate»). A `combined`
+ * row is one piece of two or more tones. */
 export interface DraftVariant {
   key: string;
+  combined?: boolean;
   tones: ColorTone[];
   name: string;
   sku: string;
@@ -70,7 +71,7 @@ export function emptyFields(kind: ProductKind = "FRAME"): ProductDraftFields {
     basePrice: "",
     accessoryRole: "",
     soldIndividually: true,
-    variantMode: "colors",
+    combineColors: false,
     variants: [],
     lensTypeIds: [],
   };
@@ -105,7 +106,7 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
     fields.lensTypeIds.length > 0 ||
     (Object.keys(empty) as (keyof ProductDraftFields)[]).some(
       (key) =>
-        !["kind", "variants", "variantMode", "lensTypeIds"].includes(key) &&
+        !["kind", "variants", "combineColors", "lensTypeIds"].includes(key) &&
         fields[key] !== empty[key],
     )
   );
@@ -113,15 +114,25 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
 
 // Drafts saved before colors could be chosen held one free-text color,
 // SKU and stock, and one variant's progress: read them as one row.
+// Drafts saved while the form had a "Varios colores / Una pieza de varios
+// tonos" choice: a "combined" one held one combined row.
 interface OldDraftShape {
   color?: string;
   sku?: string;
   stock?: string;
+  variantMode?: "colors" | "combined";
 }
 function upgradeFields(fields: ProductDraftFields & OldDraftShape): ProductDraftFields {
-  const { color = "", sku = "", stock = "", ...rest } = fields;
+  const { color = "", sku = "", stock = "", variantMode, ...rest } = fields;
   const base = { ...emptyFields(fields.kind), ...rest };
   if (!Array.isArray(base.lensTypeIds)) base.lensTypeIds = [];
+  if (variantMode === "combined" && Array.isArray(fields.variants)) {
+    return {
+      ...base,
+      combineColors: true,
+      variants: fields.variants.map((row) => ({ ...row, combined: true })),
+    };
+  }
   if (Array.isArray(fields.variants)) return base;
   if (color.trim() === "" && sku.trim() === "" && stock === "") return base;
   const tone = parseTone(color);

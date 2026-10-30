@@ -1,4 +1,4 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { ColorToneDot } from "../../components/products/ColorToneDot";
 import {
   PhotoSequencePicker,
@@ -32,6 +32,7 @@ export function DraftVariantRow({
   statuses,
   skuRepeated,
   nameRepeated,
+  tonePicker,
 }: {
   variant: DraftVariant;
   heading: string;
@@ -47,6 +48,8 @@ export function DraftVariantRow({
   statuses: Readonly<Record<string, PhotoUploadStatus>>;
   skuRepeated: boolean;
   nameRepeated: boolean;
+  /** A combined piece chooses its tones here (ColorTonePicker). */
+  tonePicker?: ReactNode;
 }) {
   const id = useId();
   const sequence = usePhotoSequence();
@@ -80,6 +83,7 @@ export function DraftVariantRow({
           </button>
         )}
       </div>
+      {tonePicker}
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label htmlFor={`${id}-name`} className="mb-1 block text-xs font-medium text-text">

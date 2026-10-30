@@ -28,7 +28,6 @@ import {
   type DraftProgress,
   type DraftVariant,
   type ProductDraftFields,
-  type VariantMode,
 } from "../../lib/product-drafts";
 import { ColorTonePicker } from "./ColorTonePicker";
 import { DraftVariantRow } from "./DraftVariantRow";
@@ -173,44 +172,76 @@ export function AdminProductDraftForm({
     setProgress(next);
   }
 
-  // "colors": each palette color clicked is its own variant (row).
+  // Each palette color clicked is its own variant (row); clicking it again
+  // removes it. Combined pieces are separate rows (below).
+  const singles = rows.filter((row) => !row.combined);
+  const combos = rows.filter((row) => row.combined);
+
   function toggleColor(tone: ColorTone) {
-    const existing = rows.find((row) => row.tones.length === 1 && row.tones[0] === tone);
+    const existing = singles.find((row) => row.tones.length === 1 && row.tones[0] === tone);
     if (existing) removeRow(existing.key);
-    else setRows([...rows, newDraftVariant([tone], toneLabel(tone))]);
+    else setRows([...singles, newDraftVariant([tone], toneLabel(tone)), ...combos]);
   }
 
   function addCustomColor() {
     const name = customColor.trim().replace(/\s+/g, " ");
     if (!name) return;
-    setRows([...rows, newDraftVariant([], name)]);
+    setRows([...singles, newDraftVariant([], name), ...combos]);
     setCustomColor("");
   }
 
-  // "combined": one row, its tones in the order clicked; the name follows
-  // the tones until it is typed by hand.
-  function setCombinedTones(tones: ColorTone[]) {
-    const row = rows[0];
-    if (tones.length === 0) return setRows([]);
-    if (!row) return setRows([newDraftVariant(tones, tonesName(tones))]);
-    const autoName = row.name === "" || row.name === tonesName(row.tones);
-    setRows([{ ...row, tones, name: autoName ? tonesName(tones) : row.name }]);
+  function addCombinedPiece() {
+    setRows([...rows, { ...newDraftVariant([], ""), combined: true }]);
   }
 
-  function setMode(mode: VariantMode) {
-    if (mode === fields.variantMode) return;
-    const typed = rows.some((row) => row.sku.trim() !== "" || row.stock !== "");
+  // A combined piece's tones, in the order clicked; its name follows the
+  // tones until it is typed by hand.
+  function setCombinedTones(key: string, tones: ColorTone[]) {
+    const row = rows.find((r) => r.key === key);
+    if (!row) return;
+    const autoName = row.name === "" || row.name === tonesName(row.tones);
+    updateRow(key, { tones, name: autoName ? tonesName(tones) : row.name });
+  }
+
+  const comboHasData = (row: DraftVariant) =>
+    row.tones.length > 0 ||
+    row.sku.trim() !== "" ||
+    row.stock !== "" ||
+    (photoCounts[row.key]?.all ?? 0) > 0;
+
+  // Ticking shows one empty combined piece; unticking hides them — after a
+  // confirmation if anything was typed or chosen, never silently.
+  function setCombineColors(on: boolean) {
+    if (on) {
+      setFields((current) => ({
+        ...current,
+        combineColors: true,
+        variants: current.variants.some((row) => row.combined)
+          ? current.variants
+          : [...current.variants, { ...newDraftVariant([], ""), combined: true }],
+      }));
+      return;
+    }
     if (
-      typed &&
+      combos.some(comboHasData) &&
       !window.confirm(
-        "Cambiar el tipo de carga borra los colores elegidos y sus SKU y stock. ¿Seguir?",
+        "¿Descartar la pieza combinada? Se borran sus tonos, SKU, stock y fotos elegidas (nada se había guardado).",
       )
     ) {
       return;
     }
-    setFields((current) => ({ ...current, variantMode: mode, variants: [] }));
-    photosRef.current.clear();
-    setPhotoCounts({});
+    for (const row of combos) {
+      photosRef.current.delete(row.key);
+    }
+    setPhotoCounts(({ ...rest }) => {
+      for (const row of combos) delete rest[row.key];
+      return rest;
+    });
+    setFields((current) => ({
+      ...current,
+      combineColors: false,
+      variants: current.variants.filter((row) => !row.combined),
+    }));
   }
 
   const lowerSkus = rows.map((row) => row.sku.trim().toLowerCase());
@@ -223,10 +254,12 @@ export function AdminProductDraftForm({
   if (!fields.categoryId) missing.push("la categoría");
   if (!fields.basePrice || Number(fields.basePrice) <= 0) missing.push("el precio");
   if (isAccessory && !fields.accessoryRole) missing.push("el tipo de accesorio");
-  if (fields.variantMode === "combined" && rows.length === 1 && rows[0]!.tones.length < 2) {
-    missing.push("al menos dos tonos de la pieza combinada");
+  if (combos.some((row) => row.tones.length < 2)) {
+    missing.push("al menos dos tonos en cada pieza combinada");
   }
-  if (rows.some((row) => !row.name.trim())) missing.push("el nombre de cada color");
+  if (rows.some((row) => !row.name.trim() && !(row.combined && row.tones.length < 2))) {
+    missing.push("el nombre de cada color");
+  }
   if (rows.some((row) => !row.sku.trim())) missing.push("el SKU de cada color");
   if (rows.some((row) => !/^\d+$/.test(row.stock.trim()))) {
     missing.push("el stock de cada color (número entero, 0 o más)");
@@ -370,6 +403,51 @@ export function AdminProductDraftForm({
       ...(current && !saving && failedRow === index ? [[current, "failed" as const]] : []),
     ]);
     return { locked, statuses };
+  }
+
+  function renderRow(row: DraftVariant, index: number) {
+    const { locked, statuses } = rowPhotoState(index, row.key);
+    const before = previouslyUploadedPhotos[index] ?? 0;
+    const editable = !variantsCreated && !saving;
+    return (
+      <DraftVariantRow
+        key={row.key}
+        variant={row}
+        heading={
+          row.combined
+            ? `Pieza combinada${row.tones.length > 0 ? `: ${tonesName(row.tones)}` : ` ${combos.indexOf(row) + 1}`}`
+            : row.tones.length > 0
+              ? toneLabel(row.tones[0]!)
+              : `${row.name} (fuera de la paleta)`
+        }
+        editable={editable}
+        photosDisabled={saving}
+        onChange={(patch) => updateRow(row.key, patch)}
+        onRemove={!row.combined || combos.length > 1 ? () => removeRow(row.key) : undefined}
+        onPhotos={onPhotos}
+        firstIsPrimary={before === 0}
+        existingCount={before}
+        locked={locked}
+        statuses={statuses}
+        skuRepeated={repeated(lowerSkus, index)}
+        nameRepeated={repeated(lowerNames, index)}
+        tonePicker={
+          row.combined ? (
+            <div>
+              <p className="mb-1 text-xs font-medium text-text">
+                Tonos de esta pieza, el principal primero (mínimo dos)
+              </p>
+              <ColorTonePicker
+                value={row.tones}
+                onChange={(tones) => setCombinedTones(row.key, tones)}
+                label={`Tonos de la pieza combinada ${combos.indexOf(row) + 1}`}
+                disabled={!editable}
+              />
+            </div>
+          ) : undefined
+        }
+      />
+    );
   }
 
   const selectClass =
@@ -624,144 +702,104 @@ export function AdminProductDraftForm({
 
       <fieldset className="space-y-3 rounded-md border border-border p-4">
         <legend className="px-1 text-sm font-semibold text-text">Colores y fotos (opcional)</legend>
-        <div role="radiogroup" aria-label="Cómo viene este modelo" className="space-y-2">
-          {(
-            [
-              [
-                "colors",
-                "Varios colores",
-                "Cada color es un armazón distinto, con su SKU, su stock y sus fotos.",
-              ],
-              [
-                "combined",
-                "Una pieza de varios tonos",
-                "Un solo armazón que combina dos o más tonos (por ejemplo, rojo y negro).",
-              ],
-            ] as const
-          ).map(([value, label, help]) => (
-            <label
-              key={value}
-              className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
-                fields.variantMode === value ? "border-primary" : "border-border"
-              } ${variantsCreated || saving ? "cursor-not-allowed opacity-60" : ""}`}
-            >
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-text">Cargar colores</p>
+          <p className="text-sm text-text">
+            Tocá todos los colores en que viene: cada uno es un armazón distinto, con su SKU, su
+            stock y sus fotos. Sin colores, el producto se crea solo y los agregás después en su
+            ficha.
+          </p>
+          <div role="group" aria-label="Colores de la paleta" className="flex flex-wrap gap-2">
+            {COLOR_TONE_OPTIONS.map(({ tone, label }) => {
+              const chosen = singles.some((row) => row.tones.length === 1 && row.tones[0] === tone);
+              return (
+                <button
+                  key={tone}
+                  type="button"
+                  aria-pressed={chosen}
+                  disabled={variantsCreated || saving}
+                  onClick={() => toggleColor(tone)}
+                  className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-sm transition-colors disabled:opacity-50 ${
+                    chosen
+                      ? "border-primary bg-primary/10 font-semibold text-primary"
+                      : "border-border text-text hover:border-primary"
+                  }`}
+                >
+                  <ColorToneDot tones={[tone]} />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label htmlFor={`${id}-custom`} className="mb-1 block text-xs font-medium text-text">
+                Otro color (fuera de la paleta)
+              </label>
               <input
-                type="radio"
-                name={`${id}-mode`}
-                checked={fields.variantMode === value}
+                id={`${id}-custom`}
+                value={customColor}
+                maxLength={60}
                 disabled={variantsCreated || saving}
-                onChange={() => setMode(value)}
-                className="mt-1 accent-[var(--color-primary)]"
+                onChange={(event) => setCustomColor(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addCustomColor();
+                  }
+                }}
+                className="w-48 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
               />
-              <span>
-                <span className="font-medium text-text">{label}</span>
-                <span className="block text-xs text-text-muted">{help}</span>
-              </span>
-            </label>
-          ))}
+            </div>
+            <button
+              type="button"
+              onClick={addCustomColor}
+              disabled={customColor.trim() === "" || variantsCreated || saving}
+              className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text hover:border-primary disabled:opacity-60"
+            >
+              Agregar color
+            </button>
+          </div>
         </div>
 
-        {fields.variantMode === "colors" ? (
-          <div className="space-y-2">
-            <p className="text-sm text-text">
-              Tocá todos los colores en que viene. Sin colores, el producto se crea solo y los
-              agregás después en su ficha.
-            </p>
-            <div role="group" aria-label="Colores de la paleta" className="flex flex-wrap gap-2">
-              {COLOR_TONE_OPTIONS.map(({ tone, label }) => {
-                const chosen = rows.some((row) => row.tones.length === 1 && row.tones[0] === tone);
-                return (
-                  <button
-                    key={tone}
-                    type="button"
-                    aria-pressed={chosen}
-                    disabled={variantsCreated || saving}
-                    onClick={() => toggleColor(tone)}
-                    className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-sm transition-colors disabled:opacity-50 ${
-                      chosen
-                        ? "border-primary bg-primary/10 font-semibold text-primary"
-                        : "border-border text-text hover:border-primary"
-                    }`}
-                  >
-                    <ColorToneDot tones={[tone]} />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap items-end gap-2">
-              <div>
-                <label
-                  htmlFor={`${id}-custom`}
-                  className="mb-1 block text-xs font-medium text-text"
-                >
-                  Otro color (fuera de la paleta)
-                </label>
-                <input
-                  id={`${id}-custom`}
-                  value={customColor}
-                  maxLength={60}
-                  disabled={variantsCreated || saving}
-                  onChange={(event) => setCustomColor(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addCustomColor();
-                    }
-                  }}
-                  className="w-48 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-                />
-              </div>
+        {singles.map((row) => {
+          const index = rows.indexOf(row);
+          return renderRow(row, index);
+        })}
+
+        <label className="flex min-h-11 items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={fields.combineColors}
+            disabled={variantsCreated || saving}
+            onChange={(event) => setCombineColors(event.target.checked)}
+            className="mt-1 accent-[var(--color-primary)]"
+          />
+          <span>
+            <span className="font-medium text-text">Este armazón combina varios colores</span>
+            <span className="block text-xs text-text-muted">
+              Una pieza combinada es una sola variante con dos o más tonos (por ejemplo, rojo y
+              negro), con un SKU, un stock y sus fotos. Los colores de arriba son variantes
+              independientes.
+            </span>
+          </span>
+        </label>
+
+        {fields.combineColors && (
+          <div className="space-y-3">
+            {combos.map((row) => renderRow(row, rows.indexOf(row)))}
+            {!variantsCreated && (
               <button
                 type="button"
-                onClick={addCustomColor}
-                disabled={customColor.trim() === "" || variantsCreated || saving}
+                onClick={addCombinedPiece}
+                disabled={saving}
                 className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text hover:border-primary disabled:opacity-60"
               >
-                Agregar color
+                Agregar otra pieza combinada
               </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <p className="text-sm text-text">Tonos de la pieza, el principal primero:</p>
-            <ColorTonePicker
-              value={rows[0]?.tones ?? []}
-              onChange={setCombinedTones}
-              label="Tonos de la pieza combinada"
-              disabled={variantsCreated || saving}
-            />
+            )}
           </div>
         )}
-
-        {rows.map((row, index) => {
-          const { locked, statuses } = rowPhotoState(index, row.key);
-          const before = previouslyUploadedPhotos[index] ?? 0;
-          return (
-            <DraftVariantRow
-              key={row.key}
-              variant={row}
-              heading={
-                fields.variantMode === "combined"
-                  ? `Pieza combinada: ${tonesName(row.tones)}`
-                  : row.tones.length > 0
-                    ? toneLabel(row.tones[0]!)
-                    : `${row.name} (fuera de la paleta)`
-              }
-              editable={!variantsCreated && !saving}
-              photosDisabled={saving}
-              onChange={(patch) => updateRow(row.key, patch)}
-              onRemove={fields.variantMode === "colors" ? () => removeRow(row.key) : undefined}
-              onPhotos={onPhotos}
-              firstIsPrimary={before === 0}
-              existingCount={before}
-              locked={locked}
-              statuses={statuses}
-              skuRepeated={repeated(lowerSkus, index)}
-              nameRepeated={repeated(lowerNames, index)}
-            />
-          );
-        })}
       </fieldset>
 
       {!productCreated && <SimilarProductsWarning name={fields.name} sku="" />}

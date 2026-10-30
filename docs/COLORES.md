@@ -49,19 +49,32 @@
 
 ## Alta de productos con la paleta
 
-En «Nuevo producto» (anteojos y accesorios), la sección **Colores y fotos (opcional)** muestra los
-15 colores de la paleta y dos formas de carga:
+En «Nuevo producto» (anteojos y accesorios), la sección **Colores y fotos (opcional)** muestra una
+sola paleta, **«Cargar colores»**, con los 15 colores:
 
-- **Varios colores:** cada color tocado es una variante (un armazón distinto) con su propio nombre
-  (por defecto el de la paleta, editable: «Negro mate»), SKU, stock y fotos. «Otro color» agrega uno
+- Cada color tocado es una variante independiente (un armazón distinto) con su propio nombre (por
+  defecto el de la paleta, editable: «Negro mate»), SKU, stock y fotos. «Otro color» agrega uno
   fuera de la paleta, sin tonos (queda pendiente de clasificar, como las variantes viejas).
-- **Una pieza de varios tonos:** un solo armazón; los tonos se tocan en orden (el principal
-  primero, mínimo dos) y el nombre sigue a los tonos hasta que se escribe a mano.
+- La casilla **«Este armazón combina varios colores»** (desmarcada al empezar) muestra una pieza
+  combinada: una sola variante de dos o más tonos, tocados en orden (el principal primero), con un
+  SKU, un stock y sus fotos; el nombre sigue a los tonos hasta que se escribe a mano. «Agregar otra
+  pieza combinada» suma más. Puede haber colores independientes y piezas combinadas en el mismo
+  producto, o solo una pieza combinada.
+- Desmarcar la casilla oculta las piezas combinadas sin enviar nada; si ya tenían tonos, SKU,
+  stock o fotos, primero pide confirmación (cancelar conserva todo).
 
 El SKU y el stock se escriben a mano para cada variante (nunca se generan); los repetidos se marcan
 y no se envían. Las variantes se crean en un solo pedido atómico (`POST …/variants/batch`): si uno
-falla, no se crea ninguna. Sin colores, el producto se crea solo, como antes. Los borradores del
-formulario anterior (un color de texto, SKU y stock) vuelven como una fila.
+falla, no se crea ninguna. Sin colores, el producto se crea solo, como antes. Los borradores
+anteriores (un color de texto, o el modo «Una pieza de varios tonos») se convierten al abrirlos.
+
+## Agregar colores a un producto existente
+
+En la ficha, «Agregar otro color o variante» (desplegable) tiene la misma lógica: la paleta «Cargar
+colores» para variantes independientes y, detrás de la casilla «Este armazón combina varios
+colores» (en accesorios: «Es una presentación… o combina varios colores»), el formulario de una
+pieza (tonos, nombre, material, SKU, stock). Para un armazón la pieza necesita al menos dos tonos;
+el material de un color independiente se ajusta después con «Corregir datos».
 
 ## Círculos en la tienda
 

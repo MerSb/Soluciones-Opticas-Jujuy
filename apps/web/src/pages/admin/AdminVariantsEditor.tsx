@@ -62,9 +62,44 @@ export function AdminVariantsEditor({
   const [sku, setSku] = useState("");
   const [stock, setStock] = useState("0");
   const [tones, setTones] = useState<ColorTone[]>([]);
+  // The single-piece form (a combined piece; for accessories, also a
+  // presentation) stays hidden behind its checkbox: one palette at a time.
+  const [combine, setCombine] = useState(false);
+  // A frame's piece here is a combination: two tones or more.
+  const tonesMissing = !isAccessory && tones.length < 2;
+
+  function resetPieceForm() {
+    setColor("");
+    setMaterial("");
+    setLabel("");
+    setPriceOverride("");
+    setSku("");
+    setStock("0");
+    setTones([]);
+  }
+
+  // Unticking only hides the form — after confirming, if something was
+  // typed or chosen; nothing is ever sent from here.
+  function toggleCombine(on: boolean) {
+    if (on) return setCombine(true);
+    const typed =
+      tones.length > 0 ||
+      [color, material, label, priceOverride, sku].some((v) => v.trim() !== "") ||
+      stock !== "0";
+    if (
+      typed &&
+      !window.confirm("¿Descartar los datos de esta pieza? Todavía no se guardó nada.")
+    ) {
+      return;
+    }
+    resetPieceForm();
+    createVariant.reset();
+    setCombine(false);
+  }
 
   function handleCreate(event: FormEvent) {
     event.preventDefault();
+    if (tonesMissing) return;
     createVariant.mutate(
       {
         // No name typed: the tones name the piece ("Rojo y negro").
@@ -77,17 +112,7 @@ export function AdminVariantsEditor({
           ? { label: blankToNull(label), priceOverride: priceOrNull(priceOverride) }
           : {}),
       },
-      {
-        onSuccess: () => {
-          setColor("");
-          setMaterial("");
-          setLabel("");
-          setPriceOverride("");
-          setSku("");
-          setStock("0");
-          setTones([]);
-        },
-      },
+      { onSuccess: resetPieceForm },
     );
   }
 
@@ -151,121 +176,149 @@ export function AdminVariantsEditor({
               variants={variants}
               kind={kind}
             />
-            <p className="mt-6 text-sm font-medium text-text">
-              {isAccessory
-                ? "¿Es una presentación (por ejemplo, un tamaño)? Cargala acá:"
-                : "¿Es una sola pieza de dos tonos, u otro material? Cargala acá:"}
-            </p>
           </div>
 
-          <form
-            onSubmit={handleCreate}
-            className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
-            noValidate
-          >
-            <div className="w-full">
-              <p className="mb-1.5 text-sm font-medium text-text">Tonos de esta pieza (opcional)</p>
-              <ColorTonePicker
-                value={tones}
-                onChange={setTones}
-                label="Tonos de la variante nueva"
-              />
-              <p className="mt-1 text-xs text-text-muted">
-                Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos,
-                no aparece en el filtro por colores.
-              </p>
-            </div>
-            <div>
-              <label
-                className="mb-1.5 block text-sm font-medium text-text"
-                htmlFor="new-variant-color"
-              >
-                Color
-              </label>
-              <input
-                id="new-variant-color"
-                list="color-options"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-              />
-              <datalist id="color-options">
-                {COLOR_FAMILY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.label} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label
-                className="mb-1.5 block text-sm font-medium text-text"
-                htmlFor="new-variant-material"
-              >
-                Material
-              </label>
-              <input
-                id="new-variant-material"
-                list="material-options"
-                value={material}
-                onChange={(e) => setMaterial(e.target.value)}
-                className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
-              />
-              <datalist id="material-options">
-                {FRAME_MATERIAL_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.label} />
-                ))}
-              </datalist>
-            </div>
-            {isAccessory && (
-              <>
-                <FormField
-                  label="Presentación (opcional)"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  maxLength={100}
-                  className="w-44"
-                />
-                <FormField
-                  label="Precio propio (opcional)"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.01"
-                  step="0.01"
-                  value={priceOverride}
-                  onChange={(e) => setPriceOverride(e.target.value)}
-                  className="w-40"
-                />
-              </>
-            )}
-            <FormField
-              label="SKU"
-              value={sku}
-              onChange={(e) => setSku(e.target.value)}
-              required
-              className="w-40"
+          <label className="mt-6 flex min-h-11 items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={combine}
+              onChange={(event) => toggleCombine(event.target.checked)}
+              className="mt-1 accent-[var(--color-primary)]"
             />
-            <FormField
-              label="Stock"
-              type="number"
-              min="0"
-              step="1"
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
-              error={isBlank(stock) ? STOCK_REQUIRED : undefined}
-              className="w-28"
-            />
-            <button
-              type="submit"
-              disabled={createVariant.isPending || sku.trim() === "" || isBlank(stock)}
-              className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
+            <span>
+              <span className="font-medium text-text">
+                {isAccessory
+                  ? "Es una presentación (por ejemplo, un tamaño) o combina varios colores"
+                  : "Este armazón combina varios colores"}
+              </span>
+              <span className="block text-xs text-text-muted">
+                Varios colores independientes son varias variantes, cada una con su SKU, stock y
+                fotos (arriba). Una pieza combinada es una sola variante con varios tonos, un SKU,
+                un stock y sus propias fotos.
+              </span>
+            </span>
+          </label>
+
+          {combine && (
+            <form
+              onSubmit={handleCreate}
+              className="mt-6 flex flex-wrap items-end gap-3 border-t border-border pt-6"
+              noValidate
             >
-              {createVariant.isPending
-                ? "Agregando…"
-                : isAccessory
-                  ? "Agregar presentación"
-                  : "Agregar variante"}
-            </button>
-          </form>
-          {createError && (
+              <div className="w-full">
+                <p className="mb-1.5 text-sm font-medium text-text">
+                  {isAccessory
+                    ? "Tonos de esta pieza (opcional)"
+                    : "Tonos de esta pieza, el principal primero (mínimo dos)"}
+                </p>
+                <ColorTonePicker
+                  value={tones}
+                  onChange={setTones}
+                  label="Tonos de la variante nueva"
+                />
+                <p className="mt-1 text-xs text-text-muted">
+                  {isAccessory
+                    ? "Uno es un color liso; dos o más, una sola pieza combinada (rojo y negro). Sin tonos, no aparece en el filtro por colores."
+                    : "Por ejemplo, rojo y negro. Para cambiar el material de un color ya cargado, usá «Corregir datos» en su tarjeta."}
+                </p>
+              </div>
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-text"
+                  htmlFor="new-variant-color"
+                >
+                  Color
+                </label>
+                <input
+                  id="new-variant-color"
+                  list="color-options"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
+                />
+                <datalist id="color-options">
+                  {COLOR_FAMILY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.label} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-text"
+                  htmlFor="new-variant-material"
+                >
+                  Material
+                </label>
+                <input
+                  id="new-variant-material"
+                  list="material-options"
+                  value={material}
+                  onChange={(e) => setMaterial(e.target.value)}
+                  className="w-40 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
+                />
+                <datalist id="material-options">
+                  {FRAME_MATERIAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.label} />
+                  ))}
+                </datalist>
+              </div>
+              {isAccessory && (
+                <>
+                  <FormField
+                    label="Presentación (opcional)"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    maxLength={100}
+                    className="w-44"
+                  />
+                  <FormField
+                    label="Precio propio (opcional)"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    value={priceOverride}
+                    onChange={(e) => setPriceOverride(e.target.value)}
+                    className="w-40"
+                  />
+                </>
+              )}
+              <FormField
+                label="SKU"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                required
+                className="w-40"
+              />
+              <FormField
+                label="Stock"
+                type="number"
+                min="0"
+                step="1"
+                value={stock}
+                onChange={(e) => setStock(e.target.value)}
+                error={isBlank(stock) ? STOCK_REQUIRED : undefined}
+                className="w-28"
+              />
+              <button
+                type="submit"
+                disabled={
+                  createVariant.isPending || sku.trim() === "" || isBlank(stock) || tonesMissing
+                }
+                className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-surface hover:bg-primary-dark disabled:opacity-60"
+              >
+                {createVariant.isPending
+                  ? "Agregando…"
+                  : isAccessory
+                    ? "Agregar presentación"
+                    : "Agregar pieza combinada"}
+              </button>
+              {tonesMissing && (
+                <p className="w-full text-xs text-text-muted">Elegí al menos dos tonos.</p>
+              )}
+            </form>
+          )}
+          {combine && createError && (
             <p role="alert" className="mt-2 text-sm text-danger">
               {createError}
             </p>

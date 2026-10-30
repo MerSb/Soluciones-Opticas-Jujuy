@@ -144,11 +144,14 @@ describe("admin — loading a frame's colors", () => {
   it("registers one two-tone piece, named after its tones", async () => {
     const calls = stubApi();
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[]} />);
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Este armazón combina varios colores/ }),
+    );
     const group = screen.getByRole("group", { name: "Tonos de la variante nueva" });
     await userEvent.click(within(group).getByRole("button", { name: /^Rojo/ }));
     await userEvent.click(within(group).getByRole("button", { name: /^Negro/ }));
     await userEvent.type(screen.getByLabelText("SKU"), "RN-1");
-    await userEvent.click(screen.getByRole("button", { name: "Agregar variante" }));
+    await userEvent.click(screen.getByRole("button", { name: "Agregar pieza combinada" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]!.body).toMatchObject({
       color: "Rojo y negro",

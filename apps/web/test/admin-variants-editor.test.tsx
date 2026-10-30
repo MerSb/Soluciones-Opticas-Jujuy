@@ -210,6 +210,10 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
   }
   const section = () => screen.getByText("Agregar otro color o variante").closest("details")!;
   const writes = (calls: { method: string }[]) => calls.filter((c) => c.method !== "GET");
+  const combineBox = () =>
+    within(section()).getByRole("checkbox", { name: /Este armazón combina varios colores/ });
+  const tones = () =>
+    within(within(section()).getByRole("group", { name: "Tonos de la variante nueva" }));
 
   it("with variants loaded: the cards (and 'Corregir datos') come first, the add form is closed", () => {
     stubCreate();
@@ -218,11 +222,12 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     const fix = screen.getByRole("button", { name: "Corregir datos de Negro" });
     expect(section().contains(fix)).toBe(false);
     expect(fix.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The palette and the single-piece form live inside it.
+    // One palette ("Cargar colores"); the combined-piece form only behind its checkbox.
+    expect(within(section()).getByRole("group", { name: "Paleta de colores" })).toBeInTheDocument();
+    expect(combineBox()).not.toBeChecked();
     expect(
-      within(section()).getByRole("group", { name: "Tonos de la variante nueva" }),
-    ).toBeInTheDocument();
-    expect(within(section()).getByRole("button", { name: "Agregar variante" })).toBeInTheDocument();
+      within(section()).queryByRole("group", { name: "Tonos de la variante nueva" }),
+    ).toBeNull();
   });
 
   it("with no variants yet, it starts open", () => {
@@ -231,39 +236,51 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     expect(section()).toHaveAttribute("open");
   });
 
-  it("opening and closing it creates or changes nothing", async () => {
+  it("opening/closing it, and ticking/unticking the checkbox, write nothing", async () => {
     const user = userEvent.setup();
     const calls = stubCreate();
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
     expect(section()).toHaveAttribute("open");
+    await user.click(combineBox());
     await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
+    // Unticking with data typed asks first; cancelling keeps everything.
+    await user.click(combineBox());
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(combineBox()).toBeChecked();
+    expect(within(section()).getByLabelText("SKU")).toHaveValue("SKU-2");
+    await user.click(combineBox());
+    expect(combineBox()).not.toBeChecked();
+    expect(within(section()).queryByLabelText("SKU")).toBeNull();
     await user.click(screen.getByText("Agregar otro color o variante"));
     expect(section()).not.toHaveAttribute("open");
     expect(writes(calls)).toEqual([]);
   });
 
-  it("opened, it adds a new variant with its palette tones (the existing one is untouched)", async () => {
+  it("ticked, it adds one combined piece with its tones (the existing variant is untouched)", async () => {
     const user = userEvent.setup();
     const calls = stubCreate();
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
-    const tones = within(
-      within(section()).getByRole("group", { name: "Tonos de la variante nueva" }),
-    );
-    await user.click(tones.getByRole("button", { name: /Rojo/ }));
-    await user.click(tones.getByRole("button", { name: /^Negro/ }));
+    await user.click(combineBox());
+    await user.click(tones().getByRole("button", { name: /Rojo/ }));
+    await user.click(tones().getByRole("button", { name: /^Negro/ }));
+    await user.type(within(section()).getByLabelText("Material"), "Acetato");
     await user.type(within(section()).getByLabelText("SKU"), "SKU-2");
     await user.clear(within(section()).getByLabelText("Stock"));
     await user.type(within(section()).getByLabelText("Stock"), "3");
-    await user.click(within(section()).getByRole("button", { name: "Agregar variante" }));
+    await user.click(within(section()).getByRole("button", { name: "Agregar pieza combinada" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
     expect(writes(calls)[0]).toEqual({
       method: "POST",
       path: "/api/admin/products/p1/variants",
       body: {
         color: "Rojo y negro",
-        material: null,
+        material: "Acetato",
         colorTones: ["ROJO", "NEGRO"],
         sku: "SKU-2",
         stock: 3,
@@ -271,16 +288,22 @@ describe("AdminVariantsEditor — adding a variant is folded away", () => {
     });
   });
 
-  it("keeps the validations: no SKU, no button; a repeated SKU shows the API's reason", async () => {
+  it("keeps the validations: two tones and a SKU; a repeated SKU shows the API's reason", async () => {
     const user = userEvent.setup();
     stubCreate(true);
     renderWithProviders(<AdminVariantsEditor productId="p1" variants={[VARIANT_NO_IMAGES]} />);
     await user.click(screen.getByText("Agregar otro color o variante"));
-    expect(within(section()).getByRole("button", { name: "Agregar variante" })).toBeDisabled();
+    await user.click(combineBox());
+    const add = () => within(section()).getByRole("button", { name: "Agregar pieza combinada" });
     await user.type(within(section()).getByLabelText("SKU"), "SKU-1");
-    await user.click(within(section()).getByRole("button", { name: "Agregar variante" }));
+    await user.click(tones().getByRole("button", { name: /Rojo/ }));
+    expect(add()).toBeDisabled(); // one tone is not a combination
+    expect(within(section()).getByText("Elegí al menos dos tonos.")).toBeInTheDocument();
+    await user.click(tones().getByRole("button", { name: /Azul/ }));
+    await user.click(add());
     expect(await within(section()).findByRole("alert")).toHaveTextContent(
       'El SKU "SKU-1" ya está en uso.',
     );
+    expect(within(section()).getByLabelText("SKU")).toHaveValue("SKU-1");
   });
 });

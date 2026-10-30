@@ -395,6 +395,8 @@ describe("admin — accessory variants", () => {
       }),
     );
 
+    // The presentation form is behind its checkbox.
+    await userEvent.click(screen.getByRole("checkbox", { name: /Es una presentación/ }));
     await userEvent.type(screen.getByLabelText("Presentación (opcional)"), "Presentación C");
     await userEvent.type(screen.getByLabelText("Precio propio (opcional)"), "10000");
     await userEvent.type(screen.getByLabelText("SKU"), "QA-C");
@@ -411,12 +413,15 @@ describe("admin — accessory variants", () => {
     );
   });
 
-  it("a frame keeps the original variant form (no presentation or price fields)", () => {
+  it("a frame's piece form (behind its checkbox) has no presentation or price fields", async () => {
     stubApi({});
     renderAt("/", [{ path: "/", element: <AdminVariantsEditor productId="p1" variants={[]} /> }]);
     expect(screen.getByRole("heading", { name: "Variantes" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Este armazón combina varios colores/ }),
+    );
     expect(screen.queryByLabelText("Presentación (opcional)")).toBeNull();
-    expect(screen.getByRole("button", { name: "Agregar variante" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agregar pieza combinada" })).toBeInTheDocument();
   });
 });
 
@@ -504,6 +509,7 @@ describe("predeploy fixes (web)", () => {
       "Ingresá el stock (0 si no hay unidades).",
     );
 
+    await userEvent.click(screen.getByRole("checkbox", { name: /Es una presentación/ }));
     const createStock = screen.getAllByLabelText("Stock").at(-1)!;
     await userEvent.type(screen.getByLabelText("SKU"), "QA-NEW");
     await userEvent.clear(createStock);
