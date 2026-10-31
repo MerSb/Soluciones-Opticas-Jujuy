@@ -1,5 +1,17 @@
 # Cristales & Configurador V1
 
+> **Suspensión temporal (2026-10-31).** Roberto no usa por ahora la compatibilidad de cristales.
+> La web oculta «Cristales compatibles» en el alta de productos, en la ficha del administrador y en
+> la ficha pública, con un solo interruptor: `LENS_COMPATIBILITY_ENABLED = false` en
+> `apps/web/src/lib/features.ts`. No se borró nada: modelos, endpoints (`PUT
+/api/admin/products/:id/lens-types`, `GET /api/admin/lens-types`), asociaciones guardadas,
+> migraciones, precios de cristales y cotizaciones siguen iguales; la tienda cotiza el armazón solo,
+> como antes. Las páginas «Cristales» y «Tratamientos» del administrador siguen disponibles.
+>
+> **Reactivar:** poner `LENS_COMPATIBILITY_ENABLED = true`, correr las pruebas web (las de
+> cristales lo encienden con un mock y siguen cubriendo la función) y desplegar la web. Las
+> asociaciones que ya existían vuelven a verse tal cual; no hace falta migración ni cambio de API.
+
 Dominio de cristales (lentes) que complementan la compra de un armazón. Decisión de arquitectura:
 [ADR-0023](adr/0023-lens-catalog-domain.md). Este documento es la referencia operativa.
 

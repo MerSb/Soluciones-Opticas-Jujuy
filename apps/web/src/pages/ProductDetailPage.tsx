@@ -15,6 +15,7 @@ import { MeasurementsTable } from "../components/products/MeasurementsTable";
 import { RelatedProductsSection } from "../components/products/RelatedProductsSection";
 import { ProductMatchSection } from "../components/recommendations/ProductMatchSection";
 import { LensCompatibility } from "../components/products/LensCompatibility";
+import { LENS_COMPATIBILITY_ENABLED } from "../lib/features";
 import {
   FrameIncludedAccessories,
   type IncludedAccessoriesSummary,
@@ -304,7 +305,7 @@ export function ProductDetailPage() {
               </div>
             )}
 
-            {!isAccessory && (
+            {!isAccessory && LENS_COMPATIBILITY_ENABLED && (
               <div className="mt-8 border-t border-border pt-6">
                 <LensCompatibility lensTypes={lensTypes} />
               </div>

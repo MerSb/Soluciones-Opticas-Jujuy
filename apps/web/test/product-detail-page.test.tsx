@@ -1,9 +1,18 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProductDetailPage } from "../src/pages/ProductDetailPage";
+
+// «Cristales compatibles» is suspended (src/lib/features.ts); its tests
+// switch it on, so the feature stays covered for when it comes back.
+const features = vi.hoisted(() => ({ lens: false }));
+vi.mock("../src/lib/features", () => ({
+  get LENS_COMPATIBILITY_ENABLED() {
+    return features.lens;
+  },
+}));
 
 const PRODUCT_DETAIL = {
   name: "Andina Aviador",
@@ -411,7 +420,29 @@ const LENS_PRODUCT = {
 
 // Lens types are shown as compatibility only (LensCompatibility): names,
 // never a lens price, never a quote — lenses are arranged with the shop.
+describe("ProductDetailPage — compatible lens types (suspended)", () => {
+  it("is hidden while suspended, even when the product has types set", async () => {
+    mockFetch({
+      ok: true,
+      json: async () => ({
+        ...PRODUCT_DETAIL,
+        lensTypes: [{ id: "l1", name: "Bifocales", slug: "bifocales", description: null }],
+      }),
+    });
+    renderProductDetail("andina-aviador");
+    await screen.findByRole("heading", { level: 1, name: "Andina Aviador" });
+    expect(screen.queryByRole("region", { name: "Cristales compatibles" })).toBeNull();
+    expect(screen.queryByText("Bifocales")).toBeNull();
+  });
+});
+
 describe("ProductDetailPage — compatible lens types", () => {
+  beforeEach(() => {
+    features.lens = true;
+  });
+  afterEach(() => {
+    features.lens = false;
+  });
   const quoteCalls = () =>
     vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/quote"));
 

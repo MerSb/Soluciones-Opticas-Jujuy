@@ -1,9 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdminProductDetailPage } from "../src/pages/admin/AdminProductDetailPage";
+
+// «Cristales compatibles» is suspended (src/lib/features.ts); its tests
+// switch it on, so the feature stays covered for when it comes back.
+const features = vi.hoisted(() => ({ lens: false }));
+vi.mock("../src/lib/features", () => ({
+  get LENS_COMPATIBILITY_ENABLED() {
+    return features.lens;
+  },
+}));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -225,7 +234,26 @@ describe("AdminProductDetailPage — destructive action confirmation", () => {
   });
 });
 
+describe("AdminProductDetailPage — cristales compatibles, suspended", () => {
+  it("hides the section and never sends anything about lenses", async () => {
+    const onSetLensTypes = vi.fn();
+    stubFetch(baseProduct({ isComplete: true, lensTypes: [LENS_TYPES[0]] }), { onSetLensTypes });
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Variantes" });
+    expect(screen.queryByRole("heading", { name: "Cristales compatibles" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Cristal Uno" })).toBeNull();
+    expect(onSetLensTypes).not.toHaveBeenCalled();
+  });
+});
+
 describe("AdminProductDetailPage — cristales compatibles (ADR-0023)", () => {
+  beforeEach(() => {
+    features.lens = true;
+  });
+  afterEach(() => {
+    features.lens = false;
+  });
+
   it("shows the product's current lens types and saves the explicit full set", async () => {
     const onSetLensTypes = vi.fn();
     stubFetch(baseProduct({ isComplete: true, lensTypes: [LENS_TYPES[0]] }), { onSetLensTypes });

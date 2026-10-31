@@ -31,10 +31,11 @@ function invalidateLensCatalog(queryClient: ReturnType<typeof useQueryClient>) {
 
 // -------- lens types --------
 
-export function useAdminLensTypesQuery() {
+export function useAdminLensTypesQuery(enabled = true) {
   return useQuery({
     queryKey: adminLensTypesQueryKey,
     queryFn: () => apiGet<AdminLensTypeDto[]>("/api/admin/lens-types"),
+    enabled,
   });
 }
 
