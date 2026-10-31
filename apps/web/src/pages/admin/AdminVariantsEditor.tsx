@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import type { AdminVariantDto, ProductKind } from "@soluciones-opticas/shared";
+import type { AdminVariantDto, ColorTone, ProductKind } from "@soluciones-opticas/shared";
 import { FormField } from "../../components/forms/FormField";
 import { ApiClientError } from "../../services/api-client";
 import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
@@ -13,7 +13,12 @@ import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 import { VariantSkuEditor } from "./VariantSkuEditor";
 import { VariantTonesEditor } from "./VariantTonesEditor";
 import { VariantDetailsEditor } from "./VariantDetailsEditor";
-import { ACCESSORY_EXTRA_COLORS, ColorChoice, chosenColor } from "./ColorChoice";
+import {
+  ACCESSORY_EXTRA_COLORS,
+  ColorChoice,
+  chosenColor,
+  colorChoiceProblem,
+} from "./ColorChoice";
 
 const blankToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 // An empty stock field must never be saved as 0 by accident (Number("")
@@ -53,18 +58,21 @@ export function AdminVariantsEditor({
   const createVariant = useCreateVariantMutation(productId);
   const [choice, setChoice] = useState<string | null>(null);
   const [otherName, setOtherName] = useState("");
+  const [combinedTones, setCombinedTones] = useState<ColorTone[]>([]);
   const [material, setMaterial] = useState("");
   const [label, setLabel] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
   const [sku, setSku] = useState("");
   const [stock, setStock] = useState("0");
-  const chosen = chosenColor(choice, otherName);
-  // A frame variant is a color; an accessory's may be only a presentation.
-  const colorMissing = chosen === null && (!isAccessory || label.trim() === "");
+  const chosen = chosenColor(choice, otherName, combinedTones);
+  // A frame variant is a color; an accessory's may be only a presentation
+  // (but a color started — «Otro color…», «Combinado» — must be finished).
+  const colorMissing = chosen === null && (!isAccessory || label.trim() === "" || choice !== null);
 
   function resetForm() {
     setChoice(null);
     setOtherName("");
+    setCombinedTones([]);
     setMaterial("");
     setLabel("");
     setPriceOverride("");
@@ -155,9 +163,12 @@ export function AdminVariantsEditor({
               extraNames={isAccessory ? ACCESSORY_EXTRA_COLORS : []}
               otherName={otherName}
               onOtherName={setOtherName}
+              combinedTones={combinedTones}
+              onCombinedTones={setCombinedTones}
             />
             <p className="mt-1 text-xs text-text-muted">
-              Un color por variante. Para otro color, agregá otra variante.
+              Un color por variante. Para otro color, agregá otra variante; para una pieza de varios
+              tonos, elegí «Combinado».
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
@@ -225,11 +236,9 @@ export function AdminVariantsEditor({
           </div>
           {colorMissing && (
             <p className="text-xs text-text-muted">
-              {choice !== null
-                ? "Escribí el nombre del color."
-                : isAccessory
-                  ? "Elegí el color o escribí la presentación."
-                  : "Elegí el color en la paleta."}
+              {choice === null && isAccessory
+                ? "Elegí el color o escribí la presentación."
+                : colorChoiceProblem(choice, otherName, combinedTones)}
             </p>
           )}
           <div role="status" className="text-sm text-success">

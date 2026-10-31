@@ -47,6 +47,8 @@ const FIXTURES: [string, { color: string; colorTones: string[] }[]][] = [
   // «Combinado»: its own circle, no tone assumed; an old text stays pending.
   ["combinado", [{ color: "Combinado", colorTones: ["COMBINADO"] }]],
   ["legacyCombinado", [{ color: "Combinado", colorTones: [] }]],
+  // Saved from «Combinado» with its tones: one piece, found by each tone.
+  ["silverBlue", [{ color: "Plateado y azul", colorTones: ["PLATEADO", "AZUL"] }]],
 ];
 
 const list = async (params: Record<string, string | number>) => {
@@ -175,7 +177,15 @@ describe("catalog color filter (?colors=)", () => {
     const amarillo = await list({ colors: "amarillo" });
     expect(amarillo.res.status).toBe(200);
     expect(amarillo.slugs).toEqual([]);
-    expect((await list({ colors: "azul" })).slugs).toEqual([slug("blue")]);
+    expect((await list({ colors: "azul" })).slugs).toEqual([slug("blue"), slug("silverBlue")]);
+  });
+
+  it("a combined piece is found by each of its tones, after the plain ones, once", async () => {
+    expect((await list({ colors: "azul" })).slugs).toEqual([slug("blue"), slug("silverBlue")]);
+    expect((await list({ colors: "plateado" })).slugs).toEqual([slug("silverBlue")]);
+    const both = (await list({ colors: "azul,plateado" })).slugs;
+    expect(both).toEqual([slug("blue"), slug("silverBlue")]);
+    expect((await list({ colors: "combinado" })).slugs).not.toContain(slug("silverBlue"));
   });
 
   it("offers «Combinado» as its own circle, never as other colors", async () => {

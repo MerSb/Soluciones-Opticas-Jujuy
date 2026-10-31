@@ -275,6 +275,53 @@ describe("POST /api/admin/products/:id/variants/batch", () => {
     ]);
   });
 
+  // docs/COLORES.md: «Combinado» is ONE piece with its real tones.
+  it("a combined piece is one variant with one SKU and stock, its tones in order", async () => {
+    const id = await newProduct("FRAME", "combinado");
+    const response = await batch(id, [
+      {
+        color: "Plateado y azul",
+        colorTones: ["PLATEADO", "AZUL"],
+        material: "Metal",
+        stock: 4,
+        sku: sku("CB-2"),
+      },
+      {
+        color: "Negro, Dorado y carey",
+        colorTones: ["NEGRO", "DORADO", "CAREY"],
+        stock: 1,
+        sku: sku("CB-3"),
+      },
+    ]);
+    expect(response.status).toBe(201);
+    const stored = await prisma.productVariant.findMany({
+      where: { productId: id },
+      orderBy: { sku: "asc" },
+      select: { color: true, material: true, colorTones: true, stock: true, sku: true },
+    });
+    expect(stored).toEqual([
+      {
+        color: "Plateado y azul",
+        material: "Metal",
+        colorTones: ["PLATEADO", "AZUL"],
+        stock: 4,
+        sku: sku("CB-2"),
+      },
+      {
+        color: "Negro, Dorado y carey",
+        material: null,
+        colorTones: ["NEGRO", "DORADO", "CAREY"],
+        stock: 1,
+        sku: sku("CB-3"),
+      },
+    ]);
+    // The «Combinado» tone (kept for pieces saved with it) never goes with others.
+    const mixed = await batch(id, [
+      { color: "Combinado", colorTones: ["COMBINADO", "AZUL"], stock: 1, sku: sku("CB-X") },
+    ]);
+    expect(mixed.status).toBe(400);
+  });
+
   it("accessories still refuse a repeated color", async () => {
     const id = await newProduct("ACCESSORY", "repetido");
     const twice = await batch(id, [

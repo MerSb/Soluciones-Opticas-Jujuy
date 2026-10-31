@@ -4,7 +4,7 @@ import { ColorToneDot } from "../../components/products/ColorToneDot";
 import { tonesName } from "../../lib/color-tones";
 import { ApiClientError } from "../../services/api-client";
 import { useUpdateVariantMutation } from "../../services/queries/admin";
-import { ColorChoice } from "./ColorChoice";
+import { COMBINED, ColorChoice, chosenColor, colorChoiceProblem } from "./ColorChoice";
 
 const BUTTON = "inline-flex min-h-11 items-center rounded-md px-3 text-sm font-medium";
 
@@ -26,8 +26,15 @@ export function VariantTonesEditor({
   const [editing, setEditing] = useState(false);
   // An older API may not send tones yet: read as "not classified".
   const tones = variant.colorTones ?? [];
-  const [draft, setDraft] = useState<ColorTone | null>(tones.length === 1 ? tones[0]! : null);
-  const unchanged = draft === null || (tones.length === 1 && tones[0] === draft);
+  // A piece of several tones (or one saved as just «Combinado») opens as
+  // «Combinado» with its tones; one tone opens as that color.
+  const initialChoice = () =>
+    tones.length > 1 || tones[0] === "COMBINADO" ? COMBINED : (tones[0] ?? null);
+  const initialCombined = () => (tones.length > 1 ? tones : []);
+  const [draft, setDraft] = useState<string | null>(initialChoice);
+  const [combined, setCombined] = useState<ColorTone[]>(initialCombined);
+  const next = chosenColor(draft, "", combined)?.tones ?? null;
+  const unchanged = next === null || next.join("+") === tones.join("+");
   const name = variant.color ?? variant.sku;
 
   const error = !update.isError
@@ -47,7 +54,8 @@ export function VariantTonesEditor({
           type="button"
           onClick={() => {
             update.reset();
-            setDraft(tones.length === 1 ? tones[0]! : null);
+            setDraft(initialChoice());
+            setCombined(initialCombined());
             setEditing(true);
           }}
           aria-label={`Cambiar el color de la paleta de ${name}`}
@@ -63,21 +71,26 @@ export function VariantTonesEditor({
     <div className="mt-2 space-y-2 rounded-md bg-surface-sunken p-3">
       <p className="text-sm text-text">
         El color de esta pieza en la paleta, para el filtro por colores de la tienda. Si combina
-        varios colores, elegí «Combinado». Otro color del modelo es otra variante.
-        {tones.length > 1 && ` Hoy tiene ${tonesName(tones)}: se mantiene si no elegís otro.`}
+        varios colores, elegí «Combinado» y sus tonos. Otro color del modelo es otra variante. Su
+        nombre, SKU, stock y fotos no cambian.
       </p>
       <ColorChoice
         value={draft}
-        onChange={(tone) => setDraft(tone as ColorTone)}
+        onChange={setDraft}
         label={`Color de la paleta de ${name}`}
         disabled={update.isPending}
+        combinedTones={combined}
+        onCombinedTones={setCombined}
       />
+      {draft !== null && colorChoiceProblem(draft, "", combined) && (
+        <p className="text-xs text-text-muted">{colorChoiceProblem(draft, "", combined)}</p>
+      )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() =>
             update.mutate(
-              { variantId: variant.id, body: { colorTones: [draft!] } },
+              { variantId: variant.id, body: { colorTones: next! } },
               { onSuccess: () => setEditing(false) },
             )
           }

@@ -102,7 +102,7 @@ describe("admin — palette color of an existing variant", () => {
     expect(screen.getByText("Color de la paleta: sin clasificar")).toBeInTheDocument();
   });
 
-  it("keeps a two-tone piece loaded before as it is until another color is chosen", async () => {
+  it("opens a two-tone piece loaded before as «Combinado» with its tones, and keeps it unless changed", async () => {
     const calls = stubApi();
     renderWithProviders(
       <AdminVariantsEditor
@@ -117,10 +117,29 @@ describe("admin — palette color of an existing variant", () => {
       screen.getByRole("button", { name: "Cambiar el color de la paleta de Negro" }),
     );
     const group = screen.getByRole("radiogroup", { name: "Color de la paleta de Negro" });
-    expect(within(group).queryByRole("radio", { checked: true })).toBeNull();
+    expect(within(group).getByRole("radio", { name: "Combinado" })).toBeChecked();
+    const tones = screen.getByRole("group", { name: "Tonos de la pieza combinada" });
+    expect(within(tones).getByRole("button", { name: /^Rojo/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(tones).getByRole("button", { name: /^Negro/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(screen.getByRole("button", { name: "Guardar color" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(calls).toEqual([]);
+    // A third tone: saved as the same single piece, only its tones change.
+    await userEvent.click(within(tones).getByRole("button", { name: /^Dorado/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Guardar color" }));
+    await waitFor(() =>
+      expect(calls).toEqual([
+        {
+          method: "PATCH",
+          path: "/api/admin/products/p1/variants/v1",
+          body: { colorTones: ["ROJO", "NEGRO", "DORADO"] },
+        },
+      ]),
+    );
   });
 });
 

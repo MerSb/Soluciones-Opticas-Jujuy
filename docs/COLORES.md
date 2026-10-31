@@ -6,11 +6,16 @@
   «Rosa añejo»). No se renombra ni se normaliza.
 - `ProductVariant.colorTones` (`color_tones text[]`, migración `20261029001653`, aditiva): los
   tonos de la paleta de **esa pieza física**, el principal primero.
-  - `["ROJO"]`: armazón rojo. Desde el formulario simple, cada variante nueva lleva **un** color.
-  - `["COMBINADO"]`: una pieza de varios colores cuyos tonos no se eligen. Tiene su propio círculo
-    en el filtro («Combinado») y nunca aparece bajo otro color: no se le inventan tonos.
-  - `["ROJO", "NEGRO"]`: **un** armazón de dos tonos cargado antes del formulario simple. Se
-    conserva tal cual (cuenta para rojo y para negro) hasta que alguien elija otro color.
+  - `["ROJO"]`: armazón rojo.
+  - `["PLATEADO", "AZUL"]`: **una** pieza combinada (una variante, un SKU, un stock), con sus tonos
+    reales en orden, el principal primero; su nombre es «Plateado y azul». Es el mismo formato que
+    las combinaciones históricas («Rojo y negro»): el filtro la encuentra por cada uno de sus tonos,
+    después de las piezas lisas, y el producto aparece una sola vez. Desde el 2026-10-31 es lo que
+    guarda la opción «Combinado» del formulario (dos tonos o más; hasta 4).
+  - `["COMBINADO"]`: lo guardó el formulario entre el 2026-10-30 y el 2026-10-31 (sin tonos; en el
+    catálogo público no había ninguna el 2026-10-31). Se conserva y se sigue aceptando; tiene su
+    círculo «Combinado» solo si existe alguna. Al «Cambiar» su color se eligen sus tonos reales.
+    El formulario ya no lo genera.
   - Varios colores disponibles = varias variantes, una por color.
   - `[]` = todavía sin clasificar: la variante sigue visible en la tienda, con su texto, y no
     aparece en el filtro por círculos.
@@ -64,8 +69,11 @@ Desde el 2026-10-30, crear un producto y agregar una variante en su ficha usan e
 simple: **Color, Material, SKU y Stock**.
 
 - **Color:** una sola paleta de puntitos con los 18 colores, «Combinado» y, al final, «Otro
-  color…»; se elige **uno** por variante (botones de opción, nunca selección múltiple). Elegir
-  «Combinado» no muestra nada más. «Otro color…» muestra solo el campo «Nombre del color»: se
+  color…»; se elige **una** opción por variante (botones de opción). Elegir «Combinado» muestra
+  una sola fila más, «Tonos de la pieza combinada» (17 tonos: la paleta sin multicolor ni
+  combinado), donde se marcan dos o más en orden; con menos de dos no se puede agregar. No hay
+  combinaciones fijas ni un color nuevo por cada combinación. «Otro color…» muestra solo el campo
+  «Nombre del color»: se
   guarda ese nombre sin tonos (no se crea ningún catálogo ni se inventa una equivalencia; cuenta en
   los círculos solo si encaja en la equivalencia explícita de más arriba).
 - **Accesorios:** la misma paleta suma «Rosado», el único nombre de la lista anterior de
@@ -79,11 +87,12 @@ simple: **Color, Material, SKU y Stock**.
   variantes, cada una con su SKU, material, stock, precio y fotos. Un accesorio no repite colores
   (la API lo rechaza, como antes).
 
-**Nuevo producto** (anteojos y accesorios), sección «Variantes y fotos (opcional)»: «Agregar
-variante» pasa lo cargado a la lista de abajo y vacía el formulario. En cada variante de la lista se
-eligen sus fotos (numeradas por clic) y se puede corregir material, SKU y stock, o quitarla. Un SKU
-repetido en la lista se rechaza; mientras haya una variante a medio cargar, «Crear producto» pide
-agregarla o descartarla, para que no se pierda. Las variantes se crean en un solo pedido atómico
+**Nuevo producto** (anteojos y accesorios; ver [ALTA_PRODUCTOS.md](ALTA_PRODUCTOS.md)), sección
+«Colores, material, SKU y stock»: «Agregar variante» pasa lo cargado a la lista y vacía el
+formulario; las fotos de cada variante se eligen en «Fotografías» (numeradas por clic). En la
+lista se puede corregir material, SKU y stock, o quitarla. Un SKU repetido en la lista se rechaza;
+mientras haya una variante a medio cargar, «Crear producto» pide agregarla o descartarla, para que
+no se pierda. Las variantes se crean en un solo pedido atómico
 (`POST …/variants/batch`, que ahora acepta `material`): si una falla, no se crea ninguna. Sin
 variantes, el producto se crea solo, como antes. Los borradores anteriores (un color de texto,
 piezas combinadas de varios tonos) se abren con sus filas tal cual y el material vacío.
@@ -92,7 +101,8 @@ piezas combinadas de varios tonos) se abren con sus filas tal cual y el material
 color o variante» queda plegado (abierto si todavía no hay ninguna) y guarda con
 `POST …/variants`. En accesorios suma «Presentación» y «Precio propio» (opcionales); una
 presentación puede no tener color. «Cambiar» (color de la paleta de una variante existente) usa la
-misma paleta de un solo color y envía solo `colorTones`.
+misma paleta y envía solo `colorTones`; una pieza de varios tonos abre como «Combinado» con sus
+tonos marcados, y queda igual si no se cambia.
 
 ## Círculos en la tienda
 
