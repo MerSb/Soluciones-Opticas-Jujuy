@@ -133,11 +133,11 @@ describe("ShapeSelect", () => {
   });
 });
 
-describe("new product tabs with official shapes and duplicate warnings", () => {
+describe("new product page with official shapes and duplicate warnings", () => {
   const BRANDS = [{ id: "b1", name: "Marca QA", slug: "marca-qa", deletedAt: null }];
   const CATEGORIES = [{ id: "c1", name: "Anteojos Recetados", slug: "recetados", deletedAt: null }];
 
-  it("each tab keeps its own shape; the saved body carries the official name; duplicates warn without blocking", async () => {
+  it("the saved body carries the official shape; a possible duplicate warns without blocking", async () => {
     const user = userEvent.setup();
     const created: unknown[] = [];
     stub({
@@ -162,41 +162,23 @@ describe("new product tabs with official shapes and duplicate warnings", () => {
       },
     });
     renderWith(<AdminNewProductPage />, "/admin/products/new");
-    const panel = () => screen.getByRole("tabpanel");
 
-    const p1 = within(panel());
-    await user.type(p1.getByLabelText("Nombre"), "Gatito Rosa Metálico");
-    await p1.findByRole("option", { name: "Marca QA" });
-    await user.selectOptions(p1.getByLabelText("Marca"), "b1");
-    await user.selectOptions(p1.getByLabelText("Categoría"), "c1");
-    await user.type(p1.getByLabelText("Precio base (ARS)"), "1000");
-    await user.selectOptions(p1.getByLabelText("Forma"), "Cat-eye");
-    expect(await p1.findByText("Posibles productos ya cargados:")).toBeInTheDocument();
-    expect(p1.getByRole("link", { name: "Gatito Rosa Metálico" })).toHaveAttribute(
+    await user.type(screen.getByLabelText("Nombre"), "Gatito Rosa Metálico");
+    await screen.findByRole("option", { name: "Marca QA" });
+    await user.selectOptions(screen.getByLabelText("Marca"), "b1");
+    await user.selectOptions(screen.getByLabelText("Categoría"), "c1");
+    await user.type(screen.getByLabelText("Precio base (ARS)"), "1000");
+    await user.selectOptions(screen.getByLabelText("Forma"), "Cat-eye");
+    expect(await screen.findByText("Posibles productos ya cargados:")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Gatito Rosa Metálico" })).toHaveAttribute(
       "href",
       "/admin/products/p-old",
     );
-
-    await user.click(screen.getByRole("button", { name: "+ Nuevo producto" }));
-    const p2 = within(panel());
-    expect(p2.getByLabelText("Forma")).toHaveValue("");
-    await user.type(p2.getByLabelText("Nombre"), "Infantil Azul");
-    await p2.findByRole("option", { name: "Marca QA" });
-    await user.selectOptions(p2.getByLabelText("Marca"), "b1");
-    await user.selectOptions(p2.getByLabelText("Categoría"), "c1");
-    await user.type(p2.getByLabelText("Precio base (ARS)"), "900");
-
-    await user.click(screen.getAllByRole("tab")[0]!);
-    expect(within(panel()).getByLabelText("Forma")).toHaveValue("Cat-eye");
     // The warning never blocks: the product is created anyway.
-    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
-    await within(panel()).findByText(/guardado/);
-    await user.click(screen.getAllByRole("tab")[1]!);
-    await user.click(within(panel()).getByRole("button", { name: "Crear producto" }));
-    await within(panel()).findByText(/guardado/);
+    await user.click(screen.getByRole("button", { name: "Crear producto" }));
+    expect(await screen.findByText("Ficha")).toBeInTheDocument();
     expect(created).toEqual([
       expect.objectContaining({ name: "Gatito Rosa Metálico", shape: "Cat-eye" }),
-      expect.objectContaining({ name: "Infantil Azul", shape: null }),
     ]);
   });
 });

@@ -11,54 +11,46 @@ import { FRAME_MATERIAL_OPTIONS } from "../../lib/optical-profile-taxonomy";
 import { useSimilarProductsQuery } from "../../services/queries/admin";
 
 const INPUT =
-  "w-full rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text disabled:opacity-60";
+  "w-full rounded-md border bg-surface-muted px-3 py-2 text-sm text-text disabled:opacity-60";
 
 /**
  * One variant of the new-product form, already added: its color (fixed —
- * another color is another variant), its material, its own SKU and stock
- * (always typed by hand — never generated) and its own photos, numbered by
- * clicking them. The photos stay in this row; the form reads them through
- * `onPhotos` when saving.
+ * another color is another variant), its material, and its own SKU and
+ * stock (always typed by hand — never generated). Its photos are chosen in
+ * the photos section (DraftVariantPhotos). `errors` come from the form's
+ * check on «Crear producto», shown next to their field.
  */
 export function DraftVariantRow({
   variant,
   heading,
   editable,
-  photosDisabled,
   onChange,
   onRemove,
-  onPhotos,
-  firstIsPrimary,
-  existingCount,
-  locked,
-  statuses,
   skuRepeated,
+  errors = {},
 }: {
   variant: DraftVariant;
   heading: string;
   /** Material, SKU and stock can still change (the variant isn't created yet). */
   editable: boolean;
-  photosDisabled: boolean;
   onChange: (patch: Partial<DraftVariant>) => void;
   onRemove?: () => void;
-  onPhotos: (key: string, photos: PhotoCandidate[], candidates: number) => void;
-  firstIsPrimary: boolean;
-  existingCount: number;
-  locked: ReadonlySet<string>;
-  statuses: Readonly<Record<string, PhotoUploadStatus>>;
   skuRepeated: boolean;
+  errors?: { sku?: string; stock?: string };
 }) {
   const id = useId();
-  const sequence = usePhotoSequence();
-  const { selected, candidates } = sequence;
-  useEffect(() => {
-    onPhotos(variant.key, selected, candidates.length);
-    // onPhotos is stable (a ref-backed callback of the form).
-  }, [variant.key, selected, candidates.length]);
-
   const similar = useSimilarProductsQuery("", editable ? variant.sku : "");
   const sameSku = (similar.data ?? []).filter((p) => p.reason === "SAME_SKU");
   const stockInvalid = variant.stock.trim() !== "" && !/^\d+$/.test(variant.stock.trim());
+  const skuError =
+    errors.sku ??
+    (skuRepeated
+      ? "SKU repetido en la lista."
+      : sameSku.length > 0
+        ? `Ya existe en «${sameSku[0]!.name}»: usá otro código.`
+        : undefined);
+  const stockError =
+    errors.stock ?? (stockInvalid ? "Ingresá un número entero, 0 o más." : undefined);
 
   return (
     <section
@@ -92,7 +84,7 @@ export function DraftVariantRow({
             maxLength={200}
             disabled={!editable}
             onChange={(event) => onChange({ material: event.target.value })}
-            className={INPUT}
+            className={`${INPUT} border-border`}
           />
           <datalist id={`${id}-materials`}>
             {FRAME_MATERIAL_OPTIONS.map((option) => (
@@ -100,7 +92,7 @@ export function DraftVariantRow({
             ))}
           </datalist>
         </div>
-        <div>
+        <div data-field={`${variant.key}-sku`}>
           <label htmlFor={`${id}-sku`} className="mb-1 block text-xs font-medium text-text">
             SKU
           </label>
@@ -110,17 +102,17 @@ export function DraftVariantRow({
             maxLength={100}
             disabled={!editable}
             onChange={(event) => onChange({ sku: event.target.value })}
-            aria-invalid={skuRepeated}
-            className={INPUT}
+            aria-invalid={Boolean(skuError)}
+            aria-describedby={skuError ? `${id}-sku-error` : undefined}
+            className={`${INPUT} ${skuError ? "border-danger" : "border-border"}`}
           />
-          {skuRepeated && <p className="mt-0.5 text-xs text-danger">SKU repetido en la lista.</p>}
-          {!skuRepeated && sameSku.length > 0 && (
-            <p className="mt-0.5 text-xs text-danger">
-              Ya existe en «{sameSku[0]!.name}»: usá otro código.
+          {skuError && (
+            <p id={`${id}-sku-error`} className="mt-0.5 text-xs text-danger">
+              {skuError}
             </p>
           )}
         </div>
-        <div>
+        <div data-field={`${variant.key}-stock`}>
           <label htmlFor={`${id}-stock`} className="mb-1 block text-xs font-medium text-text">
             Stock
           </label>
@@ -133,25 +125,70 @@ export function DraftVariantRow({
             value={variant.stock}
             disabled={!editable}
             onChange={(event) => onChange({ stock: event.target.value })}
-            aria-invalid={stockInvalid}
-            className={INPUT}
+            aria-invalid={Boolean(stockError)}
+            aria-describedby={stockError ? `${id}-stock-error` : undefined}
+            className={`${INPUT} ${stockError ? "border-danger" : "border-border"}`}
           />
-          {stockInvalid && (
-            <p className="mt-0.5 text-xs text-danger">Ingresá un número entero, 0 o más.</p>
+          {stockError && (
+            <p id={`${id}-stock-error`} className="mt-0.5 text-xs text-danger">
+              {stockError}
+            </p>
           )}
         </div>
       </div>
-      <div>
-        <p className="mb-1.5 text-xs font-medium text-text">Fotos de {variant.name || heading}</p>
-        <PhotoSequencePicker
-          sequence={sequence}
-          firstIsPrimary={firstIsPrimary}
-          existingCount={existingCount}
-          disabled={photosDisabled}
-          locked={locked}
-          statuses={statuses}
-        />
-      </div>
+    </section>
+  );
+}
+
+/**
+ * The photos of one variant, numbered by clicking them (the first is the
+ * primary one). They stay here while the form is open; the form reads them
+ * through `onPhotos` when saving.
+ */
+export function DraftVariantPhotos({
+  variant,
+  heading,
+  disabled,
+  onPhotos,
+  firstIsPrimary,
+  existingCount,
+  locked,
+  statuses,
+}: {
+  variant: DraftVariant;
+  heading: string;
+  disabled: boolean;
+  onPhotos: (key: string, photos: PhotoCandidate[], candidates: number) => void;
+  firstIsPrimary: boolean;
+  existingCount: number;
+  locked: ReadonlySet<string>;
+  statuses: Readonly<Record<string, PhotoUploadStatus>>;
+}) {
+  const id = useId();
+  const sequence = usePhotoSequence();
+  const { selected, candidates } = sequence;
+  useEffect(() => {
+    onPhotos(variant.key, selected, candidates.length);
+    // onPhotos is stable (a ref-backed callback of the form).
+  }, [variant.key, selected, candidates.length]);
+
+  return (
+    <section
+      aria-labelledby={`${id}-title`}
+      className="space-y-2 rounded-md border border-border bg-surface p-3"
+    >
+      <h4 id={`${id}-title`} className="flex items-center gap-2 text-sm font-semibold text-text">
+        {variant.tones.length > 0 && <ColorToneDot tones={variant.tones} />}
+        Fotos de {heading}
+      </h4>
+      <PhotoSequencePicker
+        sequence={sequence}
+        firstIsPrimary={firstIsPrimary}
+        existingCount={existingCount}
+        disabled={disabled}
+        locked={locked}
+        statuses={statuses}
+      />
     </section>
   );
 }

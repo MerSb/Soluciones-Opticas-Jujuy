@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import type { AccessoryRole, StylePreference } from "@soluciones-opticas/shared";
 import { SeoHead } from "../../components/ui/SeoHead";
 import { StatusMessage } from "../../components/ui/StatusMessage";
@@ -28,6 +28,7 @@ import {
 } from "../../services/queries/admin";
 import { AdminVariantsEditor } from "./AdminVariantsEditor";
 import { AdminProductLensTypesSection } from "./AdminProductLensTypesSection";
+import { LENS_COMPATIBILITY_ENABLED } from "../../lib/features";
 
 interface MeasurementsState {
   lensWidth: string;
@@ -66,6 +67,8 @@ function completenessHelpText(variants: AdminVariantDto[]): string {
 
 export function AdminProductDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // Just created on «Nuevo producto»: say so at the top.
+  const created = (useLocation().state as { created?: string | boolean } | null)?.created;
   const { data: product, isLoading, isError } = useAdminProductQuery(id);
   const { data: brands } = useAdminBrandsQuery();
   const { data: categories } = useAdminCategoriesQuery();
@@ -232,6 +235,15 @@ export function AdminProductDetailPage() {
           </button>
         )}
       </div>
+
+      {created && (
+        <p
+          role="status"
+          className="mt-3 rounded-md border border-success/40 bg-success/10 px-4 py-3 text-sm text-text"
+        >
+          ✓ Producto creado. Acá podés revisar sus datos, variantes y fotos.
+        </p>
+      )}
 
       {!product.deletedAt && !product.isComplete && (
         <p className="mt-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-text">
@@ -444,7 +456,7 @@ export function AdminProductDetailPage() {
         />
       </div>
 
-      {!isAccessory && (
+      {!isAccessory && LENS_COMPATIBILITY_ENABLED && (
         <div className="mt-12">
           <AdminProductLensTypesSection product={product} />
         </div>

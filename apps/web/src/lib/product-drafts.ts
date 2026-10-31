@@ -1,10 +1,17 @@
-import type { AccessoryRole, ColorTone, ProductKind } from "@soluciones-opticas/shared";
+import type {
+  AccessoryRole,
+  ColorTone,
+  ProductKind,
+  StylePreference,
+} from "@soluciones-opticas/shared";
 import { parseTone } from "./color-tones";
 
-// Drafts of the multi-tab "new product" page. Only text fields are kept
-// in localStorage (per browser), so a reload does not lose what was typed;
+// Drafts of the "new product" page. Only text fields are kept in
+// localStorage (per browser), so a reload does not lose what was typed;
 // photo files are never stored — after a reload they must be chosen again.
-// A draft is removed as soon as its product is saved or its tab closed.
+// A draft is removed as soon as its product is saved or it is discarded.
+// The page edits one at a time; drafts left from the former tabs stay
+// stored and can be resumed one by one.
 
 export interface ProductDraftFields {
   kind: ProductKind;
@@ -15,6 +22,10 @@ export interface ProductDraftFields {
   basePrice: string;
   accessoryRole: AccessoryRole | "";
   soldIndividually: boolean;
+  /** Frames only. */
+  styles: StylePreference[];
+  /** Frames only, in mm as typed ("" = not given). */
+  measurements: DraftMeasurements;
   /**
    * The variants created with the product (optional; photos belong to a
    * variant). Each one is one piece: one palette color (or «Combinado»),
@@ -24,6 +35,22 @@ export interface ProductDraftFields {
   /** Frames only: compatible lens types (ids from GET /api/admin/lens-types). */
   lensTypeIds: string[];
 }
+
+export interface DraftMeasurements {
+  lensWidth: string;
+  bridgeWidth: string;
+  templeLength: string;
+  lensHeight: string;
+  frameWidth: string;
+}
+
+export const EMPTY_MEASUREMENTS: DraftMeasurements = {
+  lensWidth: "",
+  bridgeWidth: "",
+  templeLength: "",
+  lensHeight: "",
+  frameWidth: "",
+};
 
 /** One variant to create: its palette color in `tones` (drafts saved
  * before the one-color form may hold several tones, or none for a color
@@ -69,6 +96,8 @@ export function emptyFields(kind: ProductKind = "FRAME"): ProductDraftFields {
     basePrice: "",
     accessoryRole: "",
     soldIndividually: true,
+    styles: [],
+    measurements: { ...EMPTY_MEASUREMENTS },
     variants: [],
     lensTypeIds: [],
   };
@@ -107,8 +136,12 @@ export function hasPendingChanges(fields: ProductDraftFields, photoCount: number
     photoCount > 0 ||
     fields.variants.length > 0 ||
     fields.lensTypeIds.length > 0 ||
+    fields.styles.length > 0 ||
+    Object.values(fields.measurements).some((value) => value.trim() !== "") ||
     (Object.keys(empty) as (keyof ProductDraftFields)[]).some(
-      (key) => !["kind", "variants", "lensTypeIds"].includes(key) && fields[key] !== empty[key],
+      (key) =>
+        !["kind", "variants", "lensTypeIds", "styles", "measurements"].includes(key) &&
+        fields[key] !== empty[key],
     )
   );
 }
@@ -135,6 +168,8 @@ function upgradeFields(fields: ProductDraftFields & OldDraftShape): ProductDraft
   } = fields;
   const base = { ...emptyFields(fields.kind), ...rest };
   if (!Array.isArray(base.lensTypeIds)) base.lensTypeIds = [];
+  if (!Array.isArray(base.styles)) base.styles = [];
+  base.measurements = { ...EMPTY_MEASUREMENTS, ...(base.measurements ?? {}) };
   if (Array.isArray(fields.variants)) {
     return {
       ...base,

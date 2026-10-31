@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Container } from "../../components/ui/Container";
 import { useCurrentUserQuery, useLogoutMutation } from "../../services/queries/auth";
 
@@ -19,6 +20,16 @@ export function AdminLayout() {
   const { data: user } = useCurrentUserQuery();
   const navigate = useNavigate();
   const logout = useLogoutMutation();
+  // Another admin page opens at its top, never at the scroll of the
+  // previous one (after «Crear producto» it landed on the measurements).
+  const { pathname } = useLocation();
+  useEffect(() => {
+    try {
+      window.scrollTo({ top: 0 });
+    } catch {
+      // Not available (tests): nothing to scroll.
+    }
+  }, [pathname]);
 
   function handleLogout() {
     logout.mutate(undefined, { onSuccess: () => navigate("/", { replace: true }) });

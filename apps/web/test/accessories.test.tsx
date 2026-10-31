@@ -259,7 +259,11 @@ describe("admin — new product", () => {
     await userEvent.selectOptions(screen.getByLabelText("Categoría"), "c1");
     await userEvent.type(screen.getByLabelText("Precio (ARS)"), "3000");
     const submit = screen.getByRole("button", { name: "Crear accesorio" });
-    expect(submit).toBeDisabled(); // type still missing
+    // Type still missing: said next to it, and nothing is created.
+    await userEvent.click(submit);
+    expect(await screen.findByText("Elegí el tipo de accesorio.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tipo de accesorio")).toHaveFocus();
+    expect(onCreate).not.toHaveBeenCalled();
 
     await userEvent.selectOptions(screen.getByLabelText("Tipo de accesorio"), "CASE");
     await userEvent.click(submit);
