@@ -1,5 +1,5 @@
 import type { ProductVariantDto } from "@soluciones-opticas/shared";
-import { buildCloudinaryUrl } from "../../lib/cloudinary";
+import { THUMBNAIL_WIDTH, buildCloudinaryUrl } from "../../lib/cloudinary";
 import { getSwatchColor } from "../../lib/color-swatches";
 import { ColorToneDot } from "./ColorToneDot";
 
@@ -58,7 +58,9 @@ export function VariantSelector({
           const repeated = total(name) > 1;
           const photo = variant.images.find((image) => image.isPrimary) ?? variant.images[0];
           const thumb =
-            repeated && photo ? buildCloudinaryUrl(photo.publicId, { width: 64 }) : null;
+            repeated && photo
+              ? buildCloudinaryUrl(photo.publicId, { width: THUMBNAIL_WIDTH })
+              : null;
           return (
             <button
               key={variant.id}

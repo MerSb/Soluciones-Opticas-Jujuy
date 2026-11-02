@@ -179,6 +179,23 @@ comprimidas) agotarían el plan solo con almacenamiento.
    en otra variante sin volver a subirla. Las dos requieren cambios de API o de esquema y una
    decisión aparte.
 
+## Etapa 1 implementada (rama `perf/cloudinary-etapa1`, sin publicar)
+
+- `apps/web/src/lib/cloudinary.ts`: una sola escalera de anchos — tarjeta 480/640, foto principal
+  640/1200, miniaturas de la ficha y del admin 160 (`THUMBNAIL_WIDTH`), zoom sin cambios.
+- `VariantSelector`: la foto del selector de colores repetidos usa la misma miniatura de 160.
+- `ProductDetailPage`: el JSON-LD lista solo la foto principal de cada variante (o la primera, si
+  ninguna está marcada), en el mismo 1200 que `og:image`; sin duplicados.
+- Formatos automáticos (`f_auto,q_auto`), `srcset`, `sizes` y carga diferida, iguales.
+
+Medición antes/después con `medir_urls.py` (1280 densidad 2 y 1, 360 densidad 3; ningún pedido llegó
+a Cloudinary): cadenas usadas 7 → 5, **ninguna nueva** (se dejan de pedir `w_128` y `w_800`),
+cadenas por foto 2,24 → 2,03, 0 imágenes rotas
+([`linea-base-urls.json`](cloudinary-transformaciones/linea-base-urls.json),
+[`etapa1-urls.json`](cloudinary-transformaciones/etapa1-urls.json)). Ancho elegido contra ancho
+mostrado × densidad: igual o mejor que antes en todas las vistas (miniaturas del celular de 128 a
+160); la tarjeta en celulares de densidad 3 sigue en 640, como antes.
+
 ## 9. ¿Ampliar el plan?
 
 **Sí, si Roberto va a seguir cargando en noviembre**: la cuenta está por encima del 100 % hasta que

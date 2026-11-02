@@ -1,0 +1,140 @@
+{
+  "total_pedidos": 116,
+  "por_transformacion": {
+    "f_auto,q_auto,w_640": 49,
+    "f_auto,q_auto,w_1200": 6,
+    "f_auto,q_auto,w_160": 36,
+    "f_auto,q_auto,c_limit,w_2000": 2,
+    "f_auto,q_auto,w_480": 23
+  },
+  "por_pagina": {
+    "1280:accesorios": {
+      "pedidos": 7,
+      "fotos": 7,
+      "transformaciones": {
+        "f_auto,q_auto,w_640": 7
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280:admin-ficha": {
+      "pedidos": 6,
+      "fotos": 6,
+      "transformaciones": {
+        "f_auto,q_auto,w_160": 6
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280:catálogo": {
+      "pedidos": 12,
+      "fotos": 12,
+      "transformaciones": {
+        "f_auto,q_auto,w_640": 12
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280:ficha": {
+      "pedidos": 14,
+      "fotos": 10,
+      "transformaciones": {
+        "f_auto,q_auto,w_1200": 3,
+        "f_auto,q_auto,w_160": 6,
+        "f_auto,q_auto,w_640": 4,
+        "f_auto,q_auto,c_limit,w_2000": 1
+      },
+      "max_variantes_por_foto": 3
+    },
+    "1280x1:accesorios": {
+      "pedidos": 7,
+      "fotos": 7,
+      "transformaciones": {
+        "f_auto,q_auto,w_480": 7
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:admin-ficha": {
+      "pedidos": 6,
+      "fotos": 6,
+      "transformaciones": {
+        "f_auto,q_auto,w_160": 6
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:catálogo": {
+      "pedidos": 12,
+      "fotos": 12,
+      "transformaciones": {
+        "f_auto,q_auto,w_480": 12
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:ficha": {
+      "pedidos": 14,
+      "fotos": 10,
+      "transformaciones": {
+        "f_auto,q_auto,w_640": 3,
+        "f_auto,q_auto,w_160": 6,
+        "f_auto,q_auto,w_480": 4,
+        "f_auto,q_auto,c_limit,w_2000": 1
+      },
+      "max_variantes_por_foto": 3
+    },
+    "360:accesorios": {
+      "pedidos": 7,
+      "fotos": 7,
+      "transformaciones": {
+        "f_auto,q_auto,w_640": 7
+      },
+      "max_variantes_por_foto": 1
+    },
+    "360:admin-ficha": {
+      "pedidos": 6,
+      "fotos": 6,
+      "transformaciones": {
+        "f_auto,q_auto,w_160": 6
+      },
+      "max_variantes_por_foto": 1
+    },
+    "360:catálogo": {
+      "pedidos": 12,
+      "fotos": 12,
+      "transformaciones": {
+        "f_auto,q_auto,w_640": 12
+      },
+      "max_variantes_por_foto": 1
+    },
+    "360:ficha": {
+      "pedidos": 13,
+      "fotos": 10,
+      "transformaciones": {
+        "f_auto,q_auto,w_1200": 3,
+        "f_auto,q_auto,w_160": 6,
+        "f_auto,q_auto,w_640": 4
+      },
+      "max_variantes_por_foto": 2
+    }
+  },
+  "rotas": {
+    "1280:catálogo": 0,
+    "1280:ficha": 0,
+    "1280:accesorios": 0,
+    "1280:admin-ficha": 0,
+    "1280x1:catálogo": 0,
+    "1280x1:ficha": 0,
+    "1280x1:accesorios": 0,
+    "1280x1:admin-ficha": 0,
+    "360:catálogo": 0,
+    "360:ficha": 0,
+    "360:accesorios": 0,
+    "360:admin-ficha": 0
+  },
+  "no_GET_bloqueados": [],
+  "cadenas_distintas": [
+    "f_auto,q_auto,c_limit,w_2000",
+    "f_auto,q_auto,w_1200",
+    "f_auto,q_auto,w_160",
+    "f_auto,q_auto,w_480",
+    "f_auto,q_auto,w_640"
+  ],
+  "fotos_distintas": 29,
+  "cadenas_por_foto_promedio": 2.03
+}

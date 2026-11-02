@@ -41,14 +41,24 @@ export function buildCloudinarySrcSet(publicId: string, widths: readonly number[
     .join(", ");
 }
 
-// Named per rendering context (§15) rather than one global size — a
-// catalog grid card, a product-detail hero image, and an admin
-// thumbnail have genuinely different real display sizes.
+// Named per rendering context (§15), but sharing ONE short ladder of
+// widths — 160, 480, 640, 1200 (+ the zoom) — because every distinct
+// width × format a browser asks for is a derived asset Cloudinary
+// generates and counts (docs/audits/cloudinary-transformaciones.md).
+// Every width here already existed before the ladder was cut down, so
+// no photo gets a new derived just because its URL changed. Do not add
+// a width without measuring it (medir_urls.py): a new one is generated
+// again for every photo.
+export const THUMBNAIL_WIDTH = 160;
+
 export const CLOUDINARY_WIDTHS = {
-  card: [320, 480, 640] as const,
-  detailMain: [480, 800, 1200] as const,
-  detailThumbnail: [64, 128] as const,
-  adminThumbnail: [96, 160] as const,
+  card: [480, 640] as const,
+  // The main photo reuses the card's 640 (it is the same photo).
+  detailMain: [640, 1200] as const,
+  // Product-page thumbnails, the repeated-color selector and the admin
+  // share one width: the admin already generated it for nearly every photo.
+  detailThumbnail: [THUMBNAIL_WIDTH] as const,
+  adminThumbnail: [THUMBNAIL_WIDTH] as const,
 };
 
 // Zoom (product detail lens and enlarged view): the largest image the

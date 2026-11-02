@@ -75,7 +75,9 @@ with sync_playwright() as p:
                                   "isPrimary": im.get("isPrimary", False), "createdAt": T} for k, im in enumerate(v["images"])]}
                      for i, v in enumerate(detail["variants"])],
         "isComplete": True, "lensTypes": [], "deletedAt": None, "createdAt": T, "updatedAt": T})
-    for label, vp, dpr, mobile in (("1280", {"width": 1280, "height": 900}, 2, False), ("360", {"width": 360, "height": 780}, 3, True)):
+    for label, vp, dpr, mobile in (("1280", {"width": 1280, "height": 900}, 2, False),
+                                   ("1280x1", {"width": 1280, "height": 900}, 1, False),
+                                   ("360", {"width": 360, "height": 780}, 3, True)):
         ctx = b.new_context(viewport=vp, device_scale_factor=dpr, is_mobile=mobile)
         ctx.route(f"{FAKE}/**", api); ctx.route("https://res.cloudinary.com/**", cloudinary)
         pg = ctx.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))

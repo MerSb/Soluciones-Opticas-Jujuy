@@ -174,14 +174,16 @@ export function ProductDetailPage() {
         },
         { label: product.name },
       ];
-  // Structured data: the product's real photos (primary first), price and
-  // availability — never ratings or invented facts (lib/seo.ts).
+  // Structured data: the real main photo of each variant (not every
+  // gallery photo: crawlers fetch each URL listed, and each one is a
+  // Cloudinary transformation nobody sees), price and availability —
+  // never ratings or invented facts (lib/seo.ts). Same 1200 URL as
+  // og:image and the main photo, so it is a derived that already exists.
   const productImageUrls = product.variants
-    .flatMap((variant) =>
-      [...variant.images].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)),
-    )
+    .map((variant) => variant.images.find((image) => image.isPrimary) ?? variant.images[0])
+    .filter((image): image is NonNullable<typeof image> => Boolean(image))
     .map((image) => buildCloudinaryUrl(image.publicId, { width: 1200 }))
-    .filter((url): url is string => Boolean(url));
+    .filter((url, index, all): url is string => Boolean(url) && all.indexOf(url) === index);
 
   return (
     <>

@@ -1,11 +1,13 @@
 {
-  "total_pedidos": 77,
+  "total_pedidos": 116,
   "por_transformacion": {
     "f_auto,q_auto,w_640": 46,
     "f_auto,q_auto,w_1200": 6,
-    "f_auto,q_auto,w_128": 12,
-    "f_auto,q_auto,c_limit,w_2000": 1,
-    "f_auto,q_auto,w_160": 12
+    "f_auto,q_auto,w_128": 18,
+    "f_auto,q_auto,c_limit,w_2000": 2,
+    "f_auto,q_auto,w_160": 18,
+    "f_auto,q_auto,w_480": 23,
+    "f_auto,q_auto,w_800": 3
   },
   "por_pagina": {
     "1280:accesorios": {
@@ -39,6 +41,41 @@
         "f_auto,q_auto,w_1200": 3,
         "f_auto,q_auto,w_128": 6,
         "f_auto,q_auto,w_640": 4,
+        "f_auto,q_auto,c_limit,w_2000": 1
+      },
+      "max_variantes_por_foto": 3
+    },
+    "1280x1:accesorios": {
+      "pedidos": 7,
+      "fotos": 7,
+      "transformaciones": {
+        "f_auto,q_auto,w_480": 7
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:admin-ficha": {
+      "pedidos": 6,
+      "fotos": 6,
+      "transformaciones": {
+        "f_auto,q_auto,w_160": 6
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:catálogo": {
+      "pedidos": 12,
+      "fotos": 12,
+      "transformaciones": {
+        "f_auto,q_auto,w_480": 12
+      },
+      "max_variantes_por_foto": 1
+    },
+    "1280x1:ficha": {
+      "pedidos": 14,
+      "fotos": 10,
+      "transformaciones": {
+        "f_auto,q_auto,w_800": 3,
+        "f_auto,q_auto,w_128": 6,
+        "f_auto,q_auto,w_480": 4,
         "f_auto,q_auto,c_limit,w_2000": 1
       },
       "max_variantes_por_foto": 3
@@ -83,6 +120,10 @@
     "1280:ficha": 0,
     "1280:accesorios": 0,
     "1280:admin-ficha": 0,
+    "1280x1:catálogo": 0,
+    "1280x1:ficha": 0,
+    "1280x1:accesorios": 0,
+    "1280x1:admin-ficha": 0,
     "360:catálogo": 0,
     "360:ficha": 0,
     "360:accesorios": 0,
@@ -94,8 +135,10 @@
     "f_auto,q_auto,w_1200",
     "f_auto,q_auto,w_128",
     "f_auto,q_auto,w_160",
-    "f_auto,q_auto,w_640"
+    "f_auto,q_auto,w_480",
+    "f_auto,q_auto,w_640",
+    "f_auto,q_auto,w_800"
   ],
   "fotos_distintas": 29,
-  "cadenas_por_foto_promedio": 1.34
+  "cadenas_por_foto_promedio": 2.24
 }
