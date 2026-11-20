@@ -1,7 +1,8 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
   EyewearConfigurationInput,
   EyewearConfigurationQuote,
+  GraduationMode,
   PublicLensTypeDto,
 } from "@soluciones-opticas/shared";
 import { prisma } from "../lib/prisma.js";
@@ -87,30 +88,60 @@ export function toPublicLensTypeDto(row: PublicLensTypeRow): PublicLensTypeDto {
   };
 }
 
+/** A configuration resolved against the database, money still in
+ * Decimal — what checkout snapshots into an OrderItem. Carries the ids
+ * the quote DTO hides (product id) so order creation never re-reads. */
+export interface ResolvedEyewearConfiguration {
+  product: { id: string; name: string; slug: string };
+  variant: {
+    id: string;
+    sku: string;
+    color: string | null;
+    material: string | null;
+    stock: number;
+  };
+  lens: {
+    lensTypeId: string;
+    lensTypeName: string;
+    lensOptionId: string | null;
+    lensOptionName: string | null;
+    treatments: string[];
+  } | null;
+  graduation: { mode: GraduationMode; requiresOpticalConsultation: boolean };
+  framePrice: Prisma.Decimal;
+  /** 0 when lens is null. */
+  lensPrice: Prisma.Decimal;
+  total: Prisma.Decimal;
+}
+
 // The single source of truth for "what is this customer buying and how
-// much does it cost" — the quote endpoint uses it today; the future
-// cart/checkout/Mercado Pago preference must call it too, never trust a
-// price or a compatibility claim from the client. Every rule below is
+// much does it cost" — the quote endpoint (resolveEyewearConfiguration)
+// and order creation (order.service.ts) both go through it; never trust
+// a price or a compatibility claim from the client. Every rule below is
 // checked against the database, in this order:
 //   product public & complete → variant belongs to product →
 //   lens null ⇒ graduation NONE → lens type compatible & not deleted →
 //   option required iff the type has active options, and must belong
 //   to it and be available → CUSTOM only if the type supports it.
-// Frame stock is reported (frame.inStock), not enforced: a complete
+// Frame stock is reported (variant.stock), not enforced: a complete
 // product with stock 0 stays public, per Real Catalog Readiness, and
-// lens availability is independent of it.
-export async function resolveEyewearConfiguration(
+// lens availability is independent of it. Checkout enforces stock with
+// its own atomic reservation (order.service.ts), never with this read.
+export async function resolveEyewearConfigurationDetails(
   slug: string,
   input: EyewearConfigurationInput,
-): Promise<EyewearConfigurationQuote> {
+  /** Checkout passes its transaction to re-resolve right before it
+   * reserves stock (order.service.ts); everyone else reads directly. */
+  db: Prisma.TransactionClient = prisma,
+): Promise<ResolvedEyewearConfiguration> {
   // ADR-0028: only frames take lenses — an accessory 404s like an unknown slug.
-  const product = await prisma.product.findFirst({
+  const product = await db.product.findFirst({
     where: { slug, deletedAt: null, ...COMPLETE_PRODUCT_WHERE, ...FRAME_WHERE },
     select: { id: true, name: true, slug: true, basePrice: true },
   });
   if (!product) throw ApiError.notFound(`No product found with slug "${slug}".`);
 
-  const variant = await prisma.productVariant.findFirst({
+  const variant = await db.productVariant.findFirst({
     where: { id: input.variantId, productId: product.id },
     select: { id: true, sku: true, color: true, material: true, stock: true, priceOverride: true },
   });
@@ -120,15 +151,15 @@ export async function resolveEyewearConfiguration(
 
   const framePrice = variant.priceOverride ?? product.basePrice;
   const base = {
-    product: { name: product.name, slug: product.slug },
-    frame: {
-      variantId: variant.id,
+    product: { id: product.id, name: product.name, slug: product.slug },
+    variant: {
+      id: variant.id,
       sku: variant.sku,
       color: variant.color,
       material: variant.material,
-      inStock: variant.stock > 0,
+      stock: variant.stock,
     },
-    framePrice: framePrice.toNumber(),
+    framePrice,
   };
 
   if (!input.lens) {
@@ -139,13 +170,13 @@ export async function resolveEyewearConfiguration(
       ...base,
       lens: null,
       graduation: { mode: "NONE", requiresOpticalConsultation: false },
-      lensPrice: 0,
-      total: configurationTotal(framePrice, null).toNumber(),
+      lensPrice: new Prisma.Decimal(0),
+      total: configurationTotal(framePrice, null),
     };
   }
 
   const { lensTypeId, lensOptionId } = input.lens;
-  const compatibility = await prisma.productLensType.findUnique({
+  const compatibility = await db.productLensType.findUnique({
     where: { productId_lensTypeId: { productId: product.id, lensTypeId } },
     select: {
       lensType: {
@@ -201,7 +232,31 @@ export async function resolveEyewearConfiguration(
       mode: input.graduationMode,
       requiresOpticalConsultation: input.graduationMode === "CUSTOM",
     },
-    lensPrice: lensPrice.toNumber(),
-    total: configurationTotal(framePrice, lensPrice).toNumber(),
+    lensPrice,
+    total: configurationTotal(framePrice, lensPrice),
+  };
+}
+
+/** GET /api/products/:slug/quote — the public DTO of the same resolution;
+ * Decimal → number only here, when serializing. */
+export async function resolveEyewearConfiguration(
+  slug: string,
+  input: EyewearConfigurationInput,
+): Promise<EyewearConfigurationQuote> {
+  const resolved = await resolveEyewearConfigurationDetails(slug, input);
+  return {
+    product: { name: resolved.product.name, slug: resolved.product.slug },
+    frame: {
+      variantId: resolved.variant.id,
+      sku: resolved.variant.sku,
+      color: resolved.variant.color,
+      material: resolved.variant.material,
+      inStock: resolved.variant.stock > 0,
+    },
+    lens: resolved.lens,
+    graduation: resolved.graduation,
+    framePrice: resolved.framePrice.toNumber(),
+    lensPrice: resolved.lensPrice.toNumber(),
+    total: resolved.total.toNumber(),
   };
 }

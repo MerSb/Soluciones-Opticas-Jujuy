@@ -8,6 +8,7 @@ import type {
 import { apiGet, apiPost, ApiClientError } from "../api-client";
 import { favoritesQueryKey } from "./favorites";
 import { recommendationsQueryKey } from "./recommendations";
+import { accountOrdersQueryKey } from "./orders";
 
 // Stable, shared key — represents "who is currently signed in," read by
 // the Header, ProtectedRoute, and the favorite button alike, so there is
@@ -94,6 +95,8 @@ export function useLogoutMutation() {
       // person to sign in on this device.
       queryClient.removeQueries({ queryKey: favoritesQueryKey });
       queryClient.removeQueries({ queryKey: recommendationsQueryKey });
+      // The previous account's orders are personal data too.
+      queryClient.removeQueries({ queryKey: accountOrdersQueryKey });
     },
   });
 }

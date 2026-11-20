@@ -48,6 +48,39 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
   // The public storefront domain — the base of every URL in /sitemap.xml.
   PUBLIC_SITE_URL: z.string().url().default("https://www.solucionesopticas.com.ar"),
+  // Mercado Pago (ADR-0026) — optional like Cloudinary: the whole app
+  // (tests, local dev, a staging deploy before the provider is set up)
+  // runs without it; only payment initiation answers 503
+  // PAYMENT_PROVIDER_NOT_CONFIGURED. Backend-only private credential —
+  // never sent to the frontend, never logged. Use a TEST credential
+  // anywhere that is not production.
+  MERCADOPAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+  // Secret signature of the Mercado Pago webhook (Your integrations →
+  // Webhooks). Optional at startup; without it no notification can be
+  // authenticated, so the webhook answers 503 and processes nothing.
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Public origin of the web app (e.g. the Vercel URL), used to build the
+  // Checkout Pro return URLs. Payments stay unconfigured without it.
+  PUBLIC_WEB_URL: z
+    .string()
+    .url()
+    .transform((value) => value.replace(/\/+$/, ""))
+    .optional(),
+  // Electronic invoicing (ADR-0036). "off" by default; "mock" simulates
+  // ARCA; "homologacion" talks to ARCA's test services. Production is not
+  // an accepted value on purpose. The certificate and key are files outside
+  // the repository — never their contents in an env var or the database.
+  ARCA_MODE: z.enum(["off", "mock", "homologacion"]).default("off"),
+  ARCA_CERT_PATH: z.string().min(1).optional(),
+  ARCA_KEY_PATH: z.string().min(1).optional(),
+  ARCA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  // Sending invoices to buyers: "off" (default) or "mock". No real email
+  // provider is chosen yet — that adapter comes with its own variables.
+  INVOICE_EMAIL_MODE: z.enum(["off", "mock"]).default("off"),
+  // Lenses are not charged online until the shop decides so (prices,
+  // prescriptions): "off" (default) refuses checkout lines with lenses —
+  // the product page offers WhatsApp for them instead.
+  ONLINE_LENS_SALES: z.enum(["off", "on"]).default("off"),
 });
 
 export const env = envSchema

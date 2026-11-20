@@ -138,6 +138,8 @@ export interface CategorySummary {
 }
 
 export interface BranchSummary {
+  /** Needed by checkout to pick a pickup branch (Payments V1). */
+  id: string;
   name: string;
   address: string;
   phone: string | null;

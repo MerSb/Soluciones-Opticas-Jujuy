@@ -297,7 +297,10 @@ describe("Vercel routing (real 404s instead of a catch-all)", () => {
     expect(vercel.cleanUrls).toBe(true);
   });
 
-  const PRIVATE = /^\/(login|register|account|admin)(\/|$)/;
+  // Private = noindex shell: sign-in, account and admin, plus the online
+  // checkout (cart, checkout, order and payment return, invoice download),
+  // which shows the buyer's personal data.
+  const PRIVATE = /^\/(login|register|account|admin|cart|checkout|order|factura)(\/|$)/;
   const toPattern = (source: string) =>
     new RegExp("^" + source.replace(/:\w+\*/g, ".*").replace(/:\w+/g, "[^/]+") + "$");
   const rewriteFor = (path: string) =>

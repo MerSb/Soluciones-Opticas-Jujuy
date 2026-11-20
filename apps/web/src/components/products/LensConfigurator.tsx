@@ -15,7 +15,8 @@ import { ApiClientError } from "../../services/api-client";
 // only when the product has at least one compatible lens type. Selection
 // state lives in the page (it also feeds the WhatsApp message); every
 // price in the breakdown comes from the backend quote, never computed
-// here. No cart, no checkout: the page's CTA stays WhatsApp.
+// here. AddToCartSection reads the same selection and quote to add the
+// configured product to the cart; WhatsApp stays as the secondary CTA.
 
 interface LensConfiguratorProps {
   slug: string;

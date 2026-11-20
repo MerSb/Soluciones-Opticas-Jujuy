@@ -9,6 +9,7 @@ interface AccountNavItem {
 
 const NAV_ITEMS: AccountNavItem[] = [
   { to: "/account/profile", label: "Mi perfil" },
+  { to: "/account/orders", label: "Mis pedidos" },
   { to: "/account/favorites", label: "Mis favoritos" },
   { to: "/account/optical-profile", label: "Mis medidas y preferencias" },
   { to: "/account/recommendations", label: "Para vos" },

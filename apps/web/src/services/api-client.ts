@@ -106,8 +106,11 @@ async function request<T>(
 export function apiGet<T>(
   path: string,
   searchParams?: Record<string, string | number | undefined>,
+  /** Extra request headers — e.g. the guest order token, which must
+   * travel in a header, never in the URL (docs/PAYMENTS.md). */
+  headers?: Record<string, string>,
 ): Promise<T> {
-  return request<T>(path, { method: "GET" }, searchParams);
+  return request<T>(path, { method: "GET", headers }, searchParams);
 }
 
 // Always sends Content-Type: application/json, even for a bodyless POST
@@ -117,12 +120,35 @@ export function apiGet<T>(
 // can never set this content type, so requiring it on every POST,
 // including ones with nothing to validate, closes that gap for good
 // instead of endpoint-by-endpoint.
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(
+  path: string,
+  body?: unknown,
+  /** Extra headers (e.g. the guest order token — never in the URL). */
+  headers?: Record<string, string>,
+): Promise<T> {
   return request<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
+}
+
+// Files (e.g. an invoice PDF): same credentials and error shape as
+// request(), without the JSON parsing. One silent refresh on 401, too.
+export async function apiGetBlob(
+  path: string,
+  extraHeaders?: Record<string, string>,
+  allowRefresh = true,
+): Promise<Blob> {
+  const response = await fetch(new URL(path, env.apiBaseUrl), {
+    credentials: "include",
+    headers: extraHeaders,
+  });
+  if (response.status === 401 && allowRefresh && (await refreshSession())) {
+    return apiGetBlob(path, extraHeaders, false);
+  }
+  if (!response.ok) throw await toApiClientError(response);
+  return response.blob();
 }
 
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {

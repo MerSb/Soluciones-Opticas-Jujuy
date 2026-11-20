@@ -100,14 +100,15 @@ model Product {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  brand     Brand             @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  category  Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  variants  ProductVariant[]
-  favorites Favorite[]
+  brand      Brand             @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category   Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants   ProductVariant[]
+  favorites  Favorite[]
+  orderItems OrderItem[]
   /// Lens types this frame may be configured with (ADR-0023). Empty for
   /// every product that predates the lens catalog — those keep behaving
   /// exactly as before.
-  lensTypes ProductLensType[]
+  lensTypes  ProductLensType[]
 
   @@index([brandId])
   @@index([categoryId])
@@ -149,8 +150,11 @@ model ProductVariant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  product Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  images  ProductImage[]
+  product    Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images     ProductImage[]
+  /// Hard delete (ADR-0021): sold lines keep their snapshot and lose
+  /// only the link, never the history.
+  orderItems OrderItem[]
 
   @@index([productId])
   @@index([colorTones], type: Gin)
@@ -219,6 +223,7 @@ model LensType {
   options    LensOption[]
   treatments LensTypeTreatment[]
   products   ProductLensType[]
+  orderItems OrderItem[]
 
   @@map("lens_types")
 }
@@ -248,7 +253,8 @@ model LensOption {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  lensType LensType @relation(fields: [lensTypeId], references: [id], onDelete: Cascade)
+  lensType   LensType    @relation(fields: [lensTypeId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
 
   @@unique([lensTypeId, slug])
   @@index([lensTypeId])
@@ -323,6 +329,10 @@ model Branch {
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
+
+  /// Pickup orders snapshot the branch name/address too, so this link
+  /// going null never loses the pickup point a customer was given.
+  pickupOrders Order[]
 
   @@map("branches")
 }
@@ -403,9 +413,339 @@ model ShippingQuoteLog {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  orders Order[]
+
   @@index([createdAt])
   @@index([destinationProvinceCode])
   @@map("shipping_quotes")
+}
+
+// Payments V1 — Phase A: the transactional order domain (ADR-0025,
+// docs/PAYMENTS.md). No Cart/CartItem on purpose: the cart is frontend
+// state and an Order is born only when checkout is confirmed, with every
+// price and every stock check redone server-side.
+//
+// Two rules shape almost every column below:
+//   1. An order is history. Catalog rows keep changing (and a
+//      ProductVariant is a hard delete, ADR-0021), so every fact a
+//      customer bought is snapshotted here and every catalog FK is
+//      nullable with onDelete: SetNull — the order survives the catalog.
+//   2. Shipping keeps three separate amounts (ADR-0024): what the
+//      carrier charges, what the customer pays (0 under
+//      FREE_NATIONAL_V1) and what the business absorbs. Unknown stays
+//      null, never 0.
+//
+// No clinical data: a CUSTOM graduation is a mode plus a flag, the shop
+// coordinates the prescription afterwards (ADR-0023).
+
+enum DeliveryMethod {
+  PICKUP
+  DELIVERY
+}
+
+/// Minimal set Phase A actually needs. Logistics states (SHIPPED,
+/// DELIVERED…) are deliberately absent until there is a fulfilment flow
+/// to drive them.
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  /// Paid, but the reserved stock could not be recovered (a payment
+  /// approved after the reservation expired). Needs a human.
+  PAID_NEEDS_REVIEW
+  CANCELLED
+  EXPIRED
+}
+
+/// Whether the real carrier cost of this order is known. The customer
+/// price is unaffected: it is 0 under FREE_NATIONAL_V1 either way.
+enum ShippingCostStatus {
+  PENDING
+  KNOWN
+  UNAVAILABLE
+}
+
+/// Snapshot of the graduation mode chosen for one line (ADR-0023).
+enum OrderGraduationMode {
+  NONE
+  CUSTOM
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Human-readable and stable, from a Postgres sequence (never MAX+1,
+  /// never a row count). Public but not a secret: access is granted by
+  /// publicAccessTokenHash, not by guessing this.
+  orderNumber String @unique @map("order_number")
+
+  /// SHA-256 of the guest access token, same reasoning as RefreshToken:
+  /// the raw value is returned once, at creation, and never stored or
+  /// logged. Compared with a timing-safe equality check.
+  publicAccessTokenHash String @unique @map("public_access_token_hash")
+
+  /// null = guest checkout. SetNull so deleting an account never deletes
+  /// commercial history.
+  userId String? @map("user_id") @db.Uuid
+
+  // Contact snapshot — never read back through `userId`, which may be
+  // null (guest) or point at an account whose data changed since.
+  customerFirstName String  @map("customer_first_name")
+  customerLastName  String  @map("customer_last_name")
+  customerEmail     String  @map("customer_email")
+  customerPhone     String? @map("customer_phone")
+
+  deliveryMethod DeliveryMethod @map("delivery_method")
+
+  // Delivery address snapshot (DELIVERY only; all null for PICKUP).
+  // Mirrors ShippingAddressInput — an order stores the address, there is
+  // no address book and no reuse across orders (guest checkout).
+  deliveryRecipient    String? @map("delivery_recipient")
+  deliveryStreetName   String? @map("delivery_street_name")
+  deliveryStreetNumber String? @map("delivery_street_number")
+  deliveryFloor        String? @map("delivery_floor")
+  deliveryApartment    String? @map("delivery_apartment")
+  deliveryCity         String? @map("delivery_city")
+  /// ISO 3166-2:AR letter; CHECK in the migration, like shipping_quotes.
+  deliveryProvinceCode String? @map("delivery_province_code")
+  deliveryPostalCode   String? @map("delivery_postal_code")
+  deliveryReferences   String? @map("delivery_references")
+
+  // Pickup snapshot (PICKUP only): the branch may be renamed or removed
+  // later, so its name and address are frozen here too.
+  pickupBranchId   String? @map("pickup_branch_id") @db.Uuid
+  pickupBranchName String? @map("pickup_branch_name")
+  pickupAddress    String? @map("pickup_address")
+
+  // Billing data the buyer gives at checkout. The voucher itself (type,
+  // CAE…) lives in the invoicing tables (ADR-0036), never here.
+  invoiceRequested        Boolean @default(false) @map("invoice_requested")
+  billingName             String? @map("billing_name")
+  billingTaxId            String? @map("billing_tax_id")
+  billingAddressLine      String? @map("billing_address_line")
+  /// The buyer's IVA condition (ARCA code, FEParamGetCondicionIvaReceptor)
+  /// and document type (96 DNI, 80 CUIT, 86 CUIL) as chosen at checkout —
+  /// what online invoicing needs (ADR-0036). null on orders without them.
+  billingIvaConditionCode Int?    @map("billing_iva_condition_code")
+  billingDocType          Int?    @map("billing_doc_type")
+
+  // Money — Decimal only; CHECKs (>= 0) in the migration.
+  itemsSubtotal         Decimal  @map("items_subtotal") @db.Decimal(12, 2)
+  /// What the customer pays for shipping: 0 under FREE_NATIONAL_V1.
+  customerShippingPrice Decimal  @map("customer_shipping_price") @db.Decimal(12, 2)
+  /// Internal business data, never part of a public response. null =
+  /// unknown (no carrier configured yet) — never shown as 0.
+  providerShippingCost  Decimal? @map("provider_shipping_cost") @db.Decimal(12, 2)
+  absorbedShippingCost  Decimal? @map("absorbed_shipping_cost") @db.Decimal(12, 2)
+  grandTotal            Decimal  @map("grand_total") @db.Decimal(12, 2)
+  currency              String   @default("ARS")
+
+  shippingPolicyCode String             @map("shipping_policy_code")
+  shippingCostStatus ShippingCostStatus @map("shipping_cost_status")
+  /// The quote attempt this order was created from, when there was one.
+  shippingQuoteLogId String?            @map("shipping_quote_log_id") @db.Uuid
+
+  status                      OrderStatus @default(PENDING_PAYMENT)
+  /// True when any line was configured with a CUSTOM graduation: the
+  /// shop must contact the customer. Never a prescription.
+  requiresOpticalConsultation Boolean     @default(false) @map("requires_optical_consultation")
+
+  /// Stock is decremented when the order is created; this is until when
+  /// it stays reserved while payment is pending (order-policy.ts).
+  stockReservedUntil DateTime? @map("stock_reserved_until")
+  /// Set once, when the reservation was given back. Together with the
+  /// status transition it makes releasing idempotent.
+  stockReleasedAt    DateTime? @map("stock_released_at")
+  paidAt             DateTime? @map("paid_at")
+  cancelledAt        DateTime? @map("cancelled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  pickupBranch     Branch?           @relation(fields: [pickupBranchId], references: [id], onDelete: SetNull)
+  shippingQuoteLog ShippingQuoteLog? @relation(fields: [shippingQuoteLogId], references: [id], onDelete: SetNull)
+  items            OrderItem[]
+  payments         Payment[]
+
+  @@index([userId])
+  @@index([createdAt])
+  /// Drives the expiry sweep: pending orders whose reservation ran out.
+  @@index([status, stockReservedUntil])
+  @@map("orders")
+}
+
+model OrderItem {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @map("order_id") @db.Uuid
+
+  // Every catalog FK is nullable + SetNull: ProductVariant is a hard
+  // delete (ADR-0021) and the lens catalog is soft-deleted, but a sold
+  // line must never lose its history. The snapshots below are what the
+  // customer actually bought.
+  productId    String? @map("product_id") @db.Uuid
+  variantId    String? @map("variant_id") @db.Uuid
+  lensTypeId   String? @map("lens_type_id") @db.Uuid
+  lensOptionId String? @map("lens_option_id") @db.Uuid
+
+  productName     String  @map("product_name")
+  productSlug     String  @map("product_slug")
+  variantSku      String  @map("variant_sku")
+  variantColor    String? @map("variant_color")
+  variantMaterial String? @map("variant_material")
+
+  lensTypeName   String?  @map("lens_type_name")
+  lensOptionName String?  @map("lens_option_name")
+  /// Names only, frozen: treatments are informative (ADR-0023).
+  lensTreatments String[] @default([]) @map("lens_treatments")
+
+  graduationMode              OrderGraduationMode @map("graduation_mode")
+  requiresOpticalConsultation Boolean             @default(false) @map("requires_optical_consultation")
+
+  /// True when this line decremented LensOption.stock — i.e. the option
+  /// tracks stock (`stock` is not null). Releasing a reservation gives
+  /// back exactly what was taken, never a lens whose stock is untracked.
+  lensStockReserved Boolean @default(false) @map("lens_stock_reserved")
+
+  // Money frozen at purchase time; CHECKs (>= 0, quantity > 0) in the
+  // migration. unitPrice = framePrice + lensPrice, lineTotal =
+  // unitPrice * quantity — both computed as Decimal, server-side.
+  framePrice  Decimal     @map("frame_price") @db.Decimal(12, 2)
+  lensPrice   Decimal     @map("lens_price") @db.Decimal(12, 2)
+  unitPrice   Decimal     @map("unit_price") @db.Decimal(12, 2)
+  quantity    Int
+  lineTotal   Decimal     @map("line_total") @db.Decimal(12, 2)
+  /// Frozen at purchase (the product may be deleted later): frames and
+  /// accessories may carry different VAT rates on the invoice.
+  productKind ProductKind @default(FRAME) @map("product_kind")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  lensType   LensType?       @relation(fields: [lensTypeId], references: [id], onDelete: SetNull)
+  lensOption LensOption?     @relation(fields: [lensOptionId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([variantId])
+  @@map("order_items")
+}
+
+/// 0..N per order: a retry is a new row, never an edit of the previous
+/// attempt. No provider is integrated in Phase A — this is the shape the
+/// future PaymentProvider adapter writes into.
+model Payment {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @map("order_id") @db.Uuid
+
+  /// "MERCADOPAGO" when that adapter exists. A plain string, not an
+  /// enum: adding a provider must not be a database migration.
+  provider             String
+  /// The provider's payment (transaction) id, once one exists (D2).
+  providerPaymentId    String? @map("provider_payment_id")
+  /// Unused by the Mercado Pago integration: it is Checkout Pro via the
+  /// Orders API, which has no preference object (ADR-0026). Kept, not
+  /// dropped — migrations here are additive.
+  providerPreferenceId String? @map("provider_preference_id")
+  /// The provider's remote order for this attempt (Mercado Pago Orders
+  /// API `id`). Null until the provider confirms the create — a row with
+  /// no remote order yet is an attempt whose outcome is unknown and is
+  /// retried with the same idempotencyKey (ADR-0026).
+  providerOrderId      String? @map("provider_order_id")
+  /// Where the buyer is sent to pay (Checkout Pro redirect). Not a
+  /// secret; kept so a repeated click reuses it instead of re-creating.
+  checkoutUrl          String? @map("checkout_url")
+  /// What the provider echoes back to identify the order (the order id).
+  externalReference    String  @map("external_reference")
+  /// Sent to the provider so a retried create is never a second charge.
+  idempotencyKey       String  @unique @map("idempotency_key")
+
+  status               PaymentStatus @default(PENDING)
+  /// Raw provider values, kept for support/debugging next to the
+  /// normalized `status` this domain actually branches on.
+  providerStatus       String?       @map("provider_status")
+  providerStatusDetail String?       @map("provider_status_detail")
+
+  amount      Decimal   @db.Decimal(12, 2)
+  currency    String    @default("ARS")
+  /// Payment method reported by the provider (card, cash…); never card data.
+  method      String?
+  approvedAt  DateTime? @map("approved_at")
+  failureCode String?   @map("failure_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Postgres treats NULLs as distinct, so many rows may sit with no
+  /// provider id yet while a given real payment can only be recorded once.
+  @@unique([provider, providerPaymentId])
+  @@unique([provider, providerOrderId])
+  @@index([orderId])
+  @@map("payments")
+}
+
+/// Lifecycle of one signed notification (ADR-0027). RECEIVED → PROCESSING
+/// (claimed with a lease) → PROCESSED | FAILED_FINAL, or FAILED_RETRYABLE
+/// (provider unreachable, remote order not available yet…) which a
+/// redelivery or reprocessPaymentEvent() claims again.
+enum PaymentEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED_RETRYABLE
+  FAILED_FINAL
+}
+
+/// Webhook ledger — the row that makes webhook processing idempotent
+/// (ADR-0027). Only signature-verified notifications are stored; a
+/// duplicate delivery collides on (provider, providerEventId) and never
+/// runs side effects twice. Never stores headers, signatures or payloads.
+model PaymentEvent {
+  id                  String             @id @default(uuid()) @db.Uuid
+  provider            String
+  /// The notification's own id (body `id`), Mercado Pago's per-notification
+  /// identifier — redeliveries of the same notification repeat it.
+  providerEventId     String             @map("provider_event_id")
+  /// Notification type ("order" for the Orders API).
+  topic               String
+  /// Body `action`, e.g. "order.processed". Informative only: the state
+  /// applied always comes from reading the remote order server-side.
+  action              String?
+  /// The remote order the notification is about (signed `data.id`).
+  providerOrderId     String?            @map("provider_order_id")
+  /// The provider's payment (transaction) id, once reconciliation finds an
+  /// accredited one. Never an order id.
+  providerPaymentId   String?            @map("provider_payment_id")
+  /// x-request-id, for correlating with the provider's delivery logs.
+  requestId           String?            @map("request_id")
+  status              PaymentEventStatus @default(RECEIVED)
+  /// Processing attempts (webhook deliveries + manual reprocessing).
+  attempts            Int                @default(0)
+  /// Lease start while PROCESSING; a stale lease can be reclaimed.
+  processingStartedAt DateTime?          @map("processing_started_at")
+  /// Normalized provider error kind of the last failed attempt.
+  lastErrorKind       String?            @map("last_error_kind")
+  receivedAt          DateTime           @default(now()) @map("received_at")
+  processedAt         DateTime?          @map("processed_at")
+  /// Short machine-readable result ("APPROVED", "AMOUNT_MISMATCH"…).
+  outcome             String?
+  signatureValid      Boolean            @map("signature_valid")
+
+  @@unique([provider, providerEventId])
+  @@index([providerPaymentId])
+  @@index([providerOrderId])
+  @@index([status])
+  @@map("payment_events")
 }
 
 /// CUSTOMER | ADMIN today — the minimum useful model for this phase.
@@ -447,6 +787,8 @@ model User {
   favorites      Favorite[]
   refreshTokens  RefreshToken[]
   opticalProfile CustomerOpticalProfile?
+  /// SetNull on delete: commercial history outlives an account.
+  orders         Order[]
 
   @@map("users")
 }
@@ -604,4 +946,277 @@ model CustomerOpticalProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("customer_optical_profiles")
+}
+
+// Electronic invoicing of ONLINE purchases only (ARCA WSAA + WSFEv1, CAE).
+// See docs/adr/0036-arca-electronic-invoicing-boundary.md and
+// docs/FACTURACION_ARCA.md. In-store sales keep being invoiced from ARCA's
+// portal: there is no manual invoicing here. A voucher only exists for an
+// online order whose payment was verified with the payment provider.
+// Nothing here reserves or deducts stock or changes a product or price.
+// Codes are ARCA's own parameter codes, never local inventions.
+
+/// Fiscal identity that issues the online vouchers. Every fiscal choice
+/// starts null and blocks issuing until an admin records what the
+/// accountant confirmed.
+model FiscalIssuer {
+  id                String    @id @default(uuid()) @db.Uuid
+  cuit              String
+  legalName         String    @map("legal_name")
+  commercialAddress String    @map("commercial_address")
+  grossIncomeNumber String?   @map("gross_income_number")
+  activityStartDate DateTime? @map("activity_start_date") @db.Date
+
+  /// ARCA IVA condition code of the issuer, as confirmed.
+  taxConditionCode        Int?      @map("tax_condition_code")
+  taxConditionConfirmedAt DateTime? @map("tax_condition_confirmed_at")
+  taxConditionConfirmedBy String?   @map("tax_condition_confirmed_by") @db.Uuid
+
+  /// Total from which a final consumer must be identified (current
+  /// regulation). null = unknown: an unidentified buyer waits for data.
+  finalConsumerIdThreshold Decimal? @map("final_consumer_id_threshold") @db.Decimal(13, 2)
+
+  /// VAT rate (FEParamGetTiposIva code) of each part of an online sale,
+  /// as the accountant defines it. null = not confirmed: issuing waits.
+  frameVatRateCode     Int? @map("frame_vat_rate_code")
+  lensVatRateCode      Int? @map("lens_vat_rate_code")
+  accessoryVatRateCode Int? @map("accessory_vat_rate_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pointsOfSale FiscalPointOfSale[]
+  sales        Sale[]
+
+  @@map("fiscal_issuers")
+}
+
+/// The point of sale enabled for web services (a separate one from the
+/// portal's). `enabledVoucherTypes`: ARCA voucher type codes confirmed for
+/// it. At most one is used for online sales (`forOnlineSales`).
+model FiscalPointOfSale {
+  id                  String  @id @default(uuid()) @db.Uuid
+  issuerId            String  @map("issuer_id") @db.Uuid
+  number              Int
+  enabledVoucherTypes Int[]   @map("enabled_voucher_types")
+  active              Boolean @default(true)
+  forOnlineSales      Boolean @default(false) @map("for_online_sales")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  issuer    FiscalIssuer     @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  sequences FiscalSequence[]
+  documents FiscalDocument[]
+
+  @@unique([issuerId, number])
+  @@map("fiscal_points_of_sale")
+}
+
+/// One per (point of sale, voucher type). `inFlightDocumentId` is the
+/// emission lock: claimed with a conditional UPDATE before talking to
+/// ARCA and released when the voucher is settled (ADR-0036).
+model FiscalSequence {
+  id                 String  @id @default(uuid()) @db.Uuid
+  pointOfSaleId      String  @map("point_of_sale_id") @db.Uuid
+  voucherType        Int     @map("voucher_type")
+  inFlightDocumentId String? @unique @map("in_flight_document_id") @db.Uuid
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pointOfSale FiscalPointOfSale @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+
+  @@unique([pointOfSaleId, voucherType])
+  @@map("fiscal_sequences")
+}
+
+enum OnlineInvoiceRequestStatus {
+  /// Received from the payment confirmation, not processed yet.
+  RECEIVED
+  /// Something needed for the voucher is missing (buyer's IVA condition,
+  /// document, VAT rates…): `blockerReason` says what.
+  WAITING_DATA
+  /// The sale and its voucher exist (the voucher has its own status).
+  INVOICED
+}
+
+/// A paid online order handed to invoicing — one per order, ever. Keeps
+/// the order exactly as it was paid (`orderSnapshot`), so the voucher can
+/// always be traced back to the original sale.
+model OnlineInvoiceRequest {
+  id                String                     @id @default(uuid()) @db.Uuid
+  /// The online order's id (no FK: orders live in the checkout module).
+  orderId           String                     @unique @map("order_id") @db.Uuid
+  orderNumber       String                     @map("order_number")
+  paymentProvider   String                     @map("payment_provider")
+  paymentReference  String                     @map("payment_reference")
+  paymentApprovedAt DateTime                   @map("payment_approved_at")
+  buyerEmail        String                     @map("buyer_email")
+  orderSnapshot     Json                       @map("order_snapshot")
+  status            OnlineInvoiceRequestStatus @default(RECEIVED)
+  blockerReason     String?                    @map("blocker_reason")
+
+  /// Completed by an admin when the order did not carry them (the
+  /// checkout does not ask for the buyer's IVA condition today).
+  receptorIvaConditionCode Int? @map("receptor_iva_condition_code")
+  receptorDocType          Int? @map("receptor_doc_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sale Sale?
+
+  @@index([status])
+  @@map("online_invoice_requests")
+}
+
+/// What was sold, as the voucher states it — derived from the request.
+model Sale {
+  id        String   @id @default(uuid()) @db.Uuid
+  issuerId  String   @map("issuer_id") @db.Uuid
+  requestId String   @unique @map("request_id") @db.Uuid
+  saleDate  DateTime @map("sale_date") @db.Date
+
+  receptorDocType          Int     @map("receptor_doc_type")
+  receptorDocNumber        String  @map("receptor_doc_number")
+  receptorName             String? @map("receptor_name")
+  receptorIvaConditionCode Int     @map("receptor_iva_condition_code")
+  receptorAddress          String? @map("receptor_address")
+
+  currency       String  @default("PES")
+  untaxedAmount  Decimal @map("untaxed_amount") @db.Decimal(13, 2)
+  exemptAmount   Decimal @map("exempt_amount") @db.Decimal(13, 2)
+  netAmount      Decimal @map("net_amount") @db.Decimal(13, 2)
+  vatAmount      Decimal @map("vat_amount") @db.Decimal(13, 2)
+  otherTaxAmount Decimal @map("other_tax_amount") @db.Decimal(13, 2)
+  totalAmount    Decimal @map("total_amount") @db.Decimal(13, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  issuer   FiscalIssuer         @relation(fields: [issuerId], references: [id], onDelete: Restrict)
+  request  OnlineInvoiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  items    SaleItem[]
+  document FiscalDocument?
+
+  @@map("sales")
+}
+
+/// A line of the voucher. `grossAmount` is what the buyer paid for it
+/// (VAT included); `netAmount`/`vatAmount` its breakdown.
+model SaleItem {
+  id          String  @id @default(uuid()) @db.Uuid
+  saleId      String  @map("sale_id") @db.Uuid
+  position    Int
+  description String
+  quantity    Decimal @db.Decimal(12, 3)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(13, 2)
+  /// ARCA VAT rate code (FEParamGetTiposIva); null for class C.
+  vatRateCode Int?    @map("vat_rate_code")
+  grossAmount Decimal @map("gross_amount") @db.Decimal(13, 2)
+  netAmount   Decimal @map("net_amount") @db.Decimal(13, 2)
+  vatAmount   Decimal @map("vat_amount") @db.Decimal(13, 2)
+  variantSku  String? @map("variant_sku")
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  @@unique([saleId, position])
+  @@map("sale_items")
+}
+
+/// DRAFT → SENDING → AUTHORIZED | REJECTED | UNCERTAIN; UNCERTAIN is only
+/// settled by asking ARCA (FECompConsultar) → AUTHORIZED | DRAFT |
+/// NEEDS_REVIEW. Vouchers are never deleted.
+enum FiscalDocumentStatus {
+  DRAFT
+  SENDING
+  AUTHORIZED
+  REJECTED
+  UNCERTAIN
+  NEEDS_REVIEW
+}
+
+model FiscalDocument {
+  id            String               @id @default(uuid()) @db.Uuid
+  saleId        String               @unique @map("sale_id") @db.Uuid
+  pointOfSaleId String               @map("point_of_sale_id") @db.Uuid
+  voucherType   Int                  @map("voucher_type")
+  /// Assigned from FECompUltimoAutorizado + 1 right before sending.
+  number        Int?
+  status        FiscalDocumentStatus @default(DRAFT)
+  /// "mock" | "homologacion" — production is not wired (ADR-0036).
+  environment   String
+  conceptCode   Int                  @map("concept_code")
+
+  cae            String?
+  caeDueDate     DateTime? @map("cae_due_date") @db.Date
+  authorizedAt   DateTime? @map("authorized_at")
+  attempts       Int       @default(0)
+  /// "order:<orderId>": one voucher per paid order, ever.
+  idempotencyKey String    @unique @map("idempotency_key")
+
+  /// The FECAEDetRequest sent (no Auth), ARCA's observations and errors.
+  requestSnapshot  Json? @map("request_snapshot")
+  arcaObservations Json? @map("arca_observations")
+  arcaErrors       Json? @map("arca_errors")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sale        Sale                  @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  pointOfSale FiscalPointOfSale     @relation(fields: [pointOfSaleId], references: [id], onDelete: Restrict)
+  events      FiscalAuditEvent[]
+  email       InvoiceEmailDelivery?
+
+  @@unique([pointOfSaleId, voucherType, number])
+  @@index([status])
+  @@map("fiscal_documents")
+}
+
+/// Sending the PDF to the buyer — a state of its own, separate from the
+/// voucher: resending never issues another voucher.
+enum InvoiceEmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+model InvoiceEmailDelivery {
+  id                String             @id @default(uuid()) @db.Uuid
+  documentId        String             @unique @map("document_id") @db.Uuid
+  recipient         String
+  status            InvoiceEmailStatus @default(PENDING)
+  attempts          Int                @default(0)
+  nextAttemptAt     DateTime?          @map("next_attempt_at")
+  lastError         String?            @map("last_error")
+  providerMessageId String?            @map("provider_message_id")
+  sentAt            DateTime?          @map("sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  document FiscalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@map("invoice_email_deliveries")
+}
+
+/// Every transition of a request, voucher or email. Never stores tokens,
+/// signatures, certificates or keys.
+model FiscalAuditEvent {
+  id         String                @id @default(uuid()) @db.Uuid
+  documentId String?               @map("document_id") @db.Uuid
+  requestId  String?               @map("request_id") @db.Uuid
+  action     String
+  fromStatus FiscalDocumentStatus? @map("from_status")
+  toStatus   FiscalDocumentStatus? @map("to_status")
+  actorId    String?               @map("actor_id") @db.Uuid
+  details    Json?
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  document FiscalDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@index([documentId, createdAt])
+  @@index([requestId, createdAt])
+  @@map("fiscal_audit_events")
 }

@@ -38,6 +38,22 @@
     {
       "source": "/admin/:path*",
       "destination": "/spa-private"
+    },
+    {
+      "source": "/cart",
+      "destination": "/spa-private"
+    },
+    {
+      "source": "/checkout",
+      "destination": "/spa-private"
+    },
+    {
+      "source": "/order/:path*",
+      "destination": "/spa-private"
+    },
+    {
+      "source": "/factura/:id",
+      "destination": "/spa-private"
     }
   ],
   "headers": [
@@ -118,6 +134,42 @@
     },
     {
       "source": "/admin/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/cart",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/checkout",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/order/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/factura/:id",
       "headers": [
         {
           "key": "X-Robots-Tag",

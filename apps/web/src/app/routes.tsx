@@ -98,6 +98,42 @@ export const routes: RouteObject[] = [
           return { Component: ProductDetailPage };
         },
       },
+      // Payments V1 — Phase C: cart/checkout/order are lazy, same
+      // reasoning as account — only buyers ever load them.
+      {
+        path: "cart",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { CartPage } = await import("../pages/CartPage");
+          return { Component: CartPage };
+        },
+      },
+      {
+        path: "checkout",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { CheckoutPage } = await import("../pages/CheckoutPage");
+          return { Component: CheckoutPage };
+        },
+      },
+      {
+        // Mercado Pago's return URLs (success | pending | failure). The
+        // segment is never trusted for the outcome — see the page.
+        path: "order/:orderNumber/payment/:result",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { PaymentReturnPage } = await import("../pages/PaymentReturnPage");
+          return { Component: PaymentReturnPage };
+        },
+      },
+      {
+        path: "order/:orderNumber",
+        HydrateFallback: RouteLoadingFallback,
+        lazy: async () => {
+          const { OrderPage } = await import("../pages/OrderPage");
+          return { Component: OrderPage };
+        },
+      },
       { path: "brands", element: <BrandsPage /> },
       { path: "about", element: <AboutPage /> },
       { path: "branches", element: <BranchesPage /> },
@@ -111,6 +147,13 @@ export const routes: RouteObject[] = [
       ...(SHOW_LEGAL_DRAFTS || COOKIE_POLICY_APPROVED
         ? [legalRoute("cookies", () => import("../content/legal/cookie-policy"))]
         : []),
+      {
+        path: "factura/:id",
+        lazy: async () => {
+          const { InvoiceDownloadPage } = await import("../pages/InvoiceDownloadPage");
+          return { Component: InvoiceDownloadPage };
+        },
+      },
       // login/register/account: lazy, same reasoning as products — only
       // a subset of visitors ever reach them, so the public catalog
       // majority shouldn't pay for this code in their initial bundle
@@ -151,6 +194,21 @@ export const routes: RouteObject[] = [
                 lazy: async () => {
                   const { ProfilePage } = await import("../pages/account/ProfilePage");
                   return { Component: ProfilePage };
+                },
+              },
+              {
+                path: "orders",
+                lazy: async () => {
+                  const { AccountOrdersPage } = await import("../pages/account/AccountOrdersPage");
+                  return { Component: AccountOrdersPage };
+                },
+              },
+              {
+                path: "orders/:orderNumber",
+                lazy: async () => {
+                  const { AccountOrderDetailPage } =
+                    await import("../pages/account/AccountOrderDetailPage");
+                  return { Component: AccountOrderDetailPage };
                 },
               },
               {
@@ -267,6 +325,29 @@ export const routes: RouteObject[] = [
                 lazy: async () => {
                   const { AdminShippingPage } = await import("../pages/admin/AdminShippingPage");
                   return { Component: AdminShippingPage };
+                },
+              },
+              {
+                path: "orders",
+                lazy: async () => {
+                  const { AdminOnlineOrdersPage } =
+                    await import("../pages/admin/AdminOnlineOrdersPage");
+                  return { Component: AdminOnlineOrdersPage };
+                },
+              },
+              {
+                path: "invoicing",
+                lazy: async () => {
+                  const { AdminInvoicingPage } = await import("../pages/admin/AdminInvoicingPage");
+                  return { Component: AdminInvoicingPage };
+                },
+              },
+              {
+                path: "invoicing/:id",
+                lazy: async () => {
+                  const { AdminInvoiceDetailPage } =
+                    await import("../pages/admin/AdminInvoiceDetailPage");
+                  return { Component: AdminInvoiceDetailPage };
                 },
               },
             ],

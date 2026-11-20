@@ -31,3 +31,11 @@ prisma/*.db
 # under apps/web/src/assets/*/, originals stay out of git history (see
 # that folder's own README: "don't commit huge unoptimized originals")
 apps/api/assets/
+
+# ARCA certificates and private keys (ADR-0036) — never in the repository
+*.key
+*.pem
+*.crt
+*.csr
+*.p12
+*.pfx

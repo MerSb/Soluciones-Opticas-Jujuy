@@ -66,14 +66,31 @@ const FIELD_LABELS: Record<string, string> = {
   apartment: "el departamento",
   city: "la localidad",
   references: "las referencias",
+  productSlug: "el producto",
+  quantity: "la cantidad",
+  items: "los productos",
+  customer: "los datos de contacto",
+  delivery: "la entrega",
+  method: "el método de entrega",
+  branchId: "la sucursal",
+  address: "la dirección",
+  billing: "la facturación",
+  invoiceRequested: "el pedido de factura",
+  billingName: "el nombre de facturación",
+  billingTaxId: "el CUIT/CUIL/DNI de facturación",
+  billingAddressLine: "el domicilio de facturación",
   weightGrams: "el peso",
   lengthCm: "el largo",
   widthCm: "el ancho",
   heightCm: "el alto",
 };
 
+// Most specific labeled segment wins: `items.0.quantity` → "la cantidad",
+// `delivery.address.city` → "la localidad". Flat paths are unaffected.
 function labelFor(path: (string | number)[]): string {
-  const key = path.find((segment): segment is string => typeof segment === "string");
+  const key = [...path]
+    .reverse()
+    .find((segment): segment is string => typeof segment === "string" && segment in FIELD_LABELS);
   return (key && FIELD_LABELS[key]) || `el campo "${path.join(".")}"`;
 }
 

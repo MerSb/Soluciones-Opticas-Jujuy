@@ -1029,3 +1029,27 @@ out the one _real_, fixable finding underneath the noise (see "Bugs found and fi
 the Hero image's missing `srcset`, re-measured at 0 wasted bytes after the fix) rather than treating
 the whole score swing as either "fine" or "broken" without investigating. LCP stayed in the 2.0–2.6s
 range across runs, CLS stayed at 0 in every run.
+
+## Cart, checkout and orders (Payments V1 — Phase C)
+
+See [`PAYMENTS.md`](PAYMENTS.md#fase-c--frontend-carrito-checkout-y-pedidos). No payment UI yet.
+
+- **Cart store** — `lib/cart/cart.ts` (pure rules: line identity, merge, caps, validated
+  (de)serialization) + `lib/cart/cart-store.ts` (a module-level store read with React's own
+  `useSyncExternalStore`). No Context provider and no state library: the header badge, product
+  page, cart and checkout read the same snapshot without extra wiring, and existing page tests
+  that render without providers keep working. Persisted to `localStorage` (`soj:cart`, versioned);
+  other tabs follow through the `storage` event; unreadable/corrupt storage degrades to an empty
+  in-memory cart.
+- **Routes** (lazy): `/cart`, `/checkout`, `/order/:orderNumber`, `/account/orders`,
+  `/account/orders/:orderNumber`.
+- **Product Detail** — `AddToCartSection` reuses the configurator's selection and quote query (same
+  query key → no extra request). Only a non-placeholder quote for the current configuration can be
+  added. WhatsApp stays as the secondary action.
+- **Checkout** — `lib/checkout-form.ts` (same formats as the API's Zod schema, field order for
+  focus, exact request body builder) and `lib/checkout-errors.ts` (API codes → buyer copy).
+- **Orders** — `components/orders/OrderDetailView.tsx` is shared by guest and account views;
+  `lib/order-status.ts` maps every status to human copy (no enum on screen, no "compra completada").
+- **Guest token** — `lib/order-access.ts`: sessionStorage `soj:order-access:<orderNumber>`, sent only
+  as the `X-Order-Access-Token` header (`apiGet` gained an optional `headers` argument); not part of
+  any query key.
