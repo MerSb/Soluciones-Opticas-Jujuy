@@ -1,4 +1,5 @@
-// Staging initialization ONLY. Never run against production. Distinct from
+// Sandbox (isolated test environment) initialization ONLY — guarded by the
+// database marker below. Never run against production. Distinct from
 // seed.ts (local development) per docs/ENVIRONMENT.md's three-environment
 // model — see the "GO — SOLUCIONES OPTICAS STAGING DEPLOYMENT" step's §10:
 // confirmed real business facts may be used here, but no product, price,
@@ -12,10 +13,20 @@
 // already-initialized staging database.
 
 import { PrismaClient } from "@prisma/client";
+import { readDatabaseMarker, SANDBOX_DATABASE_MARKER } from "../apps/api/src/lib/runtime-safety.js";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Only the isolated test environment's database (marked by
+  // `npm run sandbox:init`). The deployment once called «staging» is the
+  // real store: running this there would put [DEMO] products on sale.
+  if ((await readDatabaseMarker(prisma)) !== SANDBOX_DATABASE_MARKER) {
+    throw new Error(
+      "Refusing to seed: this database is not marked as the sandbox (run `npm run sandbox:init` on a new, empty database).",
+    );
+  }
+
   // Real, client-confirmed business data (see apps/web/src/content/site-content.ts,
   // confirmed in the Hero Refinement step, 2026-08-17) — the one physical
   // location currently confirmed. Not inventing a second branch just

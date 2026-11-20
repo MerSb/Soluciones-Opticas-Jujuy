@@ -10,6 +10,12 @@ import { ALLOWED_IMAGE_FORMATS } from "./image-validation.js";
 // docs/adr/0022-cloudinary-image-pipeline.md.
 
 export function isCloudinaryConfigured(): boolean {
+  // The isolated test environment never talks to Cloudinary: production
+  // runs with APP_ENV=staging, so its uploads would land in the real
+  // store's folder. Startup already refuses CLOUDINARY_* there
+  // (lib/runtime-safety.ts); this keeps uploads, deletions and checks off
+  // even if that barrier were bypassed.
+  if (env.SANDBOX_MODE === "on") return false;
   return Boolean(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET);
 }
 

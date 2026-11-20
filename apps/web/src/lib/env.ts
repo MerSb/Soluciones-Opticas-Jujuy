@@ -1,7 +1,16 @@
+import { previewApiTargetProblem } from "./api-target";
+
 // A Vercel preview has no VITE_API_BASE_URL (it's production-only) and
 // isn't in the API's CORS list, so it calls its own origin, where the
 // read-only preview proxy answers /api/* (apps/web/preview-api.ts).
 // VITE_VERCEL_ENV is set by Vercel itself; production always has the URL.
+// A Preview pointed at the production API refuses to start (api-target.ts).
+const previewProblem = previewApiTargetProblem(
+  import.meta.env.VITE_VERCEL_ENV,
+  import.meta.env.VITE_API_BASE_URL,
+);
+if (previewProblem) throw new Error(previewProblem);
+
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ||
   (import.meta.env.VITE_VERCEL_ENV === "preview" ? window.location.origin : undefined);

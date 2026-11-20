@@ -113,6 +113,7 @@ let fake: FakeMercadoPago;
 const fx = {} as { brandId: string; categoryId: string; branchId: string };
 const createdProducts: string[] = [];
 const originalSecret = env.MERCADOPAGO_WEBHOOK_SECRET;
+const originalPaymentsMode = env.PAYMENTS_MODE;
 
 let seq = 0;
 async function makeProduct(stock: number) {
@@ -257,10 +258,12 @@ beforeEach(() => {
   vi.mocked(getPaymentProvider).mockReturnValue(fake);
   vi.mocked(getPaymentReturnBaseUrl).mockReturnValue("https://web.example.test");
   env.MERCADOPAGO_WEBHOOK_SECRET = SECRET;
+  env.PAYMENTS_MODE = "test";
 });
 
 afterAll(async () => {
   env.MERCADOPAGO_WEBHOOK_SECRET = originalSecret;
+  env.PAYMENTS_MODE = originalPaymentsMode;
   const orders = await prisma.order.findMany({
     where: { customerEmail: { contains: RUN_ID } },
     select: { id: true },
@@ -285,6 +288,17 @@ afterAll(async () => {
 });
 
 describe("webhook security", () => {
+  it("with PAYMENTS_MODE=off nothing is processed, even with a secret (503, retried later)", async () => {
+    env.PAYMENTS_MODE = "off";
+    const { remoteId } = await orderWithCheckout();
+    const response = await hook({ dataId: remoteId, eventId: "evt-payments-off" });
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("WEBHOOK_NOT_CONFIGURED");
+    expect(
+      await prisma.paymentEvent.count({ where: { providerEventId: "evt-payments-off" } }),
+    ).toBe(0);
+  });
+
   it("without a configured secret nothing is processed (503, retried later)", async () => {
     env.MERCADOPAGO_WEBHOOK_SECRET = undefined;
     const { remoteId } = await orderWithCheckout();

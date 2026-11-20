@@ -3,6 +3,7 @@ import { InvalidWebhookSignatureError, WebhookSignatureValidator } from "mercado
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../lib/api-error.js";
 import { env } from "../lib/env.js";
+import { isPaymentsEnabled } from "../lib/payments-mode.js";
 import { MERCADOPAGO_PROVIDER_CODE } from "../lib/mercadopago-payment-provider.js";
 import { reconcileProviderOrder } from "./payment-reconciliation.service.js";
 
@@ -182,7 +183,10 @@ function readBodyField(body: unknown, path: "type" | "action" | "data.id"): stri
  * everything that was authenticated. */
 export async function handleMercadoPagoWebhook(request: WebhookRequest): Promise<WebhookResult> {
   const secret = env.MERCADOPAGO_WEBHOOK_SECRET;
-  if (!secret) {
+  // PAYMENTS_MODE=off: payments are not turned on here, whatever secret is
+  // set. Same answer as an unconfigured webhook — nothing stored, and
+  // Mercado Pago retries.
+  if (!secret || !isPaymentsEnabled()) {
     // Not an ack: Mercado Pago retries, so nothing is lost once configured.
     throw new ApiError(503, "WEBHOOK_NOT_CONFIGURED", "Webhook not configured.");
   }

@@ -48,12 +48,25 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
   // The public storefront domain — the base of every URL in /sitemap.xml.
   PUBLIC_SITE_URL: z.string().url().default("https://www.solucionesopticas.com.ar"),
+  // Isolated test environment (docs/PRUEBAS_MERCADOPAGO_AISLADO.md). "on"
+  // only in the sandbox deployment: the API then refuses to start unless
+  // its database carries the sandbox marker, Cloudinary is unconfigured,
+  // payments are off or in test mode with a Mercado Pago TEST account, and
+  // no URL points at the real store (lib/runtime-safety.ts). Independent
+  // of APP_ENV, which production itself sets to "staging".
+  SANDBOX_MODE: z.enum(["off", "on"]).default("off"),
+  // Online payments: "off" (default — no provider, even with a token set),
+  // "test" (Mercado Pago test account; only allowed in the sandbox or in
+  // local development) or "live" (never in the sandbox). Checked at
+  // startup against Mercado Pago itself — the token's prefix cannot tell
+  // a test credential from a production one.
+  PAYMENTS_MODE: z.enum(["off", "test", "live"]).default("off"),
   // Mercado Pago (ADR-0026) — optional like Cloudinary: the whole app
   // (tests, local dev, a staging deploy before the provider is set up)
   // runs without it; only payment initiation answers 503
   // PAYMENT_PROVIDER_NOT_CONFIGURED. Backend-only private credential —
-  // never sent to the frontend, never logged. Use a TEST credential
-  // anywhere that is not production.
+  // never sent to the frontend, never logged. Ignored unless
+  // PAYMENTS_MODE is "test" or "live".
   MERCADOPAGO_ACCESS_TOKEN: z.string().min(1).optional(),
   // Secret signature of the Mercado Pago webhook (Your integrations →
   // Webhooks). Optional at startup; without it no notification can be

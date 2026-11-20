@@ -1,7 +1,7 @@
 # Mercado Pago — reintegración y entorno de prueba aislado
 
 Rama `integration/checkout-mp-241facf` (2026-11-20). Etapa 1: integración local y validación
-técnica. **Sin push, sin deploy, sin credenciales (ni reales ni de prueba), sin pagos, sin tocar
+técnica. Etapa 2: barrera de seguridad del entorno aislado (§3). **Sin push, sin deploy, sin credenciales (ni reales ni de prueba), sin pagos, sin tocar
 producción.** ARCA queda apagado (`ARCA_MODE=off`).
 
 ## 1. Base verificada
@@ -49,124 +49,188 @@ conflicto y no se modificaron después de la fusión.
    del configurador, y los 3 tests de cristales online quedan en `it.skip` con el motivo escrito. Se
    reactivan junto con el configurador si se decide vender cristales online.
 
-## 3. Resultados (2026-11-20, base Postgres 18 descartable, datos ficticios)
+## 3. Barrera de seguridad del entorno aislado (etapa 2)
 
-| Verificación                          | Resultado                                                   |
-| ------------------------------------- | ----------------------------------------------------------- |
-| `prisma validate`                     | Válido                                                      |
-| Migraciones (9 publicadas → seed → 5) | Aplicadas; catálogo e índices previos idénticos             |
-| `prisma migrate diff` vs esquema      | Sin diferencias (salvo el índice trigram manual, ADR-0014)  |
-| Tests API                             | **856/856**, tres corridas seguidas                         |
-| Tests web                             | **594/594 + 3 salteados** (cristales online), tres corridas |
-| Typecheck API y web                   | Sin errores                                                 |
-| Lint (ESLint)                         | Sin errores                                                 |
-| Formato (Prettier)                    | Sin diferencias                                             |
-| Build API (`tsc`) y web (`vite`)      | OK                                                          |
+El entorno de pruebas no puede distinguirse de producción por `APP_ENV`, porque producción corre con
+`APP_ENV=staging`. Tampoco por el token: según la documentación oficial, el Access Token de prueba
+**también empieza con `APP_USR`**. Por eso la API **no arranca** si no coinciden tres cosas
+independientes (`apps/api/src/lib/runtime-safety.ts`, llamada desde `apps/api/src/server.ts` antes
+de abrir el puerto).
+
+| Capa                         | Qué exige                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Interruptores explícitos  | `SANDBOX_MODE=on` y `PAYMENTS_MODE=off\|test`. Con `SANDBOX_MODE=on`: nunca `live`, ninguna variable `CLOUDINARY_*`, y `PUBLIC_WEB_URL` y `CORS_ORIGINS` nunca de la tienda real (`solucionesopticas.com.ar`, `soluciones-opticas-jujuy-web.vercel.app`); `PUBLIC_WEB_URL` en https. Con `PAYMENTS_MODE=test` hacen falta el token, el secreto del webhook y `PUBLIC_WEB_URL`. Fuera del sandbox, en un despliegue (`NODE_ENV=production`), `PAYMENTS_MODE=test` se rechaza: la tienda real nunca toma pagos de prueba. |
+| 2. Marca en la base de datos | Un comentario de Postgres sobre la base: `soluciones-opticas:sandbox`. Con `SANDBOX_MODE=on`, sin esa marca no arranca, porque podría ser producción. Sin `SANDBOX_MODE`, con la marca tampoco arranca. La marca solo la escribe `npm run sandbox:init`, y solo sobre una base **sin ninguna tabla**. No es una tabla ni una migración: el esquema sigue idéntico al de producción.                                                                                                                                     |
+| 3. Mercado Pago              | Con `PAYMENTS_MODE` en `test` o `live`, al arrancar se consulta `GET https://api.mercadopago.com/users/me` con el token. `test` exige una cuenta de prueba (etiqueta `test_user`); `live`, una real. Si Mercado Pago no responde o no informa el tipo de cuenta, **no arranca**.                                                                                                                                                                                                                                        |
+
+Además, en código:
+
+- **Cloudinary:** con `SANDBOX_MODE=on`, `isCloudinaryConfigured()` es falso aunque haya credenciales.
+  Firmar subidas, borrar y verificar fotos responde «no está configurado», y la limpieza de
+  huérfanas no hace nada.
+- **Pagos:** con `PAYMENTS_MODE=off` el proveedor queda sin configurar aunque haya token, y el
+  webhook responde 503 sin guardar nada.
+- **`prisma/seed-staging.ts`:** solo escribe en una base con la marca. Antes no tenía protección: el
+  «staging» de Railway es la tienda real, y correrlo ahí habría puesto productos [DEMO] a la venta.
+- **Frontend:** un Preview de Vercel cuyo `VITE_API_BASE_URL` apunte a la API productiva no arranca
+  (`apps/web/src/lib/api-target.ts`). Sin esa variable, un Preview usa su propio proxy, que responde
+  405 a todo lo que no sea GET/HEAD (`apps/web/preview-api.ts`).
+
+### Comprobado en arranques reales (API compilada, Postgres descartable local)
+
+| Caso                                                                                          | Resultado                                                            |
+| --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Configuración de producción actual (todo apagado)                                             | **Arranca**                                                          |
+| `SANDBOX_MODE=on` contra una base con tablas y sin marca                                      | Se niega                                                             |
+| `SANDBOX_MODE=on` + credenciales de Cloudinary                                                | Se niega                                                             |
+| `PAYMENTS_MODE=test` en un despliegue sin sandbox                                             | Se niega                                                             |
+| `SANDBOX_MODE=on` + `PAYMENTS_MODE=live`                                                      | Se niega                                                             |
+| `SANDBOX_MODE=on` + URL o CORS de la tienda real                                              | Se niega                                                             |
+| `SANDBOX_MODE=on` contra la base preparada por `sandbox:init`                                 | **Arranca**                                                          |
+| Sin `SANDBOX_MODE` contra la base de pruebas                                                  | Se niega                                                             |
+| `sandbox:init` sin `SANDBOX_MODE`, sin confirmación, o contra una base con tablas y sin marca | Se niega; la base queda intacta                                      |
+| `seed-staging.ts` directo contra una base sin marca                                           | Se niega; 0 productos [DEMO]                                         |
+| `sandbox:init` sobre una base nueva, dos veces                                                | Marca, 14 migraciones, 4 productos [DEMO]; la segunda no cambia nada |
+
+Los casos con token de Mercado Pago se probaron con un Mercado Pago simulado: no se llamó a Mercado
+Pago.
+
+## 4. Resultados (base Postgres 18 descartable, datos ficticios)
+
+| Verificación                       | Etapa 1                    | Etapa 2                              |
+| ---------------------------------- | -------------------------- | ------------------------------------ |
+| Tests API                          | 856/856                    | **887/887** (+31 de la barrera)      |
+| Tests web                          | 594/594 + 3 salteados      | **604/604 + 3 salteados** (+10)      |
+| Typecheck API y web, lint, formato | Sin errores                | Sin errores                          |
+| `prisma validate`, build API y web | OK                         | OK                                   |
+| Migraciones: publicadas → seed → 5 | Catálogo e índices iguales | Sin cambios de esquema en la etapa 2 |
+
+**Tests intermitentes (ya existían):** con los archivos en paralelo sobre una misma base,
+`recommendations.test.ts` (salida estable) y dos tests de vencimiento de reservas fallan a veces. El
+commit anterior a la etapa 2 (`1a681cc`) falló 2 de 10 corridas en esos mismos tests. Sin
+paralelismo entre archivos (`npx vitest run --no-file-parallelism`), 5 de 5 en verde: se pisan datos
+entre archivos. Pendiente: aislar esos tests.
 
 ### Lo que cubren los tests de pagos
 
-- **Orders API:** el adaptador usa solo la clase `Order` del SDK oficial (`mercadopago` 3.6.1):
+- **Orders API:** solo la clase `Order` del SDK oficial (`mercadopago` 3.6.1):
   `POST /v1/orders` (`type: online`) y `GET /v1/orders/{id}`. Sin Preferences ni `merchant_orders`.
 - **Idempotencia:**
   - La clave de idempotencia se guarda antes de llamar a Mercado Pago y se reenvía siempre igual.
-  - Un segundo clic reutiliza el checkout existente.
   - Cada notificación se registra una sola vez y la procesa un solo proceso a la vez.
-  - El pago se aprueba una sola vez (`approvedAt` no cambia) y una notificación vieja nunca lo baja.
+  - El pago se aprueba una sola vez y nunca baja de estado.
   - Un segundo pago del mismo pedido va a revisión humana.
 - **Confirmación:** solo vale la lectura del pedido en Mercado Pago, con la referencia, el monto y
-  la moneda iguales a los del pedido. La página de retorno no confirma nada.
-- **Firma:** validador oficial del SDK. Sin secreto configurado responde 503 y no procesa nada.
-- **ARCA apagado:** con `ARCA_MODE=off`, un pedido pagado por webhook genera 0 pedidos a facturar,
-  el panel informa `enabled: false` y no existe ningún endpoint de facturación manual.
+  la moneda iguales a los del pedido.
+- **ARCA apagado:** con `ARCA_MODE=off`, un pedido pagado genera 0 pedidos a facturar.
 
-### Escrituras hacia producción
+## 5. Riesgos pendientes
 
-- **La API** no tiene ninguna URL de la tienda: solo Mercado Pago (desde el SDK) y ARCA homologación.
-- **La web en un Preview:**
-  - Sin `VITE_API_BASE_URL`, llama a su propio origen, donde el proxy de previews deja pasar solo
-    `GET`/`HEAD` de una lista fija de lecturas del catálogo. Un `POST` del checkout recibe 405.
-  - Con `VITE_API_BASE_URL` apuntando a la API de pruebas, todo va ahí, incluido el middleware.
-- Lo único que lee producción por defecto es el middleware de Vercel (un `GET` de la ficha de
-  producto) y el rewrite de `/sitemap.xml`.
-
-## 4. Riesgos pendientes
-
-1. **Ninguna prueba contra Mercado Pago real todavía** (ni en modo de prueba): todo lo anterior usa
-   un Mercado Pago simulado.
-2. **Nada corre solo:** no hay tarea programada para liberar reservas vencidas, reintentar eventos,
-   consultar pagos pendientes ni procesar facturas pendientes.
-3. **Reembolsos y contracargos** (`REVERSED`) se registran pero no cambian el pedido. Con ARCA
-   encendido, un pedido reembolsado antes de facturarse se facturaría igual.
-4. **No hay una barrera explícita entre modo prueba y modo real** (por ejemplo `PAYMENTS_MODE`): la
-   única garantía es usar el token de la pestaña «Credenciales de prueba».
-5. **Cloudinary comparte carpeta por `APP_ENV`:** la ruta de subida es
-   `soluciones-opticas/${APP_ENV}/…` y producción corre con `APP_ENV=staging`. El entorno de pruebas
-   **no debe tener** credenciales de Cloudinary.
-6. **El ticket de WSAA (ARCA) vive en memoria:** resolverlo antes de la homologación.
-7. **El repositorio de GitHub es público:** lo que se suba a una rama es visible. No contiene
-   secretos, pero sí la lógica de pagos y facturación.
+1. **La verificación del tipo de cuenta no se probó contra Mercado Pago real.** Si
+   `GET /users/me` del token de prueba no trae la etiqueta `test_user`, la API **no va a arrancar**
+   con `PAYMENTS_MODE=test`. Falla del lado seguro; habría que revisarlo con el token cargado.
+2. Ninguna prueba contra Mercado Pago real todavía.
+3. **Nada corre solo:** no hay tarea programada para liberar reservas, reintentar eventos,
+   consultar pagos pendientes ni procesar facturas.
+4. **Reembolsos y contracargos** (`REVERSED`) se registran pero no cambian el pedido.
+5. El ticket de WSAA (ARCA) vive en memoria.
+6. **El repositorio de GitHub es público:** lo que se suba es visible. No hay secretos.
+7. Los tests intermitentes de §4.
 8. Los regalos (estuche y cordón) no viajan al pedido. Las páginas legales siguen en borrador.
 
-## 5. Procedimiento para el entorno de prueba aislado
+## 6. Procedimiento para conectar el entorno aislado
 
-Cada paso necesita **autorización explícita**. Nada de esto se hizo.
+Cada bloque necesita **autorización explícita**. Hasta la etapa 2 no se hizo nada de esto.
 
-### 5.1 Railway — proyecto nuevo, no un entorno dentro del de producción
+### 6.1 Railway — proyecto `soluciones-opticas-pruebas`
 
-1. Crear un proyecto nuevo (por ejemplo `soluciones-opticas-pruebas`).
-2. Agregar un **Postgres nuevo** en ese proyecto.
-3. Crear el servicio de la API desde el repositorio, con la rama de prueba:
+El proyecto es independiente del de producción y tiene su propio Postgres nuevo y vacío.
+
+1. **Servicio de la API**, desde el repositorio, rama `integration/checkout-mp-241facf`:
    - Root Directory: la raíz del repo;
    - Build: `npm run build:api`;
    - Start: `npm run start:api`;
-   - Healthcheck: `/api/health`.
-4. Cargar las variables del servicio (tabla 5.3).
-5. Con `DATABASE_URL` del **Postgres de pruebas**, aplicar `npx prisma migrate deploy` y después
-   `npm run db:seed:staging` (datos ficticios). **Nunca restaurar un respaldo de producción.**
-6. Crear un admin de prueba para ver «Pedidos online».
+   - Healthcheck: `/api/health`;
+   - **sin Pre-deploy command**.
+2. **Variables del servicio, primera tanda: pagos apagados.**
 
-### 5.2 Vercel — Preview de la rama
+   | Variable             | Valor                                                                        |
+   | -------------------- | ---------------------------------------------------------------------------- |
+   | `DATABASE_URL`       | Referencia `${{Postgres.DATABASE_URL}}` del Postgres de **este** proyecto    |
+   | `NODE_ENV`           | `production`                                                                 |
+   | `APP_ENV`            | `staging`                                                                    |
+   | `SANDBOX_MODE`       | `on`                                                                         |
+   | `PAYMENTS_MODE`      | `off`                                                                        |
+   | `ARCA_MODE`          | `off`                                                                        |
+   | `INVOICE_EMAIL_MODE` | `off`                                                                        |
+   | `ONLINE_LENS_SALES`  | `off`                                                                        |
+   | `JWT_SECRET`         | Nuevo: generarlo en el panel de Railway; **sellado**. Nunca el de producción |
+   | `CORS_ORIGINS`       | URL fija del Preview de la rama (se completa en 6.3)                         |
+   | `CLOUDINARY_*`       | **No crearlas.** Si existen, la API no arranca                               |
 
-1. La rama llega a GitHub, previa autorización del push, y Vercel crea el Preview.
+3. **Preparar la base, una sola vez, desde tu máquina:**
+   - En Railway → Postgres del proyecto de pruebas → Connect, copiar `DATABASE_PUBLIC_URL` sin
+     mostrarla.
+   - En el worktree de la rama, exportarla solo para el comando:
+
+   ```bash
+   read -rs SANDBOX_DB && \
+   SANDBOX_MODE=on DATABASE_URL="$SANDBOX_DB" npm run sandbox:init -- --confirmo-base-de-pruebas; \
+   unset SANDBOX_DB
+   ```
+
+   `read -rs` no muestra la URL y no queda en el historial. El script:
+   - **se niega si la base tiene tablas y no tiene la marca**;
+   - si la base está vacía, la marca, aplica las 14 migraciones y carga el catálogo [DEMO];
+   - repetirlo no cambia nada.
+
+4. **Desplegar el servicio.** Tiene que arrancar con
+   `SANDBOX_MODE=on, PAYMENTS_MODE=off, ARCA_MODE=off`. Si en los logs aparece
+   `[startup] Configuración insegura`, no arranca y el mensaje dice por qué.
+5. Comprobar `GET https://<api-de-pruebas>/api/health` → 200.
+
+### 6.2 Vercel — Preview de la rama
+
+1. La rama llega a GitHub (push autorizado) y Vercel crea el Preview.
 2. Variables de **Preview limitadas a esa rama**:
-   - `VITE_API_BASE_URL` = URL de la API de pruebas;
-   - `VITE_CLOUDINARY_CLOUD_NAME` es opcional (es pública).
-   - **Nunca** un secreto: todo `VITE_*` llega al navegador.
-3. Usar la URL fija de la rama (el alias de rama de Vercel) en `CORS_ORIGINS` y `PUBLIC_WEB_URL`.
+   - `VITE_API_BASE_URL` = `https://<api-de-pruebas>`;
+   - nada más obligatorio. **Nunca** un secreto: todo `VITE_*` llega al navegador.
+3. Redeploy del Preview para que tome la variable. Si alguien pusiera ahí la API productiva, el
+   Preview no arranca.
+4. Anotar la URL fija de la rama (alias de rama de Vercel) y volver a Railway: `CORS_ORIGINS` = esa
+   URL.
 
-### 5.3 Variables del servicio de la API de pruebas
+### 6.3 Admin de prueba
 
-| Variable                     | Valor                                                    | Secreta     |
-| ---------------------------- | -------------------------------------------------------- | ----------- |
-| `DATABASE_URL`               | Referencia al Postgres **de pruebas**                    | sí          |
-| `NODE_ENV`                   | `production`                                             |             |
-| `APP_ENV`                    | `staging` (es otro servicio; no cambia el de producción) |             |
-| `JWT_SECRET`                 | Nuevo, generado en Railway; distinto del de producción   | sí          |
-| `CORS_ORIGINS`               | URL del Preview de la rama                               |             |
-| `PUBLIC_WEB_URL`             | URL del Preview de la rama                               |             |
-| `MERCADOPAGO_ACCESS_TOKEN`   | Access Token **de prueba** de la app                     | sí, sellada |
-| `MERCADOPAGO_WEBHOOK_SECRET` | «Firma secreta» del webhook en modo Prueba               | sí, sellada |
-| `ARCA_MODE`                  | `off`                                                    |             |
-| `INVOICE_EMAIL_MODE`         | `off`                                                    |             |
-| `ONLINE_LENS_SALES`          | `off`                                                    |             |
-| `CLOUDINARY_*`               | **No definir** (riesgo 5)                                |             |
+1. Registrarse en el Preview con un correo propio de prueba.
+2. Promover esa cuenta con la URL de la base de pruebas, igual que en 6.1.3:
 
-El Access Token se pega directo en las variables del servicio y se sella. Nunca en Vercel, en un
-archivo del repo, en la terminal ni en un chat.
+   ```bash
+   read -rs SANDBOX_DB && \
+   DATABASE_URL="$SANDBOX_DB" node scripts/promote-to-admin.mjs <correo> --dry-run; \
+   unset SANDBOX_DB
+   ```
 
-### 5.4 Webhook de Mercado Pago
+   Repetir sin `--dry-run` después de revisar.
 
-Recién con la API de pruebas desplegada:
+### 6.4 Credenciales de Mercado Pago de prueba (autorización aparte)
 
-1. Mercado Pago Developers → la app → **Configuración de Webhooks** → interruptor **Prueba**.
-2. URL: `https://<api-de-pruebas>/api/payments/mercadopago/webhook`.
-3. Evento: **Order (Mercado Pago)**.
-4. Guardar.
-5. Revelar la «Firma secreta» → cargarla como `MERCADOPAGO_WEBHOOK_SECRET` (sellada) → redeploy.
+1. Mercado Pago Developers → la app → selector **Prueba** → Credenciales: copiar el Access Token **de
+   prueba**.
+2. Railway → servicio de la API de pruebas → Variables:
+   - `MERCADOPAGO_ACCESS_TOKEN`, pegado directo y **sellado**;
+   - `PUBLIC_WEB_URL` = URL fija del Preview.
+3. Webhook: la app → **Configuración de Webhooks** → modo **Prueba** →
+   - URL `https://<api-de-pruebas>/api/payments/mercadopago/webhook`;
+   - evento **Order (Mercado Pago)**;
+   - Guardar.
+   - La pestaña **Producción** queda vacía.
+4. Revelar la «Firma secreta» → `MERCADOPAGO_WEBHOOK_SECRET`, **sellada**.
+5. Recién ahora: `PAYMENTS_MODE=test` → redeploy.
+   - Al arrancar, la API consulta a Mercado Pago si la cuenta del token es de prueba.
+   - Si es real, o si no se puede confirmar, **no arranca** (riesgo 1).
 
-La pestaña **Producción** queda vacía.
-
-### 5.5 Escenarios a ejecutar (con autorización)
+### 6.5 Escenarios (autorización aparte)
 
 Ventana de incógnito, sin sesión de Mercado Pago, tarjetas de prueba oficiales. El resultado lo
 define el nombre del titular.
@@ -179,14 +243,14 @@ define el nombre del titular.
 | E4  | Webhook duplicado | «Simular notificación» ×2 con el pedido E1 | Sin cambios en `approvedAt` ni en el stock                     |
 | E5  | Retorno falso     | Abrir la URL de éxito sin pagar            | Nada cambia                                                    |
 | E6  | Sin firma         | `POST` al webhook sin `x-signature`        | 401, nada guardado                                             |
-| E7  | Reserva vencida   | Pedido sin pagar por 30 minutos            | `EXPIRED` cuando alguien lo consulta (riesgo 2)                |
+| E7  | Reserva vencida   | Pedido sin pagar por 30 minutos            | `EXPIRED` cuando alguien lo consulta (riesgo 3)                |
 
-## 6. Cómo reproducir la validación local
+## 7. Cómo reproducir la validación local
 
 1. Crear un worktree de la rama.
 2. Levantar un Postgres **descartable** solo en `127.0.0.1`, sin volumen.
-3. Escribir un `.env` local con `DATABASE_URL` a esa base, un `JWT_SECRET` aleatorio y
-   `ARCA_MODE=off`, sin credenciales de proveedores.
+3. Escribir un `.env` local con `DATABASE_URL` a esa base, un `JWT_SECRET` aleatorio, `ARCA_MODE=off`
+   y sin credenciales de proveedores.
 4. Crear `apps/web/.env.local` con `VITE_API_BASE_URL=http://localhost:3001`.
 5. Correr:
    - `npm ci`;
@@ -196,4 +260,5 @@ define el nombre del titular.
    - `npm run typecheck -w apps/web`;
    - `npm run build:api` y `npm run build:web`.
 
-Los tests de la API vacían tablas de facturación: nunca apuntarlos a una base con datos reales.
+Los tests de la API vacían tablas de facturación y escriben (y restauran) el comentario de la base:
+nunca apuntarlos a una base con datos reales.

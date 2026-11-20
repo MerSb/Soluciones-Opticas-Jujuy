@@ -25,6 +25,7 @@
     "db:migrate:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:seed:staging": "tsx prisma/seed-staging.ts",
+    "sandbox:init": "tsx prisma/sandbox-init.ts",
     "db:reset:local": "node --env-file=.env scripts/assert-local-db.mjs && prisma migrate reset",
     "admin:promote": "node --env-file=.env scripts/promote-to-admin.mjs",
     "dev:api": "npm run dev -w apps/api",

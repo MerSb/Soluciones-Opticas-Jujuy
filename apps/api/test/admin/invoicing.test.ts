@@ -487,6 +487,7 @@ describe("online purchase end to end (checkout → Mercado Pago TEST fake → we
     variantId: string;
   };
   const originalSecret = env.MERCADOPAGO_WEBHOOK_SECRET;
+  const originalPaymentsMode = env.PAYMENTS_MODE;
 
   beforeAll(async () => {
     const suffix = `e2e-${RUN_ID}`.toLowerCase();
@@ -530,10 +531,12 @@ describe("online purchase end to end (checkout → Mercado Pago TEST fake → we
     vi.mocked(getPaymentProvider).mockReturnValue(fake);
     vi.mocked(getPaymentReturnBaseUrl).mockReturnValue("https://web.example.test");
     env.MERCADOPAGO_WEBHOOK_SECRET = SECRET;
+    env.PAYMENTS_MODE = "test";
   });
 
   afterAll(async () => {
     env.MERCADOPAGO_WEBHOOK_SECRET = originalSecret;
+    env.PAYMENTS_MODE = originalPaymentsMode;
     const orders = await prisma.order.findMany({
       where: { customerEmail: { contains: RUN_ID } },
       select: { id: true },
