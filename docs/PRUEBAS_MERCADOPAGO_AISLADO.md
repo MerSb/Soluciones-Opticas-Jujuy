@@ -142,6 +142,10 @@ entre archivos. Pendiente: aislar esos tests.
 
 Cada bloque necesita **autorización explícita**. Hasta la etapa 2 no se hizo nada de esto.
 
+> **2026-11-20:** el bloque de Railway (6.1) ya está hecho, con dos diferencias respecto de lo
+> escrito abajo: el código se subió con `railway up` (sin GitHub) y `sandbox:init` corrió como
+> pre-deploy de una sola vez (la plantilla de Postgres no crea URL pública). Ver §6.6.
+
 ### 6.1 Railway — proyecto `soluciones-opticas-pruebas`
 
 El proyecto es independiente del de producción y tiene su propio Postgres nuevo y vacío.
@@ -244,6 +248,65 @@ define el nombre del titular.
 | E5  | Retorno falso     | Abrir la URL de éxito sin pagar            | Nada cambia                                                    |
 | E6  | Sin firma         | `POST` al webhook sin `x-signature`        | 401, nada guardado                                             |
 | E7  | Reserva vencida   | Pedido sin pagar por 30 minutos            | `EXPIRED` cuando alguien lo consulta (riesgo 3)                |
+
+### 6.6 Bloque de infraestructura ejecutado (2026-11-20)
+
+Autorizado por la responsable del proyecto. Sin credenciales de Mercado Pago ni de Cloudinary, sin
+ARCA, sin push, sin tocar producción.
+
+**Recursos (proyecto `soluciones-opticas-pruebas`, workspace personal, región `ams`)**
+
+| Recurso    | Nombre / ID                                                           | Detalle                                                                            |
+| ---------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Proyecto   | `soluciones-opticas-pruebas` · `909e748b-9026-490e-9567-6e986845df8c` | Distinto de producción: `proactive-grace` · `66277a93-cdfc-4b4e-ba41-17ba77933f19` |
+| Entorno    | `production` · `931d3073-fde1-4402-a10e-230798ca703e`                 | Único entorno del proyecto de pruebas                                              |
+| PostgreSQL | `Postgres` · `8394027f-40ef-4eef-aa39-d25aac830e37`                   | Plantilla oficial, PostgreSQL 18.6, volumen 5 GB, **sin TCP proxy ni URL pública** |
+| API        | `api-pruebas` · `431e1452-a2a4-493e-b17c-0dbd1d168556`                | Sin fuente de GitHub; código de `a596f46` subido con `railway up`                  |
+| Dominio    | `https://api-pruebas-production-bff2a278.up.railway.app`              | Generado por Railway, puerto 8080                                                  |
+
+**Configuración de `api-pruebas`:** build `npm run build:api`, start `npm run start:api`,
+healthcheck `/api/health` (120 s), reinicio `ON_FAILURE` ×3, **sin pre-deploy**. Variables:
+`NODE_ENV=production`, `APP_ENV=staging`, `SANDBOX_MODE=on`, `PAYMENTS_MODE=off`, `ARCA_MODE=off`,
+`INVOICE_EMAIL_MODE=off`, `ONLINE_LENS_SALES=off`, `DATABASE_URL=${{Postgres.DATABASE_URL}}`
+(resuelve a `postgres.railway.internal`, red privada del proyecto de pruebas) y `JWT_SECRET` nuevo
+(48 bytes aleatorios, generado localmente y cargado por stdin; nunca impreso; no sellado). No hay
+`CLOUDINARY_*`, `MERCADOPAGO_*` ni `CORS_ORIGINS`.
+
+**Inicialización de la base (una sola vez).** Verificada antes: 0 tablas, sin comentario. Se puso
+`npm run sandbox:init -- --confirmo-base-de-pruebas` como pre-deploy solo para el primer deploy
+(`5edc1c3a`) y se quitó apenas terminó (verificado: `preDeployCommand: []`). Resultado:
+
+- marca `soluciones-opticas:sandbox` escrita;
+- 14/14 migraciones aplicadas, 0 fallidas (`_prisma_migrations`);
+- 4 productos, los 4 `[DEMO]`; 0 usuarios, 0 pedidos.
+
+**Arranque:** `API listening … SANDBOX_MODE=on, PAYMENTS_MODE=off, ARCA_MODE=off`. Desde internet:
+`GET /api/health` → 200 `{"status":"ok"}`; `/api/products` → solo los 4 `[DEMO]`;
+`POST /api/payments/mercadopago/webhook` → 503 (pagos apagados).
+
+**Producción, comprobada después (solo lectura):** último deploy de `soluciones-opticas-api` sigue
+siendo `f6e54c4e` (`241facf`, 2026-10-31); Postgres productivo sin deploys desde 2026-09-27; 0
+cambios pendientes. La rama no está en GitHub.
+
+**Cómo volver a desplegar.** El servicio no tiene autodeploy. Desde un worktree de la rama, vinculado
+solo al proyecto de pruebas (nunca relinkear el repo principal, que apunta a `proactive-grace`):
+
+```bash
+railway link -p 909e748b-9026-490e-9567-6e986845df8c -e 931d3073-fde1-4402-a10e-230798ca703e \
+  -s 431e1452-a2a4-493e-b17c-0dbd1d168556
+railway status   # comprobar «soluciones-opticas-pruebas» antes de seguir
+railway up --detach -s 431e1452-a2a4-493e-b17c-0dbd1d168556 -e 931d3073-fde1-4402-a10e-230798ca703e
+```
+
+**Tareas sobre la base (p. ej. promover el admin de 6.3).** No hay URL pública. Se corren dentro del
+contenedor de la API, que ya tiene `DATABASE_URL` (todavía no probado):
+`railway ssh -s 431e1452-a2a4-493e-b17c-0dbd1d168556 -- node scripts/promote-to-admin.mjs <correo> --dry-run`.
+
+**Costo estimado.** Se paga por uso (RAM ≈ USD 10/GB-mes, CPU ≈ USD 20/vCPU-mes, volumen ≈
+USD 0,15/GB-mes usado, salida ≈ USD 0,05/GB). En reposo (API ≈ 150 MB, Postgres ≈ 100 MB, CPU casi
+nula) ≈ **USD 2–4 por mes**, que se suma al consumo de producción dentro del mismo plan. Se puede
+bajar a casi cero activando el modo reposo (_sleep_) de `api-pruebas`, o borrando el proyecto al
+terminar las pruebas.
 
 ## 7. Cómo reproducir la validación local
 
