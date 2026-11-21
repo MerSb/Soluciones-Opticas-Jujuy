@@ -42,6 +42,7 @@ interface VariantRow {
   priceOverride: Prisma.Decimal | null;
   stock: number;
   imagePublicId: string | null;
+  imagePublicIds: string[] | null;
 }
 
 function variantRows(where: Prisma.Sql): Promise<VariantRow[]> {
@@ -54,7 +55,11 @@ function variantRows(where: Prisma.Sql): Promise<VariantRow[]> {
            (SELECT i.cloudinary_public_id FROM product_images i
              WHERE i.variant_id = v.id
              ORDER BY i.is_primary DESC, i.sort_order, i.created_at, i.id
-             LIMIT 1) AS "imagePublicId"
+             LIMIT 1) AS "imagePublicId",
+           (SELECT array_agg(i.cloudinary_public_id
+                             ORDER BY i.is_primary DESC, i.sort_order, i.created_at, i.id)
+              FROM product_images i
+             WHERE i.variant_id = v.id) AS "imagePublicIds"
     FROM product_variants v
     JOIN products p ON p.id = v.product_id
     JOIN brands b ON b.id = p.brand_id
@@ -219,6 +224,7 @@ export async function lookupSku(query: SkuLookupQuery): Promise<AdminSkuLookupRe
       price: priceOf(row),
       stock: row.stock,
       modelCode: suggestedModelCode(row.sku),
+      imagePublicIds: row.imagePublicIds ?? [],
       match,
     }));
   return {

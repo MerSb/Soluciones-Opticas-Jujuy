@@ -1,7 +1,9 @@
 import { AdminModelSuggestions } from "./AdminModelSuggestions";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useLocation, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { readSearchReturn } from "../../lib/admin-search-params";
+import { useSuggestedModelCodes } from "./VariantPhotoPreview";
 import type { AccessoryRole, StylePreference } from "@soluciones-opticas/shared";
 import { SeoHead } from "../../components/ui/SeoHead";
 import { StatusMessage } from "../../components/ui/StatusMessage";
@@ -68,8 +70,23 @@ function completenessHelpText(variants: AdminVariantDto[]): string {
 
 export function AdminProductDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
   // Just created on «Nuevo producto»: say so at the top.
-  const created = (useLocation().state as { created?: string | boolean } | null)?.created;
+  const created = (location.state as { created?: string | boolean } | null)?.created;
+  // Came from the product search: offer the way back to it (same code,
+  // filters, page and last result; lib/admin-search-params.ts).
+  const searchReturn = readSearchReturn(location.state);
+  // Same query as the «Posibles variantes» panel below: one request.
+  const modelCodes = useSuggestedModelCodes(id ?? "");
+  const backToSearch = () => {
+    if (!searchReturn) return;
+    // One step back when the search is the previous entry (no new history
+    // entry); the saved search otherwise (e.g. opened in a new tab).
+    const index = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (index > 0) navigate(-1);
+    else navigate(searchReturn.from);
+  };
   const { data: product, isLoading, isError } = useAdminProductQuery(id);
   const { data: brands } = useAdminBrandsQuery();
   const { data: categories } = useAdminCategoriesQuery();
@@ -196,6 +213,19 @@ export function AdminProductDetailPage() {
   return (
     <div className="max-w-3xl">
       <SeoHead noIndex title={`${product.name} — Administración`} />
+
+      {searchReturn && (
+        <button
+          type="button"
+          onClick={backToSearch}
+          className="mb-4 inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-surface-muted"
+        >
+          <span aria-hidden="true">←</span>
+          {searchReturn.label
+            ? `Volver a la búsqueda «${searchReturn.label}»`
+            : "Volver a la búsqueda"}
+        </button>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -454,6 +484,7 @@ export function AdminProductDetailPage() {
           variants={product.variants}
           kind={product.kind}
           basePrice={product.basePrice}
+          modelCodes={modelCodes}
         />
       </div>
 

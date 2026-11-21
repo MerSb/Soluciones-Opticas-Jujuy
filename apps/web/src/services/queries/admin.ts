@@ -577,6 +577,9 @@ export function useAdminSkuLookupQuery(q: string, page: number, limit: number) {
       }),
     enabled: normalizeSkuText(debounced) !== "",
     placeholderData: keepPreviousData,
+    // Coming back from a product (maybe after saving its stock): always ask
+    // again, so the stock shown is the current one.
+    refetchOnMount: "always",
   });
 }
 
@@ -586,5 +589,6 @@ export function useAdminModelSuggestionsQuery(productId: string) {
     queryKey: ["admin", "products", productId, "model-suggestions"],
     queryFn: () =>
       apiGet<AdminModelSuggestionsDto>(`/api/admin/products/${productId}/model-suggestions`),
+    enabled: productId !== "",
   });
 }

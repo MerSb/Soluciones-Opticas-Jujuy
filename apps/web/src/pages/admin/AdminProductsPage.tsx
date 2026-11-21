@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { SeoHead } from "../../components/ui/SeoHead";
 import { StatusMessage } from "../../components/ui/StatusMessage";
@@ -6,17 +6,24 @@ import type { ProductKind } from "@soluciones-opticas/shared";
 import { useAdminProductsQuery } from "../../services/queries/admin";
 import { accessoryRoleLabel } from "../../lib/accessories";
 import { AdminSkuSearchResults } from "./AdminSkuSearchResults";
+import { LastOpenedBadge } from "../../components/admin/LastOpenedBadge";
+import {
+  searchReturnState,
+  useAdminSearch,
+  useScrollToLastOpened,
+} from "../../lib/admin-search-params";
 
 const PAGE_SIZE = 20;
 
 export function AdminProductsPage() {
-  const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
-  const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [kind, setKind] = useState<ProductKind | "">("");
+  // The whole search lives in the URL (lib/admin-search-params.ts): going
+  // into a product and back keeps the code, filters, page and last result.
+  const [search, updateSearch] = useAdminSearch();
+  const { pagina: page, nombre: q, eliminados: includeDeleted, tipo: kind, sku: skuQ } = search;
+  const skuBoxRef = useRef<HTMLInputElement>(null);
   // While a SKU is typed, its results replace the product list.
-  const [skuQ, setSkuQ] = useState("");
   const searchingSku = skuQ.trim() !== "";
+  const setPage = (next: number) => updateSearch({ pagina: next, ultimo: null });
 
   const { data, isLoading, isError } = useAdminProductsQuery({
     page,
@@ -26,6 +33,8 @@ export function AdminProductsPage() {
     kind: kind || undefined,
   });
 
+  useScrollToLastOpened(searchingSku ? null : search.ultimo, !searchingSku && !!data);
+
   return (
     <div>
       <SeoHead noIndex title="Productos — Administración" />
@@ -34,31 +43,51 @@ export function AdminProductsPage() {
           <input
             type="search"
             value={q}
-            onChange={(event) => {
-              setQ(event.target.value);
-              setPage(1);
-            }}
+            onChange={(event) =>
+              updateSearch({ nombre: event.target.value, pagina: 1, ultimo: null })
+            }
             placeholder="Buscar por nombre…"
             aria-label="Buscar por nombre"
             className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
           />
-          <input
-            type="search"
-            value={skuQ}
-            onChange={(event) => setSkuQ(event.target.value)}
-            placeholder="Buscar por SKU o código de modelo…"
-            aria-label="Buscar por SKU o código de modelo"
-            inputMode="search"
-            className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
-          />
+          <div className="flex items-center gap-1">
+            <input
+              ref={skuBoxRef}
+              type="search"
+              value={skuQ}
+              onChange={(event) =>
+                updateSearch({ sku: event.target.value, pagina: 1, ultimo: null })
+              }
+              placeholder="Buscar por SKU o código de modelo…"
+              aria-label="Buscar por SKU o código de modelo"
+              inputMode="search"
+              className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
+            />
+            {skuQ !== "" && (
+              <button
+                type="button"
+                onClick={() => {
+                  updateSearch({ sku: "", pagina: 1, ultimo: null });
+                  skuBoxRef.current?.focus();
+                }}
+                aria-label="Borrar el código buscado"
+                className="rounded-md border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-muted"
+              >
+                Borrar
+              </button>
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-text-muted">
             Mostrar
             <select
               value={kind}
-              onChange={(event) => {
-                setKind(event.target.value as ProductKind | "");
-                setPage(1);
-              }}
+              onChange={(event) =>
+                updateSearch({
+                  tipo: event.target.value as ProductKind | "",
+                  pagina: 1,
+                  ultimo: null,
+                })
+              }
               className="rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text"
             >
               <option value="">Todos</option>
@@ -70,10 +99,9 @@ export function AdminProductsPage() {
             <input
               type="checkbox"
               checked={includeDeleted}
-              onChange={(event) => {
-                setIncludeDeleted(event.target.checked);
-                setPage(1);
-              }}
+              onChange={(event) =>
+                updateSearch({ eliminados: event.target.checked, pagina: 1, ultimo: null })
+              }
             />
             Incluir eliminados
           </label>
@@ -94,7 +122,16 @@ export function AdminProductsPage() {
         </div>
       </div>
 
-      {searchingSku && <AdminSkuSearchResults q={skuQ} />}
+      {searchingSku && (
+        <AdminSkuSearchResults
+          q={skuQ}
+          page={page}
+          onPageChange={setPage}
+          lastOpened={search.ultimo}
+          onOpen={(variantId) => updateSearch({ ultimo: variantId })}
+          returnState={(variantId) => searchReturnState({ ...search, ultimo: variantId })}
+        />
+      )}
       {!searchingSku && isLoading && <p className="mt-6 text-sm text-text-muted">Cargando…</p>}
       {!searchingSku && isError && (
         <StatusMessage variant="error" message="No pudimos cargar los productos." />
@@ -116,14 +153,23 @@ export function AdminProductsPage() {
             </thead>
             <tbody>
               {data.data.map((product) => (
-                <tr key={product.id} className="border-b border-border">
+                <tr
+                  key={product.id}
+                  data-result-id={product.id}
+                  className={`border-b border-border ${
+                    search.ultimo === product.id ? "bg-primary/5" : ""
+                  }`}
+                >
                   <td className="py-2 pr-4">
                     <Link
                       to={`/admin/products/${product.id}`}
+                      state={searchReturnState({ ...search, ultimo: product.id })}
+                      onClick={() => updateSearch({ ultimo: product.id })}
                       className="font-medium text-primary hover:underline"
                     >
                       {product.name}
                     </Link>
+                    {search.ultimo === product.id && <LastOpenedBadge />}
                   </td>
                   <td className="py-2 pr-4 text-text-muted">
                     {product.kind === "ACCESSORY"
@@ -180,7 +226,7 @@ export function AdminProductsPage() {
             <div className="mt-4 flex items-center gap-3 text-sm">
               <button
                 type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page <= 1}
                 className="rounded-md border border-border px-3 py-1.5 text-text disabled:opacity-40"
               >
@@ -191,7 +237,7 @@ export function AdminProductsPage() {
               </span>
               <button
                 type="button"
-                onClick={() => setPage((p) => Math.min(data.pagination.totalPages, p + 1))}
+                onClick={() => setPage(Math.min(data.pagination.totalPages, page + 1))}
                 disabled={page >= data.pagination.totalPages}
                 className="rounded-md border border-border px-3 py-1.5 text-text disabled:opacity-40"
               >

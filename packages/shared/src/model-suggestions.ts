@@ -60,6 +60,8 @@ export interface AdminSkuLookupMatchDto {
   stock: number;
   /** Suggested model code of this SKU, or null. */
   modelCode: string | null;
+  /** The variant's photos, primary first (read only), to tell it apart. */
+  imagePublicIds: string[];
   match: SkuLookupMatch;
 }
 

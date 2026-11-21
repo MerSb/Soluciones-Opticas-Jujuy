@@ -39,6 +39,10 @@ patrón no tiene código (no se adivina). Ejemplos: `H3533-COL616`, `H3533C616` 
 
 Nunca se cambia un SKU, precio, stock, foto ni producto; nada se agrupa ni se fusiona.
 
+La búsqueda conserva el código en la URL, muestra la foto de cada variante y lleva al producto con
+«Volver a la búsqueda»; la tarjeta de cada variante muestra su foto y el modelo sugerido junto al stock.
+Recorrido completo: [BAJA_DE_STOCK.md](BAJA_DE_STOCK.md).
+
 ## Fase 2b (pendiente, requiere autorización)
 
 Campo opcional `model_code` por variante (migración aditiva), confirmado por Roberto con un clic sobre

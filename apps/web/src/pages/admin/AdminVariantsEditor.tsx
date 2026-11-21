@@ -13,6 +13,7 @@ import { AdminVariantImagesEditor } from "./AdminVariantImagesEditor";
 import { VariantSkuEditor } from "./VariantSkuEditor";
 import { VariantTonesEditor } from "./VariantTonesEditor";
 import { VariantDetailsEditor } from "./VariantDetailsEditor";
+import { VariantPhotoPreview } from "./VariantPhotoPreview";
 import {
   ACCESSORY_EXTRA_COLORS,
   ColorChoice,
@@ -45,7 +46,10 @@ export function AdminVariantsEditor({
   variants,
   kind = "FRAME",
   basePrice = 0,
+  modelCodes,
 }: {
+  /** Suggested model code per SKU (a suggestion only), from the product page. */
+  modelCodes?: ReadonlyMap<string, string>;
   productId: string;
   /** The product's price: what a variant without its own price costs. */
   basePrice?: number;
@@ -118,6 +122,7 @@ export function AdminVariantsEditor({
             <AccessoryVariantCard
               key={variant.id}
               basePrice={basePrice}
+              modelCodes={modelCodes}
               productId={productId}
               productName={productName}
               variant={variant}
@@ -126,6 +131,7 @@ export function AdminVariantsEditor({
             <VariantCard
               key={variant.id}
               basePrice={basePrice}
+              modelCodes={modelCodes}
               productId={productId}
               productName={productName}
               variant={variant}
@@ -284,7 +290,9 @@ function VariantCard({
   productName,
   variant,
   basePrice,
+  modelCodes,
 }: {
+  modelCodes?: ReadonlyMap<string, string>;
   basePrice: number;
   productId: string;
   productName: string;
@@ -293,6 +301,7 @@ function VariantCard({
   const updateVariant = useUpdateVariantMutation(productId);
   const deleteVariant = useDeleteVariantMutation(productId);
   const [stock, setStock] = useState(variant.stock.toString());
+  const modelCode = modelCodes?.get(variant.sku) ?? null;
 
   const updateError =
     updateVariant.error instanceof ApiClientError ? updateVariant.error.message : undefined;
@@ -302,18 +311,30 @@ function VariantCard({
   return (
     <div className="rounded-md border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-medium text-text">
-            {variant.color ?? "Sin color"} · {variant.material ?? "Sin material"}
-          </p>
-          <VariantSkuEditor productId={productId} variant={variant} />
-          <VariantTonesEditor productId={productId} variant={variant} />
-          <VariantDetailsEditor
-            productId={productId}
-            variant={variant}
-            basePrice={basePrice}
-            withPrice
+        {/* The photo right next to SKU, color and stock: the variant is
+            recognized before its stock is changed. */}
+        <div className="flex min-w-0 items-start gap-3">
+          <VariantPhotoPreview
+            images={variant.images}
+            sku={variant.sku}
+            color={variant.color}
+            alt={photoAltBase(productName, variant)}
+            modelCode={modelCode}
           />
+          <div className="min-w-0">
+            <p className="font-medium text-text">
+              {variant.color ?? "Sin color"} · {variant.material ?? "Sin material"}
+            </p>
+            <SuggestedModelLine code={modelCode} />
+            <VariantSkuEditor productId={productId} variant={variant} />
+            <VariantTonesEditor productId={productId} variant={variant} />
+            <VariantDetailsEditor
+              productId={productId}
+              variant={variant}
+              basePrice={basePrice}
+              withPrice
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -382,7 +403,9 @@ function AccessoryVariantCard({
   productName,
   variant,
   basePrice,
+  modelCodes,
 }: {
+  modelCodes?: ReadonlyMap<string, string>;
   basePrice: number;
   productId: string;
   productName: string;
@@ -393,6 +416,7 @@ function AccessoryVariantCard({
   const [label, setLabel] = useState(variant.label ?? "");
   const [price, setPrice] = useState(variant.priceOverride?.toString() ?? "");
   const [stock, setStock] = useState(variant.stock.toString());
+  const modelCode = modelCodes?.get(variant.sku) ?? null;
 
   const title =
     [variant.label, variant.color, variant.material].filter(Boolean).join(" · ") || "Única";
@@ -417,23 +441,33 @@ function AccessoryVariantCard({
   return (
     <div className="rounded-md border border-border p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="flex flex-wrap items-center gap-2 font-medium text-text">
-            {title}
-            {variant.stock === 0 && (
-              <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
-                Agotado
-              </span>
-            )}
-          </p>
-          <VariantSkuEditor productId={productId} variant={variant} />
-          <VariantTonesEditor productId={productId} variant={variant} />
-          <VariantDetailsEditor
-            productId={productId}
-            variant={variant}
-            basePrice={basePrice}
-            withPrice={false}
+        <div className="flex min-w-0 items-start gap-3">
+          <VariantPhotoPreview
+            images={variant.images}
+            sku={variant.sku}
+            color={[variant.label, variant.color].filter(Boolean).join(" · ") || null}
+            alt={photoAltBase(productName, variant)}
+            modelCode={modelCode}
           />
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-2 font-medium text-text">
+              {title}
+              {variant.stock === 0 && (
+                <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
+                  Agotado
+                </span>
+              )}
+            </p>
+            <SuggestedModelLine code={modelCode} />
+            <VariantSkuEditor productId={productId} variant={variant} />
+            <VariantTonesEditor productId={productId} variant={variant} />
+            <VariantDetailsEditor
+              productId={productId}
+              variant={variant}
+              basePrice={basePrice}
+              withPrice={false}
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -510,5 +544,15 @@ function AccessoryVariantCard({
         altBase={photoAltBase(productName, variant)}
       />
     </div>
+  );
+}
+
+/** The suggested model code, always marked as a suggestion. */
+function SuggestedModelLine({ code }: { code: string | null }) {
+  if (!code) return null;
+  return (
+    <p className="text-xs text-text-muted">
+      Modelo sugerido <span className="font-mono">{code}</span> · sin confirmar
+    </p>
   );
 }

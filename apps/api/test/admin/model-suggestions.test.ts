@@ -263,6 +263,17 @@ describe("GET /api/admin/products/sku-lookup", () => {
     expect(skus(now.body)).toEqual(expect.arrayContaining(skus(old.body)));
   });
 
+  it("brings each variant's photos, primary first, so the right one can be recognized (read only)", async () => {
+    const res = await lookup(`${CODE}-C2`);
+    const c2 = res.body.data.find((m: { sku: string }) => m.sku === SKUS.fandiaC2);
+    expect(c2.imagePublicIds).toEqual([
+      `test/models-${RUN_ID}-primary`,
+      `test/models-${RUN_ID}-second`,
+    ]);
+    const c6 = res.body.data.find((m: { sku: string }) => m.sku === SKUS.fandiaC6);
+    expect(c6.imagePublicIds).toEqual([]);
+  });
+
   it("returns nothing for a query without letters or digits, and paginates keeping the total", async () => {
     const empty = await lookup(" - / ");
     expect(empty.body.data).toEqual([]);

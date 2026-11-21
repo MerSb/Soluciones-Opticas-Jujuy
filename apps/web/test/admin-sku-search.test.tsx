@@ -21,6 +21,7 @@ const MATCH = {
   price: 100000,
   stock: 3,
   modelCode: "H3533",
+  imagePublicIds: [],
   match: "EXACT",
 };
 
@@ -151,6 +152,18 @@ describe("AdminProductsPage — search by full SKU or model code", () => {
     await userEvent.clear(box);
     expect(await screen.findByText("No hay productos que coincidan.")).toBeInTheDocument();
     expect(screen.queryByText("H3533C616")).not.toBeInTheDocument();
+  });
+
+  it("never labels older results with the code being typed: says «Buscando…» until they arrive", async () => {
+    stubApi([MATCH]);
+    renderWithProviders(<AdminProductsPage />);
+    const box = screen.getByLabelText(BOX);
+    await userEvent.type(box, "H35");
+    await screen.findByText(/variantes? para «H35»/);
+    await userEvent.type(box, "33");
+    expect(screen.getByText("Buscando «H3533»…")).toBeInTheDocument();
+    expect(screen.queryByText(/para «H3533»/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/variantes? para «H3533»/)).toBeInTheDocument();
   });
 
   it("keeps the name search as its own box", () => {
