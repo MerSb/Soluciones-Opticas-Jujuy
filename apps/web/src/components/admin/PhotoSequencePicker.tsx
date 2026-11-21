@@ -6,6 +6,8 @@ import {
   validateImageFile,
 } from "../../lib/image-validation";
 import { photoFileKey, toggleInSequence } from "../../lib/photo-sequence";
+import { ImageGalleryLightbox, type GalleryPhoto } from "../products/ImageGalleryLightbox";
+import { MagnifierIcon } from "../products/ProductImageZoom";
 
 const MAX_MB = MAX_IMAGE_BYTES / (1024 * 1024);
 
@@ -105,6 +107,12 @@ function CheckIcon() {
   );
 }
 
+/** "850 KB", "2,4 MB": how heavy the file on the computer is. */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString("es-AR", { maximumFractionDigits: 1 })} MB`;
+}
+
 const STATUS_TEXT: Record<PhotoUploadStatus, string> = {
   uploading: "Subiendo…",
   saved: "Subida",
@@ -116,6 +124,10 @@ const STATUS_TEXT: Record<PhotoUploadStatus, string> = {
  * number, clicking it again takes it out and renumbers the rest. Only the
  * numbered photos are uploaded, in that order. Photos in `locked` (already
  * uploaded) can't be unselected.
+ *
+ * "Ver grande" (its own button on each photo, so looking never changes the
+ * numbering) opens the enlarged view of the local preview — nothing is
+ * uploaded or copied: it shows the same object URL as the thumbnail.
  */
 export function PhotoSequencePicker({
   sequence,
@@ -135,6 +147,9 @@ export function PhotoSequencePicker({
 }) {
   const id = useId();
   const [dragging, setDragging] = useState(false);
+  // Which list the enlarged view walks through, and from where.
+  const [viewing, setViewing] = useState<{ list: "all" | "order"; index: number } | null>(null);
+  const viewTrigger = useRef<HTMLElement | null>(null);
   const { candidates, order, selected, notice } = sequence;
   const position = new Map(order.map((key, index) => [key, index + 1]));
 
@@ -149,6 +164,26 @@ export function PhotoSequencePicker({
     setDragging(false);
     if (!disabled) sequence.add(Array.from(event.dataTransfer.files ?? []));
   }
+
+  function openViewer(list: "all" | "order", index: number, trigger: HTMLElement) {
+    viewTrigger.current = trigger;
+    setViewing({ list, index });
+  }
+
+  function describe(candidate: PhotoCandidate): string {
+    const number = position.get(candidate.key);
+    const place = number
+      ? `número ${number} del orden${number === 1 && firstIsPrimary ? " · principal" : ""}`
+      : "sin elegir: no se sube";
+    return `${formatFileSize(candidate.file.size)} · ${place}`;
+  }
+
+  const viewerList = viewing?.list === "order" ? selected : candidates;
+  const viewerPhotos: GalleryPhoto[] = viewerList.map((candidate) => ({
+    src: candidate.url,
+    alt: candidate.file.name,
+    caption: describe(candidate),
+  }));
 
   const howTo = firstIsPrimary
     ? "La 1 es la principal: la que se ve en el catálogo."
@@ -204,14 +239,14 @@ export function PhotoSequencePicker({
         <>
           <p id={`${id}-how`} className="text-sm text-text">
             <strong>Tocá las fotos en el orden en que se van a mostrar.</strong> {howTo} Tocá de
-            nuevo una foto para sacarla.
+            nuevo una foto para sacarla. Con la lupa la ves en grande antes de subirla.
           </p>
           <ul
             aria-label="Fotos para elegir"
             aria-describedby={`${id}-how`}
             className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6"
           >
-            {candidates.map((candidate) => {
+            {candidates.map((candidate, candidateIndex) => {
               const number = position.get(candidate.key);
               const isPrimary = number === 1 && firstIsPrimary;
               const status = statuses?.[candidate.key];
@@ -220,7 +255,7 @@ export function PhotoSequencePicker({
                 ? `elegida, número ${number}${isPrimary ? ", principal" : ""}`
                 : "sin elegir";
               return (
-                <li key={candidate.key}>
+                <li key={candidate.key} className="relative">
                   <button
                     type="button"
                     onClick={() => {
@@ -251,7 +286,7 @@ export function PhotoSequencePicker({
                     {isPrimary && (
                       <span
                         aria-hidden="true"
-                        className="absolute inset-x-1 bottom-1 rounded bg-primary/90 px-1 py-0.5 text-center text-[11px] font-semibold text-surface"
+                        className="absolute bottom-1 left-1 right-11 rounded bg-primary/90 px-1 py-0.5 text-center text-[11px] font-semibold text-surface"
                       >
                         Principal
                       </span>
@@ -271,6 +306,16 @@ export function PhotoSequencePicker({
                         {STATUS_TEXT[status]}
                       </span>
                     )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => openViewer("all", candidateIndex, event.currentTarget)}
+                    aria-haspopup="dialog"
+                    aria-label={`Ver grande «${candidate.file.name}»`}
+                    title="Ver grande"
+                    className="absolute bottom-1 right-1 inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface/95 text-text shadow ring-1 ring-border hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <MagnifierIcon className="h-5 w-5" />
                   </button>
                 </li>
               );
@@ -299,11 +344,20 @@ export function PhotoSequencePicker({
               <ol aria-label="Orden final" className="mt-2 flex flex-wrap gap-2">
                 {selected.map((candidate, index) => (
                   <li key={candidate.key} className="w-14 text-center text-xs text-text">
-                    <img
-                      src={candidate.url}
-                      alt=""
-                      className="h-14 w-14 rounded border border-border object-cover"
-                    />
+                    <button
+                      type="button"
+                      onClick={(event) => openViewer("order", index, event.currentTarget)}
+                      aria-haspopup="dialog"
+                      aria-label={`Ver grande la foto ${index + 1} del orden, «${candidate.file.name}»`}
+                      title="Ver grande"
+                      className="block cursor-zoom-in rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <img
+                        src={candidate.url}
+                        alt=""
+                        className="h-14 w-14 rounded border border-border object-cover"
+                      />
+                    </button>
                     <span className="mt-0.5 block font-semibold">{index + 1}</span>
                     {index === 0 && firstIsPrimary && (
                       <span className="block text-[11px] text-primary">Principal</span>
@@ -315,6 +369,18 @@ export function PhotoSequencePicker({
             </div>
           )}
         </>
+      )}
+
+      {viewing && viewerPhotos.length > 0 && (
+        <ImageGalleryLightbox
+          photos={viewerPhotos}
+          startIndex={viewing.index}
+          closeOnBackdrop
+          onClose={() => {
+            setViewing(null);
+            viewTrigger.current?.focus();
+          }}
+        />
       )}
     </div>
   );

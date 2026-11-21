@@ -1,3 +1,4 @@
+import { AdminModelSuggestions } from "./AdminModelSuggestions";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useLocation, useParams } from "react-router-dom";
@@ -454,6 +455,10 @@ export function AdminProductDetailPage() {
           kind={product.kind}
           basePrice={product.basePrice}
         />
+      </div>
+
+      <div className="mt-12">
+        <AdminModelSuggestions productId={product.id} />
       </div>
 
       {!isAccessory && LENS_COMPATIBILITY_ENABLED && (

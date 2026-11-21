@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type PointerEvent } from "react";
 import { ProductImage } from "./ProductImage";
 import { ProductImageLightbox } from "./ProductImageLightbox";
+import { ImageGalleryLightbox, type GalleryPhoto } from "./ImageGalleryLightbox";
 import { buildCloudinaryUrl, buildCloudinaryZoomUrl } from "../../lib/cloudinary";
 
 // The product page's main photo, zoomable two ways:
@@ -17,6 +18,10 @@ import { buildCloudinaryUrl, buildCloudinaryZoomUrl } from "../../lib/cloudinary
 //
 // The photo stays a normal image for screen readers (its alt); the button
 // over it says what it does.
+//
+// With `gallery` (the product's other photos), the enlarged view also has
+// ‹ › to walk through them. Each one is requested only when shown, at the
+// same zoom size "Ampliar" already uses: no new kind of image is created.
 
 const LENS_SCALE = 2;
 
@@ -26,12 +31,15 @@ export function ProductImageZoom({
   widths,
   sizes,
   fit,
+  gallery,
 }: {
   publicId: string;
   alt: string;
   widths: readonly number[];
   sizes?: string;
   fit: "cover" | "contain";
+  /** All the product's photos and where this one is among them. */
+  gallery?: { photos: readonly { publicId: string; alt: string }[]; index: number };
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const lensImgRef = useRef<HTMLImageElement>(null);
@@ -158,17 +166,35 @@ export function ProductImageZoom({
         </button>
       </div>
 
-      {open && (
-        <ProductImageLightbox
-          src={zoomUrl ?? fallbackUrl ?? ""}
-          placeholderSrc={shownSrc ?? fallbackUrl}
-          alt={alt}
-          onClose={() => {
-            setOpen(false);
-            triggerRef.current?.focus();
-          }}
-        />
-      )}
+      {open &&
+        (gallery && gallery.photos.length > 1 ? (
+          <ImageGalleryLightbox
+            startIndex={gallery.index}
+            photos={gallery.photos.map((photo, index): GalleryPhoto => ({
+              src:
+                buildCloudinaryZoomUrl(photo.publicId) ??
+                buildCloudinaryUrl(photo.publicId, { width: widths[widths.length - 1]! }) ??
+                "",
+              // Only the photo already on the page has something loaded.
+              placeholderSrc: index === gallery.index ? (shownSrc ?? fallbackUrl) : null,
+              alt: photo.alt,
+            }))}
+            onClose={() => {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
+          />
+        ) : (
+          <ProductImageLightbox
+            src={zoomUrl ?? fallbackUrl ?? ""}
+            placeholderSrc={shownSrc ?? fallbackUrl}
+            alt={alt}
+            onClose={() => {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
+          />
+        ))}
     </>
   );
 }

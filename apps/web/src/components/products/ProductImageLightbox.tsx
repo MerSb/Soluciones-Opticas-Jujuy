@@ -20,6 +20,14 @@ import {
 //   to move around a zoomed photo.
 // Only the photo area captures gestures (touch-action: none); nothing
 // changes how the product page itself scrolls.
+//
+// Optional, for several photos (see ImageGalleryLightbox): ‹ › buttons and
+// the ← → keys (at 1×; zoomed, the arrows still move the photo) go to the
+// previous/next photo, "Imagen X de N" says where you are, and a caption
+// line can name the photo (e.g. its file). `closeOnBackdrop` also closes it
+// with a click on the empty area around the photo (never while zoomed, so
+// moving a zoomed photo never closes it). Nothing here loads a photo other
+// than the one shown: no preloading of the neighbours.
 
 const MIN = 1;
 const MAX = 4;
@@ -39,13 +47,28 @@ export function ProductImageLightbox({
   placeholderSrc,
   alt,
   onClose,
+  caption,
+  position,
+  onPrevious,
+  onNext,
+  closeOnBackdrop = false,
 }: {
-  /** The largest real version of the photo (see buildCloudinaryZoomUrl). */
+  /** The largest real version of the photo (see buildCloudinaryZoomUrl), or
+   * a local preview (object URL) of a file not uploaded yet. */
   src: string;
   /** Already-loaded smaller version shown until `src` arrives. */
   placeholderSrc: string | null;
   alt: string;
   onClose: () => void;
+  /** A second line under the title, e.g. the file name and size. */
+  caption?: string;
+  /** Where this photo is among several: shows "Imagen X de N". */
+  position?: { index: number; total: number };
+  /** Previous/next photo; their buttons and keys appear only when given. */
+  onPrevious?: () => void;
+  onNext?: () => void;
+  /** A click on the empty area around the photo also closes the view. */
+  closeOnBackdrop?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -60,8 +83,17 @@ export function ProductImageLightbox({
   // Some browsers also fire dblclick after a touch double-tap: ignore it.
   const lastTouchToggle = useRef(0);
   const [view, setView] = useState<View>(RESET);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // Per photo, so moving to another one starts over (placeholder, loading).
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const loaded = loadedSrc === src;
+  const failed = failedSrc === src;
+  const navigable = !!position && position.total > 1 && (!!onPrevious || !!onNext);
+  const go = (to: (() => void) | undefined) => {
+    if (!to) return;
+    setView(RESET);
+    to();
+  };
   const closed = useRef(false);
   // Touch on Cerrar: Chrome drops the synthetic click of a tap that comes
   // right after a drag on the photo (touch-action: none), so a quick
@@ -222,6 +254,20 @@ export function ProductImageLightbox({
       }
       return;
     }
+    const isArrowKey = event.key.startsWith("Arrow");
+    // At 1×, ← and → move between photos; zoomed, every arrow pans.
+    if (isArrowKey && view.scale === 1 && navigable) {
+      if (event.key === "ArrowLeft" && onPrevious) {
+        event.preventDefault();
+        go(onPrevious);
+        return;
+      }
+      if (event.key === "ArrowRight" && onNext) {
+        event.preventDefault();
+        go(onNext);
+        return;
+      }
+    }
     const pan = 60;
     const actions: Record<string, () => void> = {
       Escape: close,
@@ -251,9 +297,19 @@ export function ProductImageLightbox({
       className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-black/95 p-0 text-white backdrop:bg-black/80"
     >
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-          <p className="min-w-0 truncate text-sm text-white/80">{alt}</p>
-          <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          {/* On a phone the title gets its own full line (below the
+              buttons), so a long file name is never cut off. */}
+          <div className="order-2 min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto">
+            {position && position.total > 1 && (
+              <p className="text-sm font-semibold text-white" aria-live="polite">
+                Imagen {position.index + 1} de {position.total}
+              </p>
+            )}
+            <p className="break-words text-sm text-white/80 sm:truncate">{alt}</p>
+            {caption && <p className="break-words text-xs text-white/60 sm:truncate">{caption}</p>}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <ToolbarButton
               label="Alejar"
               onClick={() => setView((v) => zoomAt(v, v.scale / STEP))}
@@ -294,61 +350,96 @@ export function ProductImageLightbox({
           </div>
         </div>
 
-        <div
-          ref={stageRef}
-          data-zoom-stage=""
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onWheel={(event) => {
-            const at = fromCenter(event.clientX, event.clientY);
-            setView((v) => zoomAt(v, v.scale * (event.deltaY < 0 ? 1.2 : 1 / 1.2), at));
-          }}
-          onDoubleClick={(event) => {
-            if (event.timeStamp - lastTouchToggle.current < 500) return;
-            onDoubleTap(event.clientX, event.clientY);
-          }}
-          onPointerUpCapture={(event) => {
-            const tap = tapStart.current;
-            tapStart.current = null;
-            if (!tap || tap.id !== event.pointerId || event.timeStamp - tap.t > 300) return;
-            const previous = lastTap.current;
-            const now = { x: event.clientX, y: event.clientY, t: event.timeStamp };
-            if (
-              previous &&
-              now.t - previous.t < 350 &&
-              Math.hypot(now.x - previous.x, now.y - previous.y) < 40
-            ) {
-              onDoubleTap(now.x, now.y);
-              lastTouchToggle.current = now.t;
-              lastTap.current = null;
-              return;
-            }
-            lastTap.current = now;
-          }}
-          style={{ touchAction: "none" }}
-          className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden ${
-            view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"
-          }`}
-        >
-          {failed && (
-            <p className="px-6 text-center text-sm text-white/80">No se pudo cargar la foto.</p>
-          )}
-          <img
-            ref={imgRef}
-            hidden={failed}
-            onError={() => setFailed(true)}
-            src={loaded || !placeholderSrc ? src : placeholderSrc}
-            alt={alt}
-            draggable={false}
-            data-zoom-image=""
-            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-            className="max-h-full max-w-full select-none object-contain motion-safe:transition-transform motion-safe:duration-75"
-          />
-          {/* Preloads the large version; swaps in once it has arrived. */}
-          {!loaded && placeholderSrc && (
-            <img src={src} alt="" hidden onLoad={() => setLoaded(true)} />
+        <div className="relative flex min-h-0 flex-1">
+          <div
+            ref={stageRef}
+            data-zoom-stage=""
+            onClick={(event) => {
+              // Only the empty area around the photo, and never while zoomed.
+              if (closeOnBackdrop && event.target === event.currentTarget && view.scale === 1) {
+                close();
+              }
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onWheel={(event) => {
+              const at = fromCenter(event.clientX, event.clientY);
+              setView((v) => zoomAt(v, v.scale * (event.deltaY < 0 ? 1.2 : 1 / 1.2), at));
+            }}
+            onDoubleClick={(event) => {
+              if (event.timeStamp - lastTouchToggle.current < 500) return;
+              onDoubleTap(event.clientX, event.clientY);
+            }}
+            onPointerUpCapture={(event) => {
+              const tap = tapStart.current;
+              tapStart.current = null;
+              if (!tap || tap.id !== event.pointerId || event.timeStamp - tap.t > 300) return;
+              const previous = lastTap.current;
+              const now = { x: event.clientX, y: event.clientY, t: event.timeStamp };
+              if (
+                previous &&
+                now.t - previous.t < 350 &&
+                Math.hypot(now.x - previous.x, now.y - previous.y) < 40
+              ) {
+                onDoubleTap(now.x, now.y);
+                lastTouchToggle.current = now.t;
+                lastTap.current = null;
+                return;
+              }
+              lastTap.current = now;
+            }}
+            style={{ touchAction: "none" }}
+            className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden ${
+              view.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"
+            }`}
+          >
+            {failed && (
+              <p className="px-6 text-center text-sm text-white/80">No se pudo cargar la foto.</p>
+            )}
+            {!loaded && !failed && (
+              <p
+                aria-live="polite"
+                className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white/90"
+              >
+                Cargando foto…
+              </p>
+            )}
+            <img
+              ref={imgRef}
+              hidden={failed}
+              onError={() => setFailedSrc(src)}
+              onLoad={(event) => {
+                if (event.currentTarget.getAttribute("src") === src) setLoadedSrc(src);
+              }}
+              src={loaded || !placeholderSrc ? src : placeholderSrc}
+              alt={alt}
+              draggable={false}
+              data-zoom-image=""
+              style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+              className="max-h-full max-w-full select-none object-contain motion-safe:transition-transform motion-safe:duration-75"
+            />
+            {/* Preloads the large version; swaps in once it has arrived. */}
+            {!loaded && placeholderSrc && (
+              <img src={src} alt="" hidden onLoad={() => setLoadedSrc(src)} />
+            )}
+          </div>
+          {navigable && (
+            <>
+              <NavButton
+                label="Foto anterior"
+                side="left"
+                disabled={!onPrevious}
+                onClick={() => go(onPrevious)}
+              />
+              <NavButton
+                label="Foto siguiente"
+                side="right"
+                disabled={!onNext}
+                onClick={() => go(onNext)}
+              />
+            </>
           )}
         </div>
 
@@ -357,11 +448,42 @@ export function ProductImageLightbox({
           role="status"
         >
           Zoom {percent} %
-          <span className="hidden sm:inline"> · rueda, doble clic o teclas + y −</span>
+          <span className="hidden sm:inline">
+            {" "}
+            · rueda, doble clic o teclas + y −
+            {navigable ? " · flechas ← → para cambiar de foto" : ""}
+          </span>
           <span className="sm:hidden"> · pellizcá o tocá dos veces</span>
         </p>
       </div>
     </dialog>
+  );
+}
+
+/** ‹ / › over the sides of the photo area — siblings of the stage, not
+ * inside it, so the stage's drag capture never swallows their click. */
+function NavButton({
+  label,
+  side,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  side: "left" | "right";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={`absolute top-1/2 ${side === "left" ? "left-2" : "right-2"} inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-3xl font-semibold leading-none text-black shadow-lg ring-1 ring-black/20 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-25`}
+    >
+      <span aria-hidden="true">{side === "left" ? "‹" : "›"}</span>
+    </button>
   );
 }
 

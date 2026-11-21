@@ -10,6 +10,8 @@ import {
   getProduct,
   listProducts,
   similarProducts,
+  lookupSku,
+  modelSuggestions,
   searchBySku,
   reorderImages,
   restoreProduct,
@@ -35,6 +37,7 @@ import {
   variantIdParamSchema,
   similarProductsQuerySchema,
   skuSearchQuerySchema,
+  skuLookupQuerySchema,
 } from "../../schemas/admin-products.schema.js";
 import { setProductLensTypesBodySchema } from "../../schemas/admin-lens.schema.js";
 
@@ -45,8 +48,14 @@ adminProductsRouter.get("/", validateQuery(adminProductsListQuerySchema), listPr
 // before "/:id" so "similar" is never read as an id.
 adminProductsRouter.get("/similar", validateQuery(similarProductsQuerySchema), similarProducts);
 adminProductsRouter.get("/sku-search", validateQuery(skuSearchQuerySchema), searchBySku);
+adminProductsRouter.get("/sku-lookup", validateQuery(skuLookupQuerySchema), lookupSku);
 adminProductsRouter.post("/", validateBody(createProductBodySchema), createProduct);
 adminProductsRouter.get("/:id", validateParams(productIdParamSchema), getProduct);
+adminProductsRouter.get(
+  "/:id/model-suggestions",
+  validateParams(productIdParamSchema),
+  modelSuggestions,
+);
 adminProductsRouter.patch(
   "/:id",
   validateParams(productIdParamSchema),

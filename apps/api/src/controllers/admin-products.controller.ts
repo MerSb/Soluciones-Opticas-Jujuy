@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../lib/async-handler.js";
 import * as adminProductsService from "../services/admin-products.service.js";
+import * as modelSuggestionsService from "../services/admin-model-suggestions.service.js";
 import type {
+  SkuLookupQuery,
   AdminProductsListQuery,
   CreateImageBody,
   CreateProductBody,
@@ -126,4 +128,14 @@ export const similarProducts = asyncHandler(async (_req: Request, res: Response)
   res.json(
     await adminProductsService.findSimilarProducts(res.locals.query as SimilarProductsQuery),
   );
+});
+
+// Read-only aids to recognize the same model (docs/MODELOS_POR_SKU.md).
+export const lookupSku = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await modelSuggestionsService.lookupSku(res.locals.query as SkuLookupQuery));
+});
+
+export const modelSuggestions = asyncHandler(async (_req: Request, res: Response) => {
+  const { id } = res.locals.params as { id: string };
+  res.json(await modelSuggestionsService.getModelSuggestions(id));
 });

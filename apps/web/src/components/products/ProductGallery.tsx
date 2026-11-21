@@ -37,6 +37,7 @@ export function ProductGallery({
           widths={CLOUDINARY_WIDTHS.detailMain}
           sizes="(min-width: 1024px) 50vw, 100vw"
           fit={fit}
+          gallery={images.length > 1 ? { photos: images, index: selectedIndex } : undefined}
         />
       ) : (
         <ProductImage

@@ -1,8 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { AdminImageDto } from "@soluciones-opticas/shared";
 import { ProductImage } from "../../components/products/ProductImage";
+import { ImageGalleryLightbox } from "../../components/products/ImageGalleryLightbox";
 import { ApiClientError } from "../../services/api-client";
-import { CLOUDINARY_WIDTHS } from "../../lib/cloudinary";
+import {
+  CLOUDINARY_WIDTHS,
+  buildCloudinaryUrl,
+  buildCloudinaryZoomUrl,
+} from "../../lib/cloudinary";
 import {
   useDeleteImageMutation,
   useReorderImagesMutation,
@@ -100,6 +105,14 @@ export function AdminVariantImagesEditor({
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null);
   // One description edited at a time; the others stay as they are.
   const [editing, setEditing] = useState<{ id: string; alt: string } | null>(null);
+  // Enlarged view (read-only: never changes order, primary or photos). It
+  // shows the same zoom size the store's «Ampliar» uses, requested only for
+  // the photo on screen; the opened one starts from the thumbnail already
+  // loaded.
+  const [viewing, setViewing] = useState<{ index: number; placeholder: string | null } | null>(
+    null,
+  );
+  const viewTrigger = useRef<HTMLButtonElement | null>(null);
 
   const busy = updateImage.isPending || deleteImage.isPending || reorder.isPending;
   const total = images.length;
@@ -259,13 +272,28 @@ export function AdminVariantImagesEditor({
                 tabIndex={-1}
                 className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-surface-muted p-2 outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:flex-nowrap"
               >
-                <ProductImage
-                  publicId={image.cloudinaryPublicId}
-                  alt={image.alt}
-                  widths={CLOUDINARY_WIDTHS.adminThumbnail}
-                  aspectRatio="1 / 1"
-                  className="w-16 shrink-0 rounded-md"
-                />
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-label={`Ver grande la foto ${index + 1}, «${image.alt}»`}
+                  title="Ver grande"
+                  onClick={(event) => {
+                    viewTrigger.current = event.currentTarget;
+                    setViewing({
+                      index,
+                      placeholder: event.currentTarget.querySelector("img")?.currentSrc || null,
+                    });
+                  }}
+                  className="w-16 shrink-0 cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <ProductImage
+                    publicId={image.cloudinaryPublicId}
+                    alt=""
+                    widths={CLOUDINARY_WIDTHS.adminThumbnail}
+                    aspectRatio="1 / 1"
+                    className="w-16 rounded-md"
+                  />
+                </button>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-text-muted">
                     Foto {index + 1} de {total}
@@ -381,6 +409,28 @@ export function AdminVariantImagesEditor({
         <p role="alert" className="mt-1 text-sm text-danger">
           {error}
         </p>
+      )}
+
+      {viewing && total > 0 && (
+        <ImageGalleryLightbox
+          startIndex={viewing.index}
+          closeOnBackdrop
+          photos={images.map((image, index) => ({
+            src:
+              buildCloudinaryZoomUrl(image.cloudinaryPublicId) ??
+              buildCloudinaryUrl(image.cloudinaryPublicId, { width: 160 }) ??
+              "",
+            placeholderSrc: index === viewing.index ? viewing.placeholder : null,
+            alt: image.alt,
+            caption: image.isPrimary
+              ? "Foto principal · la que se ve en el catálogo"
+              : `Foto ${index + 1} en el orden de la ficha`,
+          }))}
+          onClose={() => {
+            setViewing(null);
+            viewTrigger.current?.focus();
+          }}
+        />
       )}
 
       <AdminPhotoSequenceUpload

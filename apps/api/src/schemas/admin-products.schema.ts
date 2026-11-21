@@ -199,3 +199,11 @@ export const skuSearchQuerySchema = paginationSchema.extend({
   q: z.string().trim().max(100).default(""),
 });
 export type SkuSearchQuery = z.infer<typeof skuSearchQuerySchema>;
+
+// Full SKU or model code, as typed ("H3533-COL616", "h3533 c616", "H3533");
+// compared without case, spaces or punctuation. Digits-only queries also
+// match by digits, like sku-search.
+export const skuLookupQuerySchema = paginationSchema.extend({
+  q: z.string().trim().max(100).default(""),
+});
+export type SkuLookupQuery = z.infer<typeof skuLookupQuerySchema>;

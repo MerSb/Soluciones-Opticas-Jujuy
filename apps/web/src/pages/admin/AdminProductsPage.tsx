@@ -46,8 +46,8 @@ export function AdminProductsPage() {
             type="search"
             value={skuQ}
             onChange={(event) => setSkuQ(event.target.value)}
-            placeholder="Buscar por números de SKU…"
-            aria-label="Buscar por números de SKU"
+            placeholder="Buscar por SKU o código de modelo…"
+            aria-label="Buscar por SKU o código de modelo"
             inputMode="search"
             className="w-64 rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text placeholder:text-text-muted"
           />

@@ -70,6 +70,24 @@ primary (the primary only changes with "Marcar como principal"); the same file c
 listed once; a double click uploads once. The arrows and "Marcar como principal" remain for
 adjusting the order later. Each photo's description is generated: `Product — Color — foto N`.
 
+## Seeing a photo in large (enlarged view)
+
+Roberto checks each photo in large without going back to his folders (2026-11-21). One component,
+`ProductImageLightbox` (native `<dialog>`, zoom 1–4×, pinch, keyboard), used in three places through
+`ImageGalleryLightbox` (‹ ›, ← → at 1×, «Imagen X de N», caption):
+
+| Where                                                   | Opens with                                               | What it shows                                                                                                         | Cloudinary                                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Photos chosen, before uploading (`PhotoSequencePicker`) | the magnifier on each photo, or a photo of «Orden final» | the **local preview** (the same object URL as the thumbnail), file name, size, place in the order                     | **nothing**: no upload, no request                                                                               |
+| Saved photos (`AdminVariantImagesEditor`)               | clicking the thumbnail                                   | the store's zoom size, `f_auto,q_auto,c_limit,w_2000` (never upscaled); the thumbnail already loaded until it arrives | one request **per photo actually opened**; the same URL as the store's «Ampliar», so it shares the derived image |
+| Store product page (`ProductImageZoom`)                 | «Ampliar», as before                                     | the same zoom size, now with ‹ › between the product's photos                                                         | same: only the photos navigated to                                                                               |
+
+Rules kept: clicking a picker photo still numbers it (the magnifier is a separate button), so
+looking never changes the order, the selection or the primary; object URLs are not released by
+opening or closing the view; nothing preloads the neighbouring photos; no transformation string was
+added or changed. In the admin a click on the empty area around the photo also closes it (never while
+zoomed); the store keeps its previous behaviour (Cerrar or Escape).
+
 ## Environment variables
 
 Server-side (`apps/api`, never exposed to the frontend):

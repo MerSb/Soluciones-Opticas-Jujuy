@@ -10,32 +10,37 @@ afterEach(() => {
 
 const MATCH = {
   productId: "p1",
-  productName: "Gatito Paris",
-  brandName: "Paris",
+  productName: "Anteojo Infantil Clip On",
+  brandName: "Unicity",
   kind: "FRAME",
   productDeletedAt: null,
   variantId: "v1",
-  sku: "ABC-00125",
-  color: "Negro",
+  sku: "H3533C616",
+  color: "Gris",
   label: null,
+  price: 100000,
+  stock: 3,
+  modelCode: "H3533",
   match: "EXACT",
 };
 
-// Records the SKU searches; answers the product list with nothing.
+// Records the SKU lookups and every request; answers the product list with nothing.
 function stubApi(matches: unknown[], total = matches.length) {
-  const searches: URL[] = [];
+  const lookups: URL[] = [];
+  const requests: { url: URL; method: string }[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: string | URL) => {
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = new URL(input);
-      if (url.pathname === "/api/admin/products/sku-search") {
-        searches.push(url);
-        const digits = (url.searchParams.get("q") ?? "").replace(/\D/g, "");
+      requests.push({ url, method: init?.method ?? "GET" });
+      if (url.pathname === "/api/admin/products/sku-lookup") {
+        lookups.push(url);
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            digits,
+            normalized: (url.searchParams.get("q") ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""),
+            modelCode: "H3533",
             data: matches,
             pagination: { page: 1, limit: 20, total, totalPages: Math.ceil(total / 20) },
           }),
@@ -51,81 +56,101 @@ function stubApi(matches: unknown[], total = matches.length) {
       };
     }),
   );
-  return searches;
+  return { lookups, requests };
 }
 
-describe("AdminProductsPage — search by SKU numbers", () => {
-  it("lists each variant with its SKU as typed, match, color and a link to edit the product", async () => {
-    const searches = stubApi([
+const BOX = "Buscar por SKU o código de modelo";
+
+describe("AdminProductsPage — search by full SKU or model code", () => {
+  it("lists the exact SKU, then the suggested same-model variants, with price, stock and a link", async () => {
+    const { lookups } = stubApi([
       MATCH,
-      { ...MATCH, variantId: "v2", sku: "abc00125", color: "Rojo" },
+      {
+        ...MATCH,
+        variantId: "v2",
+        sku: "H3533-COL605",
+        color: "Rosa",
+        match: "MODEL",
+        price: 120000,
+      },
       {
         ...MATCH,
         productId: "p2",
         productName: "Estuche",
         kind: "ACCESSORY",
         variantId: "v3",
-        sku: "MOD/001250",
+        sku: "MOD/3533",
         color: null,
         label: "Grande",
+        modelCode: null,
         match: "PARTIAL",
         productDeletedAt: "2026-01-02T00:00:00.000Z",
       },
     ]);
     renderWithProviders(<AdminProductsPage />);
-    await userEvent.type(screen.getByLabelText("Buscar por números de SKU"), "abc-00125");
+    await userEvent.type(screen.getByLabelText(BOX), "h3533 c616");
 
-    expect(
-      await screen.findByText("3 variantes con los números «00125». Primero las exactas."),
-    ).toBeInTheDocument();
-    expect(searches.at(-1)!.searchParams.get("q")).toBe("abc-00125");
-    const rows = screen.getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText("ABC-00125")).toBeInTheDocument();
-    expect(within(rows[0]!).getByText("Exacta")).toBeInTheDocument();
-    expect(within(rows[0]!).getByRole("link", { name: "Gatito Paris" })).toHaveAttribute(
-      "href",
-      "/admin/products/p1",
-    );
-    expect(within(rows[1]!).getByText("Rojo")).toBeInTheDocument();
-    expect(within(rows[2]!).getByText("Parcial")).toBeInTheDocument();
-    expect(within(rows[2]!).getByText("Grande")).toBeInTheDocument();
-    expect(within(rows[2]!).getByText("Eliminado")).toBeInTheDocument();
-    expect(within(rows[2]!).getByRole("link", { name: "Estuche" })).toHaveAttribute(
-      "href",
-      "/admin/products/p2",
-    );
-  });
-
-  it("asks for numbers and never searches when the text has none", async () => {
-    const searches = stubApi([MATCH]);
-    renderWithProviders(<AdminProductsPage />);
-    await userEvent.type(screen.getByLabelText("Buscar por números de SKU"), "abc-");
     expect(
       await screen.findByText(
-        "Escribí los números del SKU: letras, espacios y guiones no cuentan.",
+        "3 variantes para «h3533 c616». Primero el SKU exacto, después el mismo modelo sugerido.",
+      ),
+    ).toBeInTheDocument();
+    await vi.waitFor(() => expect(lookups.at(-1)!.searchParams.get("q")).toBe("h3533 c616"));
+    expect(
+      screen.getByText(/«Mismo modelo» es una sugerencia por el SKU \(código H3533\)/),
+    ).toBeInTheDocument();
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByText("H3533C616")).toBeInTheDocument();
+    expect(within(rows[0]!).getByText("SKU exacto")).toBeInTheDocument();
+    expect(
+      within(rows[0]!).getByRole("link", { name: "Anteojo Infantil Clip On" }),
+    ).toHaveAttribute("href", "/admin/products/p1");
+    expect(within(rows[0]!).getByText(/100\.000/)).toBeInTheDocument();
+    expect(within(rows[0]!).getByText("3")).toBeInTheDocument();
+    expect(within(rows[1]!).getByText("Mismo modelo (sugerido)")).toBeInTheDocument();
+    expect(within(rows[1]!).getByText("Rosa")).toBeInTheDocument();
+    expect(within(rows[2]!).getByText("Parcial")).toBeInTheDocument();
+    expect(within(rows[2]!).getByText("Eliminado")).toBeInTheDocument();
+  });
+
+  it("only reads: typing a SKU sends GET requests and nothing else", async () => {
+    const { requests } = stubApi([MATCH]);
+    renderWithProviders(<AdminProductsPage />);
+    await userEvent.type(screen.getByLabelText(BOX), "H3533");
+    await screen.findByText("H3533C616");
+    expect(requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  it("asks for a SKU and never searches when the text has no letters or digits", async () => {
+    const { lookups } = stubApi([MATCH]);
+    renderWithProviders(<AdminProductsPage />);
+    await userEvent.type(screen.getByLabelText(BOX), "- /");
+    expect(
+      await screen.findByText(
+        "Escribí un SKU o un código de modelo: mayúsculas, espacios y guiones no cuentan.",
       ),
     ).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(searches).toHaveLength(0);
+    expect(lookups).toHaveLength(0);
   });
 
-  it("says so when no SKU has those numbers", async () => {
+  it("says so when no SKU matches", async () => {
     stubApi([]);
     renderWithProviders(<AdminProductsPage />);
-    await userEvent.type(screen.getByLabelText("Buscar por números de SKU"), "999");
-    expect(await screen.findByText("Ningún SKU tiene los números «999».")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(BOX), "ZZ999");
+    expect(await screen.findByText("Ningún SKU coincide con «ZZ999».")).toBeInTheDocument();
   });
 
   it("goes back to the product list when the SKU box is cleared", async () => {
     stubApi([MATCH]);
     renderWithProviders(<AdminProductsPage />);
-    const box = screen.getByLabelText("Buscar por números de SKU");
-    await userEvent.type(box, "125");
-    expect(await screen.findByText("ABC-00125")).toBeInTheDocument();
+    const box = screen.getByLabelText(BOX);
+    await userEvent.type(box, "3533");
+    expect(await screen.findByText("H3533C616")).toBeInTheDocument();
     await userEvent.clear(box);
     expect(await screen.findByText("No hay productos que coincidan.")).toBeInTheDocument();
-    expect(screen.queryByText("ABC-00125")).not.toBeInTheDocument();
+    expect(screen.queryByText("H3533C616")).not.toBeInTheDocument();
   });
 
   it("keeps the name search as its own box", () => {

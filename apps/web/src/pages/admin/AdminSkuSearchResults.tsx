@@ -1,14 +1,25 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { StatusMessage } from "../../components/ui/StatusMessage";
-import { skuDigits, useAdminSkuSearchQuery } from "../../services/queries/admin";
+import type { SkuLookupMatch } from "@soluciones-opticas/shared";
+import { normalizeSkuText, useAdminSkuLookupQuery } from "../../services/queries/admin";
+import { formatPrice } from "../../lib/format-price";
 
 const PAGE_SIZE = 20;
 
+const MATCH_BADGE: Record<SkuLookupMatch, { text: string; className: string }> = {
+  EXACT: { text: "SKU exacto", className: "bg-success/10 text-success-strong" },
+  MODEL: { text: "Mismo modelo (sugerido)", className: "bg-primary/10 text-primary" },
+  DIGITS: { text: "Mismos números", className: "bg-surface-muted text-text" },
+  PARTIAL: { text: "Parcial", className: "bg-surface-muted text-text-muted" },
+};
+
 /**
- * Variants found by the numbers of their SKU ("ABC-00125", "abc00125" and
- * "MOD/00125" are the same code). Each variant is its own row, with the
- * SKU exactly as it was typed and a link to edit its product.
+ * Variants by full SKU or model code ("H3533-COL616", "h3533 c616" and
+ * "H3533C616" are the same SKU; "H3533" is its suggested model) — and
+ * still by the numbers alone, as before. Each variant is its own row, with
+ * the SKU exactly as it was typed and a link to edit its product. Read
+ * only: a suggested model is never a confirmed grouping.
  */
 export function AdminSkuSearchResults({ q }: { q: string }) {
   const [page, setPage] = useState(1);
@@ -17,13 +28,13 @@ export function AdminSkuSearchResults({ q }: { q: string }) {
     setLastQ(q);
     setPage(1);
   }
-  const digits = skuDigits(q);
-  const { data, isLoading, isError } = useAdminSkuSearchQuery(q, page, PAGE_SIZE);
+  const normalized = normalizeSkuText(q);
+  const { data, isLoading, isError } = useAdminSkuLookupQuery(q, page, PAGE_SIZE);
 
-  if (digits === "") {
+  if (normalized === "") {
     return (
       <p className="mt-6 text-sm text-text-muted">
-        Escribí los números del SKU: letras, espacios y guiones no cuentan.
+        Escribí un SKU o un código de modelo: mayúsculas, espacios y guiones no cuentan.
       </p>
     );
   }
@@ -35,11 +46,17 @@ export function AdminSkuSearchResults({ q }: { q: string }) {
     <div className="mt-6 overflow-x-auto">
       <p className="mb-2 text-sm text-text-muted" role="status">
         {data.pagination.total === 0
-          ? `Ningún SKU tiene los números «${data.digits}».`
-          : `${data.pagination.total} variante${data.pagination.total === 1 ? "" : "s"} con los números «${data.digits}». Primero las exactas.`}
+          ? `Ningún SKU coincide con «${q.trim()}».`
+          : `${data.pagination.total} variante${data.pagination.total === 1 ? "" : "s"} para «${q.trim()}». Primero el SKU exacto, después el mismo modelo sugerido.`}
       </p>
+      {data.data.some((match) => match.match === "MODEL") && (
+        <p className="mb-2 text-xs text-text-muted">
+          «Mismo modelo» es una sugerencia por el SKU (código {data.modelCode}): confirmá nombre,
+          forma y precio antes de tratarlos como el mismo modelo.
+        </p>
+      )}
       {data.data.length > 0 && (
-        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[880px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-border text-text-muted">
               <th className="py-2 pr-4 font-medium">SKU</th>
@@ -47,23 +64,28 @@ export function AdminSkuSearchResults({ q }: { q: string }) {
               <th className="py-2 pr-4 font-medium">Variante</th>
               <th className="py-2 pr-4 font-medium">Producto</th>
               <th className="py-2 pr-4 font-medium">Marca</th>
+              <th className="py-2 pr-4 font-medium">Precio</th>
+              <th className="py-2 pr-4 font-medium">Stock</th>
               <th className="py-2 font-medium">Estado</th>
             </tr>
           </thead>
           <tbody>
             {data.data.map((match) => (
               <tr key={match.variantId} className="border-b border-border">
-                <td className="py-2 pr-4 font-mono text-text">{match.sku}</td>
-                <td className="py-2 pr-4">
-                  {match.match === "EXACT" ? (
-                    <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success-strong">
-                      Exacta
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs text-text-muted">
-                      Parcial
+                <td className="py-2 pr-4 text-text">
+                  <span className="font-mono">{match.sku}</span>
+                  {match.modelCode && (
+                    <span className="block text-xs text-text-muted">
+                      Modelo sugerido: <span className="font-mono">{match.modelCode}</span>
                     </span>
                   )}
+                </td>
+                <td className="py-2 pr-4">
+                  <span
+                    className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${MATCH_BADGE[match.match].className}`}
+                  >
+                    {MATCH_BADGE[match.match].text}
+                  </span>
                 </td>
                 <td className="py-2 pr-4 text-text-muted">
                   {[match.label, match.color].filter(Boolean).join(" · ") || "Única"}
@@ -80,6 +102,8 @@ export function AdminSkuSearchResults({ q }: { q: string }) {
                   </span>
                 </td>
                 <td className="py-2 pr-4 text-text-muted">{match.brandName}</td>
+                <td className="py-2 pr-4 text-text">{formatPrice(match.price)}</td>
+                <td className="py-2 pr-4 text-text">{match.stock}</td>
                 <td className="py-2">
                   {match.productDeletedAt && (
                     <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs text-text-muted">

@@ -24,6 +24,7 @@ import type {
   UpdateVariantRequest,
   UploadSignatureDto,
 } from "@soluciones-opticas/shared";
+import type { AdminModelSuggestionsDto, AdminSkuLookupResult } from "@soluciones-opticas/shared";
 import { ApiClientError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "../api-client";
 import { orderWithNewPhotosLast } from "../../lib/photo-sequence";
 import { recommendationsQueryKey } from "./recommendations";
@@ -546,5 +547,44 @@ export function useAdminSkuSearchQuery(q: string, page: number, limit: number) {
       }),
     enabled: skuDigits(debounced) !== "",
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Letters and digits only, upper case — how the SKU lookup compares text. */
+export function normalizeSkuText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+/** Variants by full SKU or model code (case, spaces and punctuation
+ * ignored), and still by the SKU's digits. Waits for a pause in typing. */
+export function useAdminSkuLookupQuery(q: string, page: number, limit: number) {
+  const [debounced, setDebounced] = useState(q);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(q.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+  return useQuery({
+    queryKey: ["admin", "products", "sku-lookup", debounced, page, limit],
+    queryFn: () =>
+      apiGet<AdminSkuLookupResult>("/api/admin/products/sku-lookup", {
+        q: debounced,
+        page,
+        limit,
+      }),
+    enabled: normalizeSkuText(debounced) !== "",
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Other products whose SKUs suggest the same model code — read only. */
+export function useAdminModelSuggestionsQuery(productId: string) {
+  return useQuery({
+    queryKey: ["admin", "products", productId, "model-suggestions"],
+    queryFn: () =>
+      apiGet<AdminModelSuggestionsDto>(`/api/admin/products/${productId}/model-suggestions`),
   });
 }
